@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "SwipeFi",
-    "slug": "SwipeFi",
+    "name": "ReelFlip",
+    "slug": "ReelFlip",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -20,7 +20,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "dev.wallet_ui.expo_kit"
+      "package": "com.reelflip.app"
     },
     "web": {
       "output": "static",

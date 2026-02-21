@@ -1,5 +1,5 @@
 {
-  "name": "SwipeFi",
+  "name": "ReelFlip",
   "scripts": {
     "android": "expo run:android",
     "android:build": "expo prebuild -p android",
@@ -15,8 +15,8 @@
     "start": "expo start",
     "web": "expo start --web"
   },
-  "displayName": "Minimal Mobile Kit Expo example",
-  "description": "A minimal template for building a Solana mobile app with Expo, React Native, and Solana Kit.",
+  "displayName": "ReelFlip",
+  "description": "TikTok-style crypto trading app on Solana.",
   "usecase": "Mobile",
   "keywords": [
     "expo",

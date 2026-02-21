@@ -2,8 +2,8 @@ import { AppIdentity, createSolanaDevnet, createSolanaTestnet, SolanaCluster } f
 
 export class AppConfig {
   static identity: AppIdentity = {
-    name: 'kit-expo',
-    uri: 'https://example.com',
+    name: 'ReelFlip',
+    uri: 'https://reelflip.app',
   }
   static networks: SolanaCluster[] = [
     createSolanaDevnet({ url: 'https://api.devnet.solana.com' }),
