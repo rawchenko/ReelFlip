@@ -1,75 +1,89 @@
-# ReelFlip — Code Map
+# ReelFlip - Code Map (Current)
 
-Complete file-by-file reference for the codebase.
+Current map of implemented source files plus key project support files.
 
 ## Entry Points
 
 | File | Purpose |
 |------|---------|
-| `index.js` | App entry — imports `polyfill.js` then `expo-router/entry` |
-| `polyfill.js` | Installs `react-native-quick-crypto` for Node.js crypto API |
+| `index.js` | App entry; imports `polyfill` then `expo-router/entry` |
+| `polyfill.js` | Installs `react-native-quick-crypto` polyfill |
 
-## App Layer (expo-router)
+## App Routes
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `app/_layout.tsx` | Root layout — wraps `Stack` in `AppProviders` | `RootLayout` (default) |
-| `app/index.tsx` | Home screen — shows AppConfig + Account + Network features | `HomeScreen` (default) |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `app/_layout.tsx` | Root layout with `AppProviders` and stack config | default `RootLayout` |
+| `app/index.tsx` | Home screen that renders config/account/network features | default `HomeScreen` |
 
 ## Components
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `components/app-providers.tsx` | Composes `QueryClientProvider` → `NetworkProvider` → `MobileWalletProvider` | `AppProviders` |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `components/app-providers.tsx` | Composes query, network, and wallet providers | `AppProviders` |
 
 ## Constants
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `constants/app-config.ts` | App identity (`name`, `uri`) and network list (devnet, testnet) | `AppConfig` (class) |
-| `constants/app-styles.ts` | Shared `StyleSheet` — `card`, `screen`, `stack`, `title` | `appStyles` |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `constants/app-config.ts` | App identity + supported Solana clusters | `AppConfig` |
+| `constants/app-styles.ts` | Shared card/screen/stack/title styles | `appStyles` |
 
-## Features — Account
+## Features - Account
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `features/account/account-feature-index.tsx` | Barrel — shows connect/disconnect + actions based on wallet state | `AccountFeatureIndex` |
-| `features/account/account-feature-connect.tsx` | Connect button — triggers MWA wallet connection | `AccountFeatureConnect` |
-| `features/account/account-feature-disconnect.tsx` | Disconnect button | `AccountFeatureDisconnect` |
-| `features/account/account-feature-get-balance.tsx` | Displays SOL balance for connected wallet | `AccountFeatureGetBalance` |
-| `features/account/account-feature-sign-in.tsx` | Sign-In With Solana (SIWS) flow | `AccountFeatureSignIn` |
-| `features/account/account-feature-sign-message.tsx` | Sign arbitrary message | `AccountFeatureSignMessage` |
-| `features/account/account-feature-sign-transaction.tsx` | Sign and send a test transaction | `AccountFeatureSignTransaction` |
-| `features/account/use-account-get-balance.tsx` | Hook — fetches SOL balance via RPC | `useAccountGetBalance` |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `features/account/account-feature-index.tsx` | Account section composition | `AccountFeatureIndex` |
+| `features/account/account-feature-connect.tsx` | Wallet connect action | `AccountFeatureConnect` |
+| `features/account/account-feature-disconnect.tsx` | Wallet disconnect action | `AccountFeatureDisconnect` |
+| `features/account/account-feature-get-balance.tsx` | Balance display component | `AccountFeatureGetBalance` |
+| `features/account/account-feature-sign-in.tsx` | Wallet sign-in action | `AccountFeatureSignIn` |
+| `features/account/account-feature-sign-message.tsx` | Sign arbitrary message action | `AccountFeatureSignMessage` |
+| `features/account/account-feature-sign-transaction.tsx` | Sign transaction action | `AccountFeatureSignTransaction` |
+| `features/account/use-account-get-balance.tsx` | Balance query hook | `useAccountGetBalance` |
 
-## Features — Network
+## Features - Network
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `features/network/network-feature-index.tsx` | Barrel — shows network selector, genesis hash, version | `NetworkFeatureIndex` |
-| `features/network/network-provider.tsx` | React context — manages selected cluster, endpoint, explorer URLs | `NetworkProvider`, `NetworkProviderContext` |
-| `features/network/network-ui-select.tsx` | Dropdown UI for switching networks | `NetworkUiSelect` |
-| `features/network/network-feature-get-genesis-hash.tsx` | Displays genesis hash of selected cluster | `NetworkFeatureGetGenesisHash` |
-| `features/network/network-feature-get-version.tsx` | Displays Solana node version | `NetworkFeatureGetVersion` |
-| `features/network/use-network.tsx` | Convenience hook — `useContext(NetworkProviderContext)` | `useNetwork` |
-| `features/network/use-network-get-genesis-hash.tsx` | Hook — fetches genesis hash via RPC | `useNetworkGetGenesisHash` |
-| `features/network/use-network-get-version.tsx` | Hook — fetches node version via RPC | `useNetworkGetVersion` |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `features/network/network-feature-index.tsx` | Network section composition | `NetworkFeatureIndex` |
+| `features/network/network-provider.tsx` | Cluster state context/provider | `NetworkProvider`, `NetworkProviderContext` |
+| `features/network/network-ui-select.tsx` | Cluster selection control | `NetworkUiSelect` |
+| `features/network/network-feature-get-genesis-hash.tsx` | Genesis hash display | `NetworkFeatureGetGenesisHash` |
+| `features/network/network-feature-get-version.tsx` | RPC version display | `NetworkFeatureGetVersion` |
+| `features/network/use-network.tsx` | Network context hook | `useNetwork` |
+| `features/network/use-network-get-genesis-hash.tsx` | Genesis hash query hook | `useNetworkGetGenesisHash` |
+| `features/network/use-network-get-version.tsx` | RPC version query hook | `useNetworkGetVersion` |
 
-## Utils
+## Utilities
 
-| File | Purpose | Key exports |
-|------|---------|-------------|
-| `utils/ellipsify.ts` | Truncates a string (e.g., wallet address) with ellipsis | `ellipsify` |
-| `utils/lamports-to-sol.ts` | Converts lamports (u64) to SOL (number) | `lamportsToSol` |
+| File | Purpose | Exports |
+|------|---------|---------|
+| `utils/ellipsify.ts` | Shortens long strings for display | `ellipsify` |
+| `utils/lamports-to-sol.ts` | Converts lamports to SOL numeric value | `lamportsToSol` |
 
-## Config Files
+## Docs and Build Notes
 
 | File | Purpose |
 |------|---------|
-| `app.json` | Expo config — package `com.reelflip.app`, portrait-only, edge-to-edge, typed routes |
-| `tsconfig.json` | TypeScript strict mode, `@/` path alias |
-| `package.json` | Dependencies, scripts (see AGENTS.MD for command reference) |
-| `.prettierrc` | Prettier config |
-| `.prettierignore` | Files excluded from formatting |
-| `eslint.config.js` | ESLint config (expo preset) |
-| `.gitignore` | Git ignore rules |
+| `docs/android-dev.md` | Android development notes |
+| `docs/gradle-warning-blockers.md` | Known Gradle warning/blocker notes |
+
+## Expo Plugin and Patches
+
+| Path | Purpose |
+|------|---------|
+| `plugins/with-node-binary-gradle.js` | Config plugin for node binary handling in Android Gradle files |
+| `patches/*.patch` | patch-package overrides applied on install |
+
+## Top-Level Config and Metadata
+
+| File | Purpose |
+|------|---------|
+| `app.json` | Expo config (Android package, plugins, experiments) |
+| `package.json` | Scripts/dependencies |
+| `tsconfig.json` | TS strict config + `@/` alias |
+| `eslint.config.js` | ESLint setup |
+| `.prettierrc` | Prettier rules |
+| `.prettierignore` | Prettier ignore list |
+| `expo-env.d.ts` | Expo environment typings |

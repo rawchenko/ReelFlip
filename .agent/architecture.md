@@ -1,113 +1,66 @@
-# ReelFlip — Architecture
+# ReelFlip - Architecture (Current Implementation)
 
 ## Overview
 
-ReelFlip is an Expo-managed React Native app targeting Android (Solana Seeker). It uses file-based routing via `expo-router` and connects to Solana wallets through Mobile Wallet Adapter (MWA).
+ReelFlip is an Expo-managed React Native app with file-based routing (`expo-router`).
+Runtime behavior currently centers on wallet/account actions and network diagnostics.
 
 ## Provider Hierarchy
 
-```
+```text
 index.js
-  └── polyfill.js (react-native-quick-crypto)
-      └── expo-router/entry
-          └── app/_layout.tsx (RootLayout)
-              └── AppProviders
-                  ├── QueryClientProvider (@tanstack/react-query)
-                  │   └── NetworkProvider (context: cluster, endpoint, explorer)
-                  │       └── MobileWalletProvider (wallet connection, signing)
-                  │           └── Stack (expo-router)
-                  │               └── Screens...
+  -> polyfill.js
+    -> expo-router/entry
+      -> app/_layout.tsx (RootLayout)
+        -> AppProviders
+          -> QueryClientProvider
+            -> NetworkProvider
+              -> MobileWalletProvider
+                -> Stack (index screen)
 ```
 
-The provider order matters:
-1. **QueryClientProvider** — must wrap everything that uses `useQuery`
-2. **NetworkProvider** — selects which Solana cluster (devnet/testnet/mainnet) is active
-3. **MobileWalletProvider** — binds wallet identity + cluster for MWA sessions
+Provider order in `components/app-providers.tsx`:
 
-## Data Flow
+1. `QueryClientProvider` provides React Query context.
+2. `NetworkProvider` owns selected Solana cluster state.
+3. `MobileWalletProvider` binds wallet operations to selected cluster and app identity.
 
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   UI Screen  │────▶│  React Query │────▶│  @solana/kit  │
-│  (feature)   │     │   useQuery   │     │   RPC calls   │
-└──────────────┘     └──────────────┘     └──────────────┘
-       │                                         │
-       ▼                                         ▼
-┌──────────────┐                        ┌──────────────┐
-│ useMobileWal │                        │  Solana RPC   │
-│    let()     │                        │   Endpoint    │
-└──────────────┘                        └──────────────┘
-       │
-       ▼
-┌──────────────┐
-│  MWA Wallet  │
-│   (Phantom,  │
-│    etc.)     │
-└──────────────┘
-```
+## Routes
 
-## Feature Module Pattern
+Implemented routes in `app/`:
 
-Each domain lives in `features/{name}/` with these conventions:
+- `_layout.tsx`: root stack and status bar
+- `index.tsx`: home screen with config/account/network sections
 
-| File pattern | Purpose |
-|---|---|
-| `{name}-feature-index.tsx` | Barrel component that composes sub-features |
-| `{name}-feature-{action}.tsx` | Individual feature component (e.g., connect, sign) |
-| `use-{name}-{action}.tsx` | Custom hook encapsulating data fetching / mutations |
-| `{name}-provider.tsx` | Context provider (if the feature needs shared state) |
-| `{name}-ui-{part}.tsx` | Presentational UI sub-component |
+No additional route groups or dynamic routes are currently implemented.
 
-## Planned Architecture (TikTok-style feed)
+## Feature Modules
 
-### New Feature Modules to Build
+### Account (`features/account/`)
 
-```
-features/
-├── feed/                   # Core vertical-swipe token feed
-│   ├── feed-feature-index.tsx
-│   ├── feed-card.tsx           # Individual token card (chart + actions)
-│   ├── feed-provider.tsx       # Feed state (current index, preloading)
-│   └── use-feed-tokens.tsx     # Fetch trending/hot tokens
-├── trade/                  # Buy/sell execution
-│   ├── trade-feature-buy.tsx
-│   ├── trade-feature-sell.tsx
-│   ├── trade-provider.tsx      # Active trade state
-│   └── use-trade-execute.tsx   # Transaction building + signing
-├── token/                  # Token details & charts
-│   ├── token-feature-detail.tsx
-│   ├── token-chart.tsx
-│   └── use-token-price.tsx
-└── portfolio/              # User holdings overview
-    ├── portfolio-feature-index.tsx
-    └── use-portfolio.tsx
-```
+- Connect/disconnect wallet
+- Fetch account SOL balance
+- Sign in with wallet
+- Sign message
+- Sign transaction
 
-### New Routes
+### Network (`features/network/`)
 
-```
-app/
-├── _layout.tsx                 # Root: AppProviders + Tab navigator
-├── (tabs)/
-│   ├── _layout.tsx             # Bottom tab bar
-│   ├── index.tsx               # Feed screen (main)
-│   ├── portfolio.tsx           # Portfolio screen
-│   └── settings.tsx            # Settings / wallet screen
-└── token/[mint].tsx            # Token detail (deep link support)
-```
+- Maintain selected cluster via context
+- Select cluster in UI
+- Read cluster genesis hash
+- Read RPC node version
 
-## External APIs (Planned)
+## Data Flow (Current)
 
-| API | Purpose | Notes |
-|-----|---------|-------|
-| Jupiter | Token swaps | Preferred DEX aggregator on Solana |
-| DexScreener / Birdeye | Price data, charts, trending tokens | Free tier may suffice for hackathon |
-| Helius / Solana RPC | On-chain data, token metadata | Need reliable RPC for live trading |
+1. Screen components call feature components/hooks.
+2. Hooks use React Query for RPC-backed reads.
+3. RPC clients are derived from the currently selected network.
+4. Wallet actions are executed through `MobileWalletProvider` context.
 
-## Key Design Decisions
+## External Integrations In Active Use
 
-1. **Expo managed workflow** — avoids native build complexity during hackathon
-2. **expo-router** for file-based routing — clean deep-link support for token pages
-3. **@solana/kit** (v5) over legacy `@solana/web3.js` — modern, tree-shakeable
-4. **react-native-reanimated** + **gesture-handler** — native-level swipe performance
-5. **react-query** for all server state — automatic caching, background refetch, stale-while-revalidate
+- Solana RPC endpoints from `constants/app-config.ts`
+- Mobile Wallet Adapter through `@wallet-ui/react-native-kit`
+
+No other external market-data or swap APIs are wired in the current codebase.
