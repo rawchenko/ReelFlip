@@ -1,0 +1,22 @@
+diff --git a/node_modules/@react-native-clipboard/clipboard/android/build.gradle b/node_modules/@react-native-clipboard/clipboard/android/build.gradle
+index 29168a4..39bfef3 100644
+--- a/node_modules/@react-native-clipboard/clipboard/android/build.gradle
++++ b/node_modules/@react-native-clipboard/clipboard/android/build.gradle
+@@ -63,7 +63,7 @@ if (isNewArchitectureEnabled()) {
+ android {
+ 	def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+ 	if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
+-	  namespace "com.reactnativecommunity.clipboard"
++	  namespace = "com.reactnativecommunity.clipboard"
+ 	}
+ 	
+     compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+@@ -74,7 +74,7 @@ android {
+         ndkPath rootProject.ext.ndkPath
+     }
+     if (rootProject.hasProperty("ndkVersion")) {
+-        ndkVersion rootProject.ext.ndkVersion
++        ndkVersion = rootProject.ext.ndkVersion
+     }
+ 
+     defaultConfig {

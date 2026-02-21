@@ -1,0 +1,60 @@
+diff --git a/node_modules/expo-constants/android/build.gradle b/node_modules/expo-constants/android/build.gradle
+index 3417bab..8001e65 100644
+--- a/node_modules/expo-constants/android/build.gradle
++++ b/node_modules/expo-constants/android/build.gradle
+@@ -10,14 +10,14 @@ version = '18.0.13'
+ 
+ expoModule {
+   // We can't prebuild the module because we need to apply `get-app-config-android.gradle` script.
+-  canBePublished false
++  canBePublished = false
+ }
+ 
+ android {
+-  namespace "expo.modules.constants"
++  namespace = "expo.modules.constants"
+   defaultConfig {
+-    versionCode 33
+-    versionName "18.0.13"
++    versionCode = 33
++    versionName = "18.0.13"
+   }
+ }
+ 
+diff --git a/node_modules/expo-constants/scripts/get-app-config-android.gradle b/node_modules/expo-constants/scripts/get-app-config-android.gradle
+index 6dc16fc..5ed39aa 100644
+--- a/node_modules/expo-constants/scripts/get-app-config-android.gradle
++++ b/node_modules/expo-constants/scripts/get-app-config-android.gradle
+@@ -2,14 +2,30 @@
+ 
+ import org.apache.tools.ant.taskdefs.condition.Os
+ 
++def nodeExecutable = System.getenv("NODE_BINARY")
++if (nodeExecutable != null && !nodeExecutable.trim().isEmpty() && !new File(nodeExecutable).canExecute()) {
++  nodeExecutable = null
++}
++if (nodeExecutable == null || nodeExecutable.trim().isEmpty()) {
++  def homebrewNode = new File("/opt/homebrew/bin/node")
++  def localNode = new File("/usr/local/bin/node")
++  if (homebrewNode.canExecute()) {
++    nodeExecutable = homebrewNode.absolutePath
++  } else if (localNode.canExecute()) {
++    nodeExecutable = localNode.absolutePath
++  } else {
++    nodeExecutable = "node"
++  }
++}
+ 
++def nodeExec = nodeExecutable
+ def expoConstantsDir = project.providers.exec {
+   workingDir(projectDir)
+-  commandLine("node", "-e", "console.log(require('path').dirname(require.resolve('expo-constants/package.json')));")
++  commandLine(nodeExec, "-e", "console.log(require('path').dirname(require.resolve('expo-constants/package.json')));")
+ }.standardOutput.asText.get().trim()
+ 
+ def config = project.hasProperty("react") ? project.react : [];
+-def nodeExecutableAndArgs = config.nodeExecutableAndArgs ?: ["node"]
++def nodeExecutableAndArgs = config.nodeExecutableAndArgs ?: [nodeExecutable]
+ 
+ afterEvaluate {
+   def projectRoot = file("${rootProject.projectDir}")

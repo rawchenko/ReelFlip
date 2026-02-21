@@ -1,0 +1,44 @@
+diff --git a/node_modules/react-native-quick-crypto/android/build.gradle b/node_modules/react-native-quick-crypto/android/build.gradle
+index fb29ca5..a645f88 100644
+--- a/node_modules/react-native-quick-crypto/android/build.gradle
++++ b/node_modules/react-native-quick-crypto/android/build.gradle
+@@ -75,7 +75,7 @@ android {
+ 
+   if ((agpVersionMajor == 7 && agpVersionMinor >= 3) || agpVersionMajor >= 8) {
+     // Namespace support was added in 7.3.0
+-    namespace "com.margelo.quickcrypto"
++    namespace = "com.margelo.quickcrypto"
+ 
+     sourceSets {
+       main {
+@@ -96,18 +96,18 @@ android {
+     ndkPath rootProject.ext.ndkPath
+   }
+   if (rootProject.hasProperty("ndkVersion")) {
+-    ndkVersion rootProject.ext.ndkVersion
++    ndkVersion = rootProject.ext.ndkVersion
+   }
+ 
+   buildFeatures {
+-    prefab true
++    prefab = true
+   }
+ 
+   defaultConfig {
+     minSdkVersion safeExtGet('minSdkVersion', 23)
+     targetSdkVersion safeExtGet('targetSdkVersion', 31)
+-    versionCode 1
+-    versionName "1.0"
++    versionCode = 1
++    versionName = "1.0"
+     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+     externalNativeBuild {
+       cmake {
+@@ -152,7 +152,6 @@ android {
+       minifyEnabled false
+       debuggable true
+       jniDebuggable true
+-      renderscriptDebuggable true
+     }
+   }
+ 

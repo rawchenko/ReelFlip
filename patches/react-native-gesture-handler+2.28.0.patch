@@ -1,0 +1,63 @@
+diff --git a/node_modules/react-native-gesture-handler/android/build.gradle b/node_modules/react-native-gesture-handler/android/build.gradle
+index ac149a0..0d7569f 100644
+--- a/node_modules/react-native-gesture-handler/android/build.gradle
++++ b/node_modules/react-native-gesture-handler/android/build.gradle
+@@ -32,17 +32,48 @@ def isGHExampleApp() {
+     return safeExtGet("isGHExampleApp", false)
+ }
+ 
++def nodeExecutable = System.getenv("NODE_BINARY")
++if (nodeExecutable != null && !nodeExecutable.trim().isEmpty() && !new File(nodeExecutable).canExecute()) {
++    nodeExecutable = null
++}
++if (nodeExecutable == null || nodeExecutable.trim().isEmpty()) {
++    def homebrewNode = new File("/opt/homebrew/bin/node")
++    def localNode = new File("/usr/local/bin/node")
++    if (homebrewNode.canExecute()) {
++        nodeExecutable = homebrewNode.absolutePath
++    } else if (localNode.canExecute()) {
++        nodeExecutable = localNode.absolutePath
++    } else {
++        nodeExecutable = "node"
++    }
++}
++
+ def resolveReactNativeDirectory() {
+     def reactNativeLocation = safeExtGet("REACT_NATIVE_NODE_MODULES_DIR", null)
+     if (reactNativeLocation != null) {
+         return file(reactNativeLocation)
+     }
++    def nodeExec = System.getenv("NODE_BINARY")
++    if (nodeExec != null && !nodeExec.trim().isEmpty() && !new File(nodeExec).canExecute()) {
++        nodeExec = null
++    }
++    if (nodeExec == null || nodeExec.trim().isEmpty()) {
++        def homebrewNode = new File("/opt/homebrew/bin/node")
++        def localNode = new File("/usr/local/bin/node")
++        if (homebrewNode.canExecute()) {
++            nodeExec = homebrewNode.absolutePath
++        } else if (localNode.canExecute()) {
++            nodeExec = localNode.absolutePath
++        } else {
++            nodeExec = "node"
++        }
++    }
+ 
+     // Fallback to node resolver for custom directory structures like monorepos.
+     def reactNativePackage = file(
+         providers.exec {
+             workingDir(rootDir)
+-            commandLine("node", "--print", "require.resolve('react-native/package.json')")
++            commandLine(nodeExec, "--print", "require.resolve('react-native/package.json')")
+         }.standardOutput.asText.get().trim()
+     )
+ 
+@@ -141,7 +172,7 @@ android {
+         ndkPath rootProject.ext.ndkPath
+     }
+     if (rootProject.hasProperty("ndkVersion")) {
+-        ndkVersion rootProject.ext.ndkVersion
++        ndkVersion = rootProject.ext.ndkVersion
+     }
+ 
+     defaultConfig {

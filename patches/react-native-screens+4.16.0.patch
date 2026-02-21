@@ -1,0 +1,112 @@
+diff --git a/node_modules/react-native-screens/android/build.gradle b/node_modules/react-native-screens/android/build.gradle
+index 114be81..f00281d 100644
+--- a/node_modules/react-native-screens/android/build.gradle
++++ b/node_modules/react-native-screens/android/build.gradle
+@@ -42,11 +42,42 @@ def areDebugLogsEnabled() {
+     return project.hasProperty("rnsDebugLogsEnabled") && project.rnsDebugLogsEnabled == "true"
+ }
+ 
++def nodeExecutable = System.getenv("NODE_BINARY")
++if (nodeExecutable != null && !nodeExecutable.trim().isEmpty() && !new File(nodeExecutable).canExecute()) {
++    nodeExecutable = null
++}
++if (nodeExecutable == null || nodeExecutable.trim().isEmpty()) {
++    def homebrewNode = new File("/opt/homebrew/bin/node")
++    def localNode = new File("/usr/local/bin/node")
++    if (homebrewNode.canExecute()) {
++        nodeExecutable = homebrewNode.absolutePath
++    } else if (localNode.canExecute()) {
++        nodeExecutable = localNode.absolutePath
++    } else {
++        nodeExecutable = "node"
++    }
++}
++
+ def resolveReactNativeDirectory() {
+     def userDefinedRnDirPath = safeAppExtGet("REACT_NATIVE_NODE_MODULES_DIR", null)
+     if (userDefinedRnDirPath != null) {
+         return file(userDefinedRnDirPath)
+     }
++    def nodeExec = System.getenv("NODE_BINARY")
++    if (nodeExec != null && !nodeExec.trim().isEmpty() && !new File(nodeExec).canExecute()) {
++        nodeExec = null
++    }
++    if (nodeExec == null || nodeExec.trim().isEmpty()) {
++        def homebrewNode = new File("/opt/homebrew/bin/node")
++        def localNode = new File("/usr/local/bin/node")
++        if (homebrewNode.canExecute()) {
++            nodeExec = homebrewNode.absolutePath
++        } else if (localNode.canExecute()) {
++            nodeExec = localNode.absolutePath
++        } else {
++            nodeExec = "node"
++        }
++    }
+ 
+     File standardRnDirFile = file("$rootDir/../node_modules/react-native/")
+     if (standardRnDirFile.exists()) {
+@@ -63,7 +94,7 @@ def resolveReactNativeDirectory() {
+     // We're in non standard setup, e.g. monorepo - try to use node resolver to locate the react-native package.
+     String maybeRnPackagePath = providers.exec {
+         workingDir(rootDir)
+-        commandLine("node", "--print", "require.resolve('react-native/package.json')")
++        commandLine(nodeExec, "--print", "require.resolve('react-native/package.json')")
+     }.standardOutput.asText.get().trim()
+ 
+     File nodeResolverRnDirFile = null
+@@ -114,7 +145,7 @@ def IS_NEW_ARCHITECTURE_ENABLED = isNewArchitectureEnabled()
+ 
+ android {
+     compileSdkVersion safeExtGet('compileSdkVersion', rnsDefaultCompileSdkVersion)
+-    namespace "com.swmansion.rnscreens"
++    namespace = "com.swmansion.rnscreens"
+ 
+     // Used to override the NDK path/version on internal CI or by allowing
+     // users to customize the NDK path/version from their root project (e.g. for M1 support)
+@@ -122,14 +153,14 @@ android {
+         ndkPath rootProject.ext.ndkPath
+     }
+     if (rootProject.hasProperty("ndkVersion")) {
+-        ndkVersion rootProject.ext.ndkVersion
++        ndkVersion = rootProject.ext.ndkVersion
+     }
+ 
+     defaultConfig {
+         minSdkVersion safeExtGet(['minSdkVersion', 'minSdk'], rnsDefaultMinSdkVersion)
+         targetSdkVersion safeExtGet(['targetSdkVersion', 'targetSdk'], rnsDefaultTargetSdkVersion)
+-        versionCode 1
+-        versionName "1.0"
++        versionCode = 1
++        versionName = "1.0"
+         buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", IS_NEW_ARCHITECTURE_ENABLED.toString()
+         buildConfigField "boolean", "RNS_DEBUG_LOGGING", areDebugLogsEnabled().toString()
+         ndk {
+@@ -144,8 +175,8 @@ android {
+         }
+     }
+     buildFeatures {
+-        prefab true
+-        buildConfig true
++        prefab = true
++        buildConfig = true
+     }
+     externalNativeBuild {
+         cmake {
+@@ -153,7 +184,7 @@ android {
+         }
+     }
+     lintOptions {
+-        abortOnError false
++        abortOnError = false
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_1_8
+@@ -229,7 +260,7 @@ android {
+ 
+ repositories {
+     maven {
+-        url "${reactNativeRootDir}/android"
++        url = "${reactNativeRootDir}/android"
+     }
+ 
+     mavenCentral()

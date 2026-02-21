@@ -1,0 +1,84 @@
+diff --git a/node_modules/expo-modules-core/android/build.gradle b/node_modules/expo-modules-core/android/build.gradle
+index 61ed6d6..05e9266 100644
+--- a/node_modules/expo-modules-core/android/build.gradle
++++ b/node_modules/expo-modules-core/android/build.gradle
+@@ -64,7 +64,7 @@ def isNewArchitectureEnabled = findProperty("newArchEnabled") == "true"
+ def shouldTurnWarningsIntoErrors = findProperty("EXPO_TURN_WARNINGS_INTO_ERRORS") == "true"
+ 
+ expoModule {
+-  canBePublished false
++  canBePublished = false
+ }
+ 
+ android {
+@@ -72,14 +72,14 @@ android {
+     ndkPath rootProject.ext.ndkPath
+   }
+   if (rootProject.hasProperty("ndkVersion")) {
+-    ndkVersion rootProject.ext.ndkVersion
++    ndkVersion = rootProject.ext.ndkVersion
+   }
+ 
+-  namespace "expo.modules"
++  namespace = "expo.modules"
+   defaultConfig {
+     consumerProguardFiles 'proguard-rules.pro'
+-    versionCode 1
+-    versionName "3.0.29"
++    versionCode = 1
++    versionName = "3.0.29"
+     buildConfigField "String", "EXPO_MODULES_CORE_VERSION", "\"${versionName}\""
+     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled.toString()
+ 
+@@ -106,9 +106,9 @@ android {
+   }
+ 
+   buildFeatures {
+-    buildConfig true
+-    prefab true
+-    compose shouldIncludeCompose
++    buildConfig = true
++    prefab = true
++    compose = shouldIncludeCompose
+   }
+ 
+   packagingOptions {
+diff --git a/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/gradle/ExpoGradleHelperExtension.kt b/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/gradle/ExpoGradleHelperExtension.kt
+index 7c387ab..3b59f72 100644
+--- a/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/gradle/ExpoGradleHelperExtension.kt
++++ b/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/gradle/ExpoGradleHelperExtension.kt
+@@ -29,6 +29,25 @@ open class ExpoGradleHelperExtension {
+    */
+   private lateinit var reactNativeVersion: Version
+ 
++  private fun resolveNodeBinary(): String {
++    val nodeBinary = System.getenv("NODE_BINARY")?.takeIf { it.isNotBlank() && File(it).canExecute() }
++    if (nodeBinary != null) {
++      return nodeBinary
++    }
++
++    val homebrewNode = File("/opt/homebrew/bin/node")
++    if (homebrewNode.canExecute()) {
++      return homebrewNode.absolutePath
++    }
++
++    val localNode = File("/usr/local/bin/node")
++    if (localNode.canExecute()) {
++      return localNode.absolutePath
++    }
++
++    return "node"
++  }
++
+   fun getReactNativeDir(project: Project): File = synchronized(this) {
+     if (::reactNativeDir.isInitialized) {
+       return reactNativeDir
+@@ -43,7 +62,7 @@ open class ExpoGradleHelperExtension {
+     reactNativeDir = reactNativeDirFromSource ?: File(
+       project.providers.exec { env ->
+         env.workingDir(project.rootDir)
+-        env.commandLine("node", "--print", "require.resolve('react-native/package.json')")
++        env.commandLine(resolveNodeBinary(), "--print", "require.resolve('react-native/package.json')")
+       }.standardOutput.asText.get().trim()
+     ).parentFile
+ 

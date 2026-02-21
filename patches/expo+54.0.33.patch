@@ -1,0 +1,49 @@
+diff --git a/node_modules/expo/android/build.gradle b/node_modules/expo/android/build.gradle
+index e294b59..daf0e81 100644
+--- a/node_modules/expo/android/build.gradle
++++ b/node_modules/expo/android/build.gradle
+@@ -36,14 +36,14 @@ version = '54.0.33'
+ 
+ expoModule {
+   // We can't prebuild the module because it depends on the generated files.
+-  canBePublished false
++  canBePublished = false
+ }
+ 
+ android {
+-  namespace "expo.core"
++  namespace = "expo.core"
+   defaultConfig {
+-    versionCode 1
+-    versionName "54.0.33"
++    versionCode = 1
++    versionName = "54.0.33"
+     consumerProguardFiles("proguard-rules.pro")
+   }
+   testOptions {
+diff --git a/node_modules/expo/scripts/autolinking.gradle b/node_modules/expo/scripts/autolinking.gradle
+index 929b7f0..a39b5cf 100644
+--- a/node_modules/expo/scripts/autolinking.gradle
++++ b/node_modules/expo/scripts/autolinking.gradle
+@@ -1,5 +1,20 @@
+ // Resolve `expo` > `expo-modules-autolinking` dependency chain
+-def autolinkingPath = ["node", "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })"]
++def nodeExecutable = System.getenv("NODE_BINARY")
++if (nodeExecutable != null && !nodeExecutable.trim().isEmpty() && !new File(nodeExecutable).canExecute()) {
++  nodeExecutable = null
++}
++if (nodeExecutable == null || nodeExecutable.trim().isEmpty()) {
++  def homebrewNode = new File("/opt/homebrew/bin/node")
++  def localNode = new File("/usr/local/bin/node")
++  if (homebrewNode.canExecute()) {
++    nodeExecutable = homebrewNode.absolutePath
++  } else if (localNode.canExecute()) {
++    nodeExecutable = localNode.absolutePath
++  } else {
++    nodeExecutable = "node"
++  }
++}
++def autolinkingPath = [nodeExecutable, "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })"]
+ apply from: new File(
+   providers.exec {
+     workingDir(rootDir)

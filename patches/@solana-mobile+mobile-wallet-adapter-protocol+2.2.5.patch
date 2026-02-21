@@ -1,0 +1,36 @@
+diff --git a/node_modules/@solana-mobile/mobile-wallet-adapter-protocol/android/build.gradle b/node_modules/@solana-mobile/mobile-wallet-adapter-protocol/android/build.gradle
+index 54ef0e3..10c7bae 100644
+--- a/node_modules/@solana-mobile/mobile-wallet-adapter-protocol/android/build.gradle
++++ b/node_modules/@solana-mobile/mobile-wallet-adapter-protocol/android/build.gradle
+@@ -88,8 +88,8 @@ repositories {
+ 
+   if (defaultDir.exists()) {
+     maven {
+-      url defaultDir.toString()
+-      name androidSourcesName
++      url = defaultDir.toString()
++      name = androidSourcesName
+     }
+ 
+     logger.info(":${project.name}:reactNativeAndroidRoot ${defaultDir.canonicalPath}")
+@@ -113,16 +113,16 @@ repositories {
+ 
+       if (androidPrebuiltBinaryDir.exists()) {
+         maven {
+-          url androidPrebuiltBinaryDir.toString()
+-          name androidSourcesName
++          url = androidPrebuiltBinaryDir.toString()
++          name = androidSourcesName
+         }
+ 
+         logger.info(":${project.name}:reactNativeAndroidRoot ${androidPrebuiltBinaryDir.canonicalPath}")
+         found = true
+       } else if (androidSourcesDir.exists()) {
+         maven {
+-          url androidSourcesDir.toString()
+-          name androidSourcesName
++          url = androidSourcesDir.toString()
++          name = androidSourcesName
+         }
+ 
+         logger.info(":${project.name}:reactNativeAndroidRoot ${androidSourcesDir.canonicalPath}")

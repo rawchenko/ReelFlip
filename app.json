@@ -28,6 +28,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-node-binary-gradle",
       [
         "expo-splash-screen",
         {

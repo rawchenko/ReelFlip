@@ -1,8 +1,10 @@
 # Add files here to ignore them from prettier formatting
 /.expo
+.agent/
 /android
 /coverage
 /dist
 /ios
 /tmp
+AGENTS.MD
 pnpm-lock.yaml

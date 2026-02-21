@@ -1,0 +1,160 @@
+diff --git a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-plugin-shared/src/main/kotlin/expo/modules/plugin/AutolinkigCommandBuilder.kt b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-plugin-shared/src/main/kotlin/expo/modules/plugin/AutolinkigCommandBuilder.kt
+index 2064ca4..fefe6c0 100644
+--- a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-plugin-shared/src/main/kotlin/expo/modules/plugin/AutolinkigCommandBuilder.kt
++++ b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-plugin-shared/src/main/kotlin/expo/modules/plugin/AutolinkigCommandBuilder.kt
+@@ -1,5 +1,7 @@
+ package expo.modules.plugin
+ 
++import java.io.File
++
+ /**
+  * Builder for creating command to run using `expo-modules-autolinking`.
+  */
+@@ -8,7 +10,7 @@ class AutolinkingCommandBuilder {
+    * Command for finding and running `expo-modules-autolinking`.
+    */
+   private val baseCommand = listOf(
+-    "node",
++    resolveNodeExecutable(),
+     "--no-warnings",
+     "--eval",
+     "require('expo/bin/autolinking')",
+@@ -76,6 +78,25 @@ class AutolinkingCommandBuilder {
+     return Os.windowsAwareCommandLine(command)
+   }
+ 
++  private fun resolveNodeExecutable(): String {
++    val nodeBinary = System.getenv("NODE_BINARY")?.takeIf { it.isNotBlank() && File(it).canExecute() }
++    if (nodeBinary != null) {
++      return nodeBinary
++    }
++
++    val homebrewNode = File("/opt/homebrew/bin/node")
++    if (homebrewNode.canExecute()) {
++      return homebrewNode.absolutePath
++    }
++
++    val localNode = File("/usr/local/bin/node")
++    if (localNode.canExecute()) {
++      return localNode.absolutePath
++    }
++
++    return "node"
++  }
++
+   companion object {
+     const val IGNORE_PATHS_KEY = "ignore-paths"
+     const val EXCLUDE_KEY = "exclude"
+diff --git a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsExtension.kt b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsExtension.kt
+index 4255d95..72f006e 100644
+--- a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsExtension.kt
++++ b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsExtension.kt
+@@ -57,7 +57,7 @@ open class ExpoAutolinkingSettingsExtension(
+     File(
+       settings.providers.exec { env ->
+         env.workingDir(projectRoot)
+-        env.commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
++        env.commandLine(resolveNodeExecutable(), "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
+       }.standardOutput.asText.get().trim(),
+     ).parentFile
+   }
+@@ -69,7 +69,7 @@ open class ExpoAutolinkingSettingsExtension(
+     File(
+       settings.providers.exec { env ->
+         env.workingDir(projectRoot)
+-        env.commandLine("node", "--print", "require.resolve('react-native/package.json')")
++        env.commandLine(resolveNodeExecutable(), "--print", "require.resolve('react-native/package.json')")
+       }.standardOutput.asText.get().trim(),
+     ).parentFile
+   }
+@@ -142,4 +142,23 @@ open class ExpoAutolinkingSettingsExtension(
+       }
+     }
+   }
++
++  private fun resolveNodeExecutable(): String {
++    val nodeBinary = System.getenv("NODE_BINARY")?.takeIf { it.isNotBlank() && File(it).canExecute() }
++    if (nodeBinary != null) {
++      return nodeBinary
++    }
++
++    val homebrewNode = File("/opt/homebrew/bin/node")
++    if (homebrewNode.canExecute()) {
++      return homebrewNode.absolutePath
++    }
++
++    val localNode = File("/usr/local/bin/node")
++    if (localNode.canExecute()) {
++      return localNode.absolutePath
++    }
++
++    return "node"
++  }
+ }
+diff --git a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsPlugin.kt b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsPlugin.kt
+index 99ccc9f..bc28d34 100644
+--- a/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsPlugin.kt
++++ b/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/expo-autolinking-settings-plugin/src/main/kotlin/expo/modules/plugin/ExpoAutolinkingSettingsPlugin.kt
+@@ -36,7 +36,7 @@ open class ExpoAutolinkingSettingsPlugin : Plugin<Settings> {
+     val expoModulesAutolinkingPath =
+       settings.providers.exec { env ->
+         env.workingDir(settings.rootDir)
+-        env.commandLine("node", "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
++        env.commandLine(resolveNodeExecutable(), "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
+       }.standardOutput.asText.get().trim()
+ 
+     val expoAutolinkingDir = File(expoModulesAutolinkingPath).parentFile
+@@ -46,4 +46,23 @@ open class ExpoAutolinkingSettingsPlugin : Plugin<Settings> {
+       "android/expo-gradle-plugin"
+     )
+   }
++
++  private fun resolveNodeExecutable(): String {
++    val nodeBinary = System.getenv("NODE_BINARY")?.takeIf { it.isNotBlank() && File(it).canExecute() }
++    if (nodeBinary != null) {
++      return nodeBinary
++    }
++
++    val homebrewNode = File("/opt/homebrew/bin/node")
++    if (homebrewNode.canExecute()) {
++      return homebrewNode.absolutePath
++    }
++
++    val localNode = File("/usr/local/bin/node")
++    if (localNode.canExecute()) {
++      return localNode.absolutePath
++    }
++
++    return "node"
++  }
+ }
+diff --git a/node_modules/expo-modules-autolinking/scripts/android/autolinking_implementation.gradle b/node_modules/expo-modules-autolinking/scripts/android/autolinking_implementation.gradle
+index 27f1fe9..613572f 100644
+--- a/node_modules/expo-modules-autolinking/scripts/android/autolinking_implementation.gradle
++++ b/node_modules/expo-modules-autolinking/scripts/android/autolinking_implementation.gradle
+@@ -181,8 +181,24 @@ class ExpoAutolinkingManager {
+   }
+ 
+   static private String[] convertOptionsToCommandArgs(String command, Map options) {
++    def nodeExecutable = System.getenv("NODE_BINARY")
++    if (nodeExecutable != null && !nodeExecutable.trim().isEmpty() && !new File(nodeExecutable).canExecute()) {
++      nodeExecutable = null
++    }
++    if (nodeExecutable == null || nodeExecutable.trim().isEmpty()) {
++      def homebrewNode = new File("/opt/homebrew/bin/node")
++      def localNode = new File("/usr/local/bin/node")
++      if (homebrewNode.canExecute()) {
++        nodeExecutable = homebrewNode.absolutePath
++      } else if (localNode.canExecute()) {
++        nodeExecutable = localNode.absolutePath
++      } else {
++        nodeExecutable = "node"
++      }
++    }
++
+     String[] args = [
+-      'node',
++      nodeExecutable,
+       '--no-warnings',
+       '--eval',
+       'require(\'expo/bin/autolinking\')',
