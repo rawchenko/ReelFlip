@@ -8,6 +8,7 @@ export default function RootLayout() {
     <AppProviders>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="debug" options={{ title: 'Debug' }} />
       </Stack>
       <StatusBar style="auto" />
     </AppProviders>
