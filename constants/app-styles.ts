@@ -14,12 +14,6 @@ export const appStyles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 8,
   },
-  feedDebugLink: {
-    color: '#8ea7e8',
-    fontSize: 14,
-    fontWeight: '700',
-    paddingVertical: 4,
-  },
   feedEmptyState: {
     alignItems: 'center',
     flex: 1,
@@ -37,13 +31,6 @@ export const appStyles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
-  feedHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
   feedList: {
     flex: 1,
   },
@@ -55,14 +42,40 @@ export const appStyles = StyleSheet.create({
     backgroundColor: '#070d1a',
     flex: 1,
   },
-  feedTitle: {
-    color: '#f5f8ff',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  profileDebugLink: {
+    borderColor: '#314570',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#d6deed',
+    fontSize: 16,
+    fontWeight: '700',
+    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   stack: {
     gap: 8,
+  },
+  tabPlaceholder: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  tabPlaceholderText: {
+    color: '#8fa6cc',
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  tabPlaceholderTitle: {
+    color: '#f5f8ff',
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  tabScreen: {
+    backgroundColor: '#070d1a',
+    flex: 1,
   },
   title: {
     fontSize: 20,
