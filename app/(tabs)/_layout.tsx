@@ -1,18 +1,19 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Tabs } from 'expo-router'
+import { semanticColors } from '@/constants/semantic-colors'
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: '#070d1a' },
+        sceneStyle: { backgroundColor: semanticColors.app.background },
         tabBarStyle: {
-          backgroundColor: '#070d1a',
-          borderTopColor: '#1b2a47',
+          backgroundColor: semanticColors.app.background,
+          borderTopColor: semanticColors.border.default,
         },
-        tabBarActiveTintColor: '#f5f8ff',
-        tabBarInactiveTintColor: '#8fa6cc',
+        tabBarActiveTintColor: semanticColors.text.primary,
+        tabBarInactiveTintColor: semanticColors.text.muted,
       }}
     >
       <Tabs.Screen

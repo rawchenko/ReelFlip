@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Button, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { appStyles } from '@/constants/app-styles'
+import { semanticColors } from '@/constants/semantic-colors'
 import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { useFeedQuery } from '@/features/feed/api/use-feed-query'
 
@@ -22,7 +23,7 @@ export default function FeedScreen() {
     return (
       <SafeAreaView edges={['top']} style={appStyles.feedScreen}>
         <View style={appStyles.feedEmptyState}>
-          <ActivityIndicator size="large" color="#f5f8ff" />
+          <ActivityIndicator size="large" color={semanticColors.text.primary} />
           <Text style={appStyles.feedEmptyText}>Loading feed...</Text>
         </View>
       </SafeAreaView>

@@ -1,9 +1,10 @@
 import { StyleSheet } from 'react-native'
+import { semanticColors } from '@/constants/semantic-colors'
 
 export const appStyles = StyleSheet.create({
   card: {
-    backgroundColor: '#ffffff',
-    borderColor: '#d1d1d1',
+    backgroundColor: semanticColors.app.backgroundCanvas,
+    borderColor: semanticColors.border.light,
     borderRadius: 2,
     borderWidth: 1,
     elevation: 1,
@@ -21,13 +22,13 @@ export const appStyles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   feedEmptyText: {
-    color: '#8fa6cc',
+    color: semanticColors.text.muted,
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
   },
   feedEmptyTitle: {
-    color: '#f5f8ff',
+    color: semanticColors.text.primary,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -39,14 +40,14 @@ export const appStyles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   feedScreen: {
-    backgroundColor: '#070d1a',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   profileDebugLink: {
-    borderColor: '#314570',
+    borderColor: semanticColors.border.muted,
     borderRadius: 10,
     borderWidth: 1,
-    color: '#d6deed',
+    color: semanticColors.text.secondary,
     fontSize: 16,
     fontWeight: '700',
     overflow: 'hidden',
@@ -64,17 +65,17 @@ export const appStyles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   tabPlaceholderText: {
-    color: '#8fa6cc',
+    color: semanticColors.text.muted,
     fontSize: 15,
     textAlign: 'center',
   },
   tabPlaceholderTitle: {
-    color: '#f5f8ff',
+    color: semanticColors.text.primary,
     fontSize: 30,
     fontWeight: '800',
   },
   tabScreen: {
-    backgroundColor: '#070d1a',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   title: {

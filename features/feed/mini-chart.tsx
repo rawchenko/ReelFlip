@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native'
+import { semanticColors } from '@/constants/semantic-colors'
 
 interface MiniChartProps {
   points?: number[]
@@ -101,8 +102,8 @@ export function MiniChart({
   const toY = (value: number): number => ((high - value) / range) * plotHeight
   const priceLineY = clamp(toY(lastClose), 2, plotHeight - 2)
   const bubbleY = clamp(priceLineY - 12, 4, plotHeight - 24)
-  const fallbackBodyColor = positiveTrend ? '#7dffd2' : '#ff8b95'
-  const fallbackGlowColor = positiveTrend ? 'rgba(54, 226, 169, 0.30)' : 'rgba(239, 92, 112, 0.28)'
+  const fallbackBodyColor = positiveTrend ? semanticColors.chart.bullFallback : semanticColors.chart.bearFallback
+  const fallbackGlowColor = positiveTrend ? semanticColors.chart.bullFallbackGlow : semanticColors.chart.bearFallbackGlow
 
   return (
     <View style={[styles.container, fullBleed ? styles.containerFullBleed : styles.containerCompact]}>
@@ -128,10 +129,10 @@ export function MiniChart({
             const bodyHeight = Math.max(3, Math.abs(openY - closeY))
             const wickHeight = Math.max(2, wickBottom - wickTop)
 
-            const bodyColor = bullish ? '#4ADE80' : '#F98282'
-            const wickColor = bullish ? '#8EF3B1' : '#FFA5B0'
-            const glowColor = bullish ? 'rgba(74, 222, 128, 0.24)' : 'rgba(249, 130, 130, 0.24)'
-            const trailColor = bullish ? 'rgba(74, 222, 128, 0.15)' : 'rgba(249, 130, 130, 0.15)'
+            const bodyColor = bullish ? semanticColors.chart.bullBody : semanticColors.chart.bearBody
+            const wickColor = bullish ? semanticColors.chart.bullWick : semanticColors.chart.bearWick
+            const glowColor = bullish ? semanticColors.chart.bullGlow : semanticColors.chart.bearGlow
+            const trailColor = bullish ? semanticColors.chart.bullTrail : semanticColors.chart.bearTrail
 
             return (
               <View
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
     width: 82,
   },
   axisLabel: {
-    color: '#7f8aa2',
+    color: semanticColors.text.chartAxis,
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'right',
@@ -196,8 +197,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   containerCompact: {
-    backgroundColor: '#050a12',
-    borderColor: '#1a2740',
+    backgroundColor: semanticColors.chart.backgroundSurface,
+    borderColor: semanticColors.border.chart,
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
@@ -205,12 +206,12 @@ const styles = StyleSheet.create({
   },
   containerFullBleed: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#040810',
+    backgroundColor: semanticColors.chart.background,
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
   gridLine: {
-    borderTopColor: 'rgba(116, 129, 151, 0.26)',
+    borderTopColor: semanticColors.chart.grid,
     borderTopWidth: 1,
     left: 0,
     opacity: 0.7,
@@ -232,7 +233,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   plotAreaCompact: {
-    backgroundColor: '#03070d',
+    backgroundColor: semanticColors.chart.backgroundPlot,
     paddingHorizontal: 4,
   },
   plotAreaFullBleed: {
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   priceLine: {
-    borderTopColor: 'rgba(116, 129, 151, 0.1)',
+    borderTopColor: semanticColors.chart.priceLine,
     borderTopWidth: 1,
     borderStyle: 'dotted',
     left: 0,

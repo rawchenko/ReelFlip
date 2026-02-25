@@ -2,6 +2,7 @@ import { MiniChart } from '@/features/feed/mini-chart'
 import { TokenFeedItem } from '@/features/feed/types'
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { semanticColors } from '@/constants/semantic-colors'
 
 interface TokenCardProps {
   item: TokenFeedItem
@@ -61,12 +62,12 @@ export function TokenCard({ item, availableHeight }: TokenCardProps) {
       />
 
       <LinearGradient
-        colors={['rgba(10, 11, 16, 0.9)', 'rgba(10, 11, 16, 0)']}
+        colors={[semanticColors.overlay.topStrong, semanticColors.overlay.topClear]}
         style={styles.topShade}
         pointerEvents="none"
       />
       <LinearGradient
-        colors={['rgba(10, 11, 16, 0)', 'rgba(10, 11, 16, 0.8)', '#0A0B10']}
+        colors={[semanticColors.overlay.topClear, semanticColors.overlay.bottomMid, semanticColors.app.backgroundElevated]}
         locations={[0, 0.5, 1]}
         style={styles.bottomShade}
         pointerEvents="none"
@@ -106,16 +107,16 @@ export function TokenCard({ item, availableHeight }: TokenCardProps) {
 
 const riskStyles = StyleSheet.create({
   allow: {
-    backgroundColor: '#14532D',
-    color: '#86EFAC',
+    backgroundColor: semanticColors.status.success.background,
+    color: semanticColors.status.success.text,
   },
   block: {
-    backgroundColor: '#451A1A',
-    color: '#FCA5A5',
+    backgroundColor: semanticColors.status.danger.background,
+    color: semanticColors.status.danger.text,
   },
   warn: {
-    backgroundColor: '#422006',
-    color: '#FDBA74',
+    backgroundColor: semanticColors.status.warning.background,
+    color: semanticColors.status.warning.text,
   },
 })
 
@@ -147,30 +148,30 @@ const styles = StyleSheet.create({
     right: 0,
   },
   card: {
-    backgroundColor: '#0A0B10',
-    borderColor: '#1C1D24',
+    backgroundColor: semanticColors.app.backgroundElevated,
+    borderColor: semanticColors.border.strong,
     borderRadius: 28,
     borderWidth: 1,
     flex: 1,
     overflow: 'hidden',
   },
   categoryBadge: {
-    backgroundColor: '#1E293B',
-    color: '#93C5FD',
+    backgroundColor: semanticColors.status.info.background,
+    color: semanticColors.status.info.text,
   },
   change: {
     fontWeight: '800',
     marginTop: 6,
   },
   changeDown: {
-    color: '#F87171',
+    color: semanticColors.text.danger,
   },
   changeUp: {
-    color: '#4ADE80',
+    color: semanticColors.text.success,
   },
   metricChip: {
-    backgroundColor: '#0F172A',
-    borderColor: '#1E293B',
+    backgroundColor: semanticColors.app.backgroundPanel,
+    borderColor: semanticColors.border.panel,
     borderRadius: 12,
     borderWidth: 1,
     flex: 1,
@@ -179,12 +180,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   metricLabel: {
-    color: '#64748B',
+    color: semanticColors.text.chartLabel,
     fontWeight: '700',
     marginBottom: 6,
   },
   metricValue: {
-    color: '#F8FAFC',
+    color: semanticColors.text.bodyOnDark,
     fontWeight: '800',
   },
   metricsRow: {
@@ -193,17 +194,17 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   name: {
-    color: '#94A3B8',
+    color: semanticColors.text.tertiary,
     fontWeight: '500',
     marginTop: 2,
   },
   price: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontWeight: '900',
     letterSpacing: 0.2,
   },
   symbol: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontWeight: '900',
     letterSpacing: 0.4,
   },
