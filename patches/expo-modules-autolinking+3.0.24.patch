@@ -158,3 +158,79 @@ index 27f1fe9..613572f 100644
        '--no-warnings',
        '--eval',
        'require(\'expo/bin/autolinking\')',
+diff --git a/node_modules/expo-modules-autolinking/build/platforms/android/android.js b/node_modules/expo-modules-autolinking/build/platforms/android/android.js
+index 5154abd..aee6855 100644
+--- a/node_modules/expo-modules-autolinking/build/platforms/android/android.js
++++ b/node_modules/expo-modules-autolinking/build/platforms/android/android.js
+@@ -161,7 +161,7 @@ function findAndroidModules(modules) {
+     return classNames;
+ }
+ async function findAndroidPackagesAsync(modules) {
+-    const classes = [];
++    const classes = new Set();
+     const flattenedSourceDirList = [];
+     for (const module of modules) {
+         for (const project of module.projects ?? []) {
+@@ -170,6 +170,9 @@ async function findAndroidPackagesAsync(modules) {
+     }
+     await Promise.all(flattenedSourceDirList.map(async (sourceDir) => {
+         for await (const file of (0, utils_1.scanFilesRecursively)(sourceDir)) {
++            if (file.path.includes(`${path_1.default.sep}bin${path_1.default.sep}`)) {
++                continue;
++            }
+             if (!file.name.endsWith('Package.java') && !file.name.endsWith('Package.kt')) {
+                 continue;
+             }
+@@ -189,11 +192,11 @@ async function findAndroidPackagesAsync(modules) {
+             const classPathMatches = fileContent.match(/^package ([\w.]+)\b/m);
+             if (classPathMatches) {
+                 const basename = path_1.default.basename(file.name, path_1.default.extname(file.name));
+-                classes.push(`${classPathMatches[1]}.${basename}`);
++                classes.add(`${classPathMatches[1]}.${basename}`);
+             }
+         }
+     }));
+-    return classes.sort();
++    return Array.from(classes).sort();
+ }
+ /**
+  * Converts the package name to Android's project name.
+diff --git a/node_modules/expo-modules-autolinking/src/platforms/android/android.ts b/node_modules/expo-modules-autolinking/src/platforms/android/android.ts
+index 5d145d2..122ca21 100644
+--- a/node_modules/expo-modules-autolinking/src/platforms/android/android.ts
++++ b/node_modules/expo-modules-autolinking/src/platforms/android/android.ts
+@@ -203,7 +203,7 @@ function findAndroidModules(modules: ModuleDescriptorAndroid[]): string[] {
+ }
+ 
+ async function findAndroidPackagesAsync(modules: ModuleDescriptorAndroid[]): Promise<string[]> {
+-  const classes: string[] = [];
++  const classes = new Set<string>();
+ 
+   const flattenedSourceDirList: string[] = [];
+   for (const module of modules) {
+@@ -215,6 +215,10 @@ async function findAndroidPackagesAsync(modules: ModuleDescriptorAndroid[]): Pro
+   await Promise.all(
+     flattenedSourceDirList.map(async (sourceDir) => {
+       for await (const file of scanFilesRecursively(sourceDir)) {
++        if (file.path.includes(`${path.sep}bin${path.sep}`)) {
++          continue;
++        }
++
+         if (!file.name.endsWith('Package.java') && !file.name.endsWith('Package.kt')) {
+           continue;
+         }
+@@ -238,12 +242,12 @@ async function findAndroidPackagesAsync(modules: ModuleDescriptorAndroid[]): Pro
+ 
+         if (classPathMatches) {
+           const basename = path.basename(file.name, path.extname(file.name));
+-          classes.push(`${classPathMatches[1]}.${basename}`);
++          classes.add(`${classPathMatches[1]}.${basename}`);
+         }
+       }
+     })
+   );
+-  return classes.sort();
++  return Array.from(classes).sort();
+ }
+ 
+ /**

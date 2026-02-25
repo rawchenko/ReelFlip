@@ -123,3 +123,78 @@ index 0081b31..5f20d4f 100644
  /**
   * Computes the `hermesc` command location. The Algo follows this order:
   * 1. The path provided by the `hermesCommand` config in the `react` Gradle extension
+diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/tasks/GenerateAutolinkingNewArchitecturesFileTask.kt b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/tasks/GenerateAutolinkingNewArchitecturesFileTask.kt
+index 38a31b8..9e55d96 100644
+--- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/tasks/GenerateAutolinkingNewArchitecturesFileTask.kt
++++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/tasks/GenerateAutolinkingNewArchitecturesFileTask.kt
+@@ -51,38 +51,39 @@ abstract class GenerateAutolinkingNewArchitecturesFileTask : DefaultTask() {
+   internal fun generateCmakeFileContent(
+       packages: List<ModelAutolinkingDependenciesPlatformAndroidJson>
+   ): String {
+-    val libraryIncludes =
+-        packages.joinToString("\n") { dep ->
+-          var addDirectoryString = ""
+-          val libraryName = dep.libraryName
+-          val cmakeListsPath = dep.cmakeListsPath
+-          val cxxModuleCMakeListsPath = dep.cxxModuleCMakeListsPath
+-          if (libraryName != null && cmakeListsPath != null) {
+-            // If user provided a custom cmakeListsPath, let's honor it.
+-            val nativeFolderPath = sanitizeCmakeListsPath(cmakeListsPath)
+-            addDirectoryString +=
+-                "add_subdirectory(\"$nativeFolderPath\" ${libraryName}_autolinked_build)"
+-          }
+-          if (cxxModuleCMakeListsPath != null) {
+-            // If user provided a custom cxxModuleCMakeListsPath, let's honor it.
+-            val nativeFolderPath = sanitizeCmakeListsPath(cxxModuleCMakeListsPath)
+-            addDirectoryString +=
+-                "\nadd_subdirectory(\"$nativeFolderPath\" ${libraryName}_cxxmodule_autolinked_build)"
+-          }
+-          addDirectoryString
+-        }
++    val includeEntries = mutableListOf<String>()
++    val moduleEntries = mutableListOf<String>()
++
++    packages.forEach { dep ->
++      val libraryName = dep.libraryName
++      val cmakeListsPath = dep.cmakeListsPath
++      val cxxModuleCMakeListsPath = dep.cxxModuleCMakeListsPath
++      val cxxModuleName = dep.cxxModuleCMakeListsModuleName
++
++      if (libraryName != null && cmakeListsPath != null && File(cmakeListsPath).exists()) {
++        // If user provided a custom cmakeListsPath, let's honor it when it exists.
++        val nativeFolderPath = sanitizeCmakeListsPath(cmakeListsPath)
++        includeEntries.add(
++            "add_subdirectory(\"$nativeFolderPath\" ${libraryName}_autolinked_build)"
++        )
++        moduleEntries.add("$CODEGEN_LIB_PREFIX$libraryName")
++      }
+ 
+-    val libraryModules =
+-        packages.joinToString("\n  ") { dep ->
+-          var autolinkedLibraries = ""
+-          if (dep.libraryName != null) {
+-            autolinkedLibraries += "$CODEGEN_LIB_PREFIX${dep.libraryName}"
+-          }
+-          if (dep.cxxModuleCMakeListsModuleName != null) {
+-            autolinkedLibraries += "\n${dep.cxxModuleCMakeListsModuleName}"
+-          }
+-          autolinkedLibraries
+-        }
++      if (libraryName != null &&
++          cxxModuleCMakeListsPath != null &&
++          cxxModuleName != null &&
++          File(cxxModuleCMakeListsPath).exists()) {
++        // If user provided a custom cxxModuleCMakeListsPath, let's honor it when it exists.
++        val nativeFolderPath = sanitizeCmakeListsPath(cxxModuleCMakeListsPath)
++        includeEntries.add(
++            "add_subdirectory(\"$nativeFolderPath\" ${libraryName}_cxxmodule_autolinked_build)"
++        )
++        moduleEntries.add(cxxModuleName)
++      }
++    }
++
++    val libraryIncludes = includeEntries.joinToString("\n")
++    val libraryModules = moduleEntries.joinToString("\n  ")
+ 
+     return CMAKE_TEMPLATE.replace("{{ libraryIncludes }}", libraryIncludes)
+         .replace("{{ libraryModules }}", libraryModules)

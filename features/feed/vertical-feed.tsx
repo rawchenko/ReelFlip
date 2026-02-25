@@ -7,9 +7,11 @@ import { FlatList, Text, View, useWindowDimensions } from 'react-native'
 interface VerticalFeedProps {
   items: TokenFeedItem[]
   topInset?: number
+  refreshing?: boolean
+  onRefresh?: () => void
 }
 
-export function VerticalFeed({ items, topInset = 96 }: VerticalFeedProps) {
+export function VerticalFeed({ items, topInset = 96, refreshing = false, onRefresh }: VerticalFeedProps) {
   const { height: windowHeight } = useWindowDimensions()
   const [listHeight, setListHeight] = useState(windowHeight)
   const pageHeight = Math.max(listHeight - topInset, 460)
@@ -35,12 +37,14 @@ export function VerticalFeed({ items, topInset = 96 }: VerticalFeedProps) {
   return (
     <FlatList
       data={items}
-      keyExtractor={(item) => item.mint}
+      keyExtractor={(item, index) => `${item.mint}:${item.pairAddress ?? 'no-pair'}:${index}`}
       style={appStyles.feedList}
       onLayout={(event) => handleListLayout(event.nativeEvent.layout.height)}
       pagingEnabled
       decelerationRate="fast"
       showsVerticalScrollIndicator={false}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
       renderItem={({ item }) => (
         <View style={[appStyles.feedPage, { height: pageHeight }]}>

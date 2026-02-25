@@ -1,9 +1,15 @@
+import { MiniChart } from '@/features/feed/mini-chart'
 import { TokenFeedItem } from '@/features/feed/types'
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 
 interface TokenCardProps {
   item: TokenFeedItem
   availableHeight: number
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
 }
 
 function formatUsd(value: number): string {
@@ -15,85 +21,83 @@ function formatUsd(value: number): string {
   }).format(value)
 }
 
+function formatCompactUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 function formatPercent(value: number): string {
   const sign = value > 0 ? '+' : ''
   return `${sign}${value.toFixed(2)}%`
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
 export function TokenCard({ item, availableHeight }: TokenCardProps) {
   const { width } = useWindowDimensions()
-  const priceChangePositive = item.priceChange24h >= 0
-  const cardPadding = clamp(width * 0.05, 16, 24)
-  const topSectionGap = clamp(availableHeight * 0.035, 14, 34)
-  const metricGap = clamp(availableHeight * 0.014, 10, 16)
+  const isUp = item.priceChange24h >= 0
+  const cardPadding = clamp(width * 0.055, 18, 26)
+  const symbolSize = clamp(width * 0.12, 44, 60)
+  const nameSize = clamp(width * 0.06, 19, 23)
   const badgeFontSize = clamp(width * 0.03, 11, 13)
-  const badgeHorizontalPadding = clamp(width * 0.025, 9, 12)
-  const badgeVerticalPadding = clamp(cardPadding * 0.22, 4, 6)
-  const symbolSize = clamp(width * 0.09, 30, 42)
-  const nameSize = clamp(width * 0.047, 16, 20)
-  const priceSize = clamp(width * 0.115, 34, 48)
-  const changeSize = clamp(width * 0.085, 22, 34)
-  const metricLabelSize = clamp(width * 0.038, 13, 16)
-  const metricValueSize = clamp(width * 0.08, 20, 30)
-  const metricHorizontalPadding = clamp(cardPadding * 0.72, 12, 18)
-  const metricVerticalPadding = clamp(cardPadding * 0.62, 10, 14)
+  const priceSize = clamp(width * 0.145, 48, 68)
+  const changeSize = clamp(width * 0.083, 24, 34)
+  const metricLabelSize = clamp(width * 0.028, 10, 12)
+  const metricValueSize = clamp(width * 0.047, 16, 20)
+  const chartHeight = Math.max(availableHeight - 6, 320)
 
   return (
-    <View style={[styles.card, { padding: cardPadding }]}>
-      <View style={styles.topRow}>
+    <View style={styles.card}>
+      <MiniChart
+        points={item.sparkline}
+        positiveTrend={isUp}
+        fullBleed
+        height={chartHeight}
+        candleCount={32}
+        showAxis={false}
+        showPriceBubble={false}
+      />
+
+      <LinearGradient
+        colors={['rgba(10, 11, 16, 0.9)', 'rgba(10, 11, 16, 0)']}
+        style={styles.topShade}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={['rgba(10, 11, 16, 0)', 'rgba(10, 11, 16, 0.8)', '#0A0B10']}
+        locations={[0, 0.5, 1]}
+        style={styles.bottomShade}
+        pointerEvents="none"
+      />
+
+      <View style={[styles.topOverlay, { paddingTop: cardPadding, paddingHorizontal: cardPadding }]}>
         <View>
           <Text style={[styles.symbol, { fontSize: symbolSize }]}>{item.symbol}</Text>
           <Text style={[styles.name, { fontSize: nameSize }]}>{item.name}</Text>
         </View>
-        <View style={[styles.badgeRow, { gap: metricGap }]}>
-          <Text
-            style={[
-              styles.badge,
-              styles.categoryBadge,
-              {
-                fontSize: badgeFontSize,
-                paddingHorizontal: badgeHorizontalPadding,
-                paddingVertical: badgeVerticalPadding,
-              },
-            ]}
-          >
-            {item.category}
-          </Text>
-          <Text
-            style={[
-              styles.badge,
-              riskStyles[item.riskTier],
-              {
-                fontSize: badgeFontSize,
-                paddingHorizontal: badgeHorizontalPadding,
-                paddingVertical: badgeVerticalPadding,
-              },
-            ]}
-          >
-            {item.riskTier}
-          </Text>
+        <View style={styles.badgeColumn}>
+          <Text style={[styles.badge, styles.categoryBadge, { fontSize: badgeFontSize }]}>{item.category}</Text>
+          <Text style={[styles.badge, riskStyles[item.riskTier], { fontSize: badgeFontSize }]}>{item.riskTier}</Text>
         </View>
       </View>
 
-      <View style={[styles.priceRow, { marginTop: topSectionGap, gap: metricGap * 0.6 }]}>
+      <View style={[styles.bottomOverlay, { paddingHorizontal: cardPadding, paddingBottom: cardPadding + 6 }]}>
         <Text style={[styles.price, { fontSize: priceSize }]}>{formatUsd(item.priceUsd)}</Text>
-        <Text style={[styles.change, { fontSize: changeSize }, priceChangePositive ? styles.changeUp : styles.changeDown]}>
+        <Text style={[styles.change, { fontSize: changeSize }, isUp ? styles.changeUp : styles.changeDown]}>
           {formatPercent(item.priceChange24h)}
         </Text>
-      </View>
 
-      <View style={[styles.metricGrid, { gap: metricGap, marginTop: 'auto' }]}>
-        <View style={[styles.metricItem, { paddingHorizontal: metricHorizontalPadding, paddingVertical: metricVerticalPadding }]}>
-          <Text style={[styles.metricLabel, { fontSize: metricLabelSize }]}>24h Volume</Text>
-          <Text style={[styles.metricValue, { fontSize: metricValueSize }]}>{formatUsd(item.volume24h)}</Text>
-        </View>
-        <View style={[styles.metricItem, { paddingHorizontal: metricHorizontalPadding, paddingVertical: metricVerticalPadding }]}>
-          <Text style={[styles.metricLabel, { fontSize: metricLabelSize }]}>Liquidity</Text>
-          <Text style={[styles.metricValue, { fontSize: metricValueSize }]}>{formatUsd(item.liquidity)}</Text>
+        <View style={styles.metricsRow}>
+          <View style={styles.metricChip}>
+            <Text style={[styles.metricLabel, { fontSize: metricLabelSize }]}>24H VOL</Text>
+            <Text style={[styles.metricValue, { fontSize: metricValueSize }]}>{formatCompactUsd(item.volume24h)}</Text>
+          </View>
+          <View style={styles.metricChip}>
+            <Text style={[styles.metricLabel, { fontSize: metricLabelSize }]}>LIQUIDITY</Text>
+            <Text style={[styles.metricValue, { fontSize: metricValueSize }]}>{formatCompactUsd(item.liquidity)}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -102,80 +106,121 @@ export function TokenCard({ item, availableHeight }: TokenCardProps) {
 
 const riskStyles = StyleSheet.create({
   allow: {
-    backgroundColor: '#163f2a',
-    color: '#8ef3b1',
+    backgroundColor: '#14532D',
+    color: '#86EFAC',
   },
   block: {
-    backgroundColor: '#4a1313',
-    color: '#ff9a9a',
+    backgroundColor: '#451A1A',
+    color: '#FCA5A5',
   },
   warn: {
-    backgroundColor: '#4a3e12',
-    color: '#ffd476',
+    backgroundColor: '#422006',
+    color: '#FDBA74',
   },
 })
 
 const styles = StyleSheet.create({
   badge: {
-    borderRadius: 999,
-    fontWeight: '700',
+    borderRadius: 8,
+    fontWeight: '800',
     overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
-  badgeRow: {
+  badgeColumn: {
     alignItems: 'flex-end',
+    gap: 8,
+  },
+  bottomOverlay: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  bottomShade: {
+    bottom: 0,
+    height: '48%',
+    left: 0,
+    position: 'absolute',
+    right: 0,
   },
   card: {
-    backgroundColor: '#0f172a',
-    borderColor: '#233150',
-    borderRadius: 24,
+    backgroundColor: '#0A0B10',
+    borderColor: '#1C1D24',
+    borderRadius: 28,
     borderWidth: 1,
     flex: 1,
+    overflow: 'hidden',
   },
   categoryBadge: {
-    backgroundColor: '#1e293b',
-    color: '#d6deed',
+    backgroundColor: '#1E293B',
+    color: '#93C5FD',
   },
   change: {
-    fontWeight: '700',
+    fontWeight: '800',
+    marginTop: 6,
   },
   changeDown: {
-    color: '#ff9a9a',
+    color: '#F87171',
   },
   changeUp: {
-    color: '#8ef3b1',
+    color: '#4ADE80',
   },
-  metricGrid: {
-  },
-  metricItem: {
-    backgroundColor: '#111c33',
-    borderRadius: 14,
+  metricChip: {
+    backgroundColor: '#0F172A',
+    borderColor: '#1E293B',
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   metricLabel: {
-    color: '#8fa6cc',
-    marginBottom: 4,
+    color: '#64748B',
+    fontWeight: '700',
+    marginBottom: 6,
   },
   metricValue: {
-    color: '#f5f8ff',
-    fontWeight: '700',
-  },
-  name: {
-    color: '#8fa6cc',
-    marginTop: 4,
-  },
-  price: {
-    color: '#f5f8ff',
-    fontWeight: '700',
-  },
-  priceRow: {
-  },
-  symbol: {
-    color: '#f5f8ff',
+    color: '#F8FAFC',
     fontWeight: '800',
   },
-  topRow: {
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  name: {
+    color: '#94A3B8',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  price: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  symbol: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  topOverlay: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  topShade: {
+    height: '34%',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
 })

@@ -3,6 +3,10 @@
   "scripts": {
     "android": "expo run:android",
     "android:build": "expo prebuild -p android",
+    "backend:build": "npm --prefix backend run build",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:start": "npm --prefix backend run start",
+    "backend:test": "npm --prefix backend run test",
     "build": "tsc --noEmit && npm run android:build",
     "ci": "tsc --noEmit && npm run lint:check && npm run fmt:check && npm run android:build",
     "dev": "expo start --clear --dev-client --reset-cache",
@@ -49,6 +53,7 @@
     "expo-font": "~14.0.9",
     "expo-haptics": "~15.0.7",
     "expo-image": "~3.0.10",
+    "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.8",
     "expo-router": "~6.0.14",
     "expo-splash-screen": "~31.0.10",
