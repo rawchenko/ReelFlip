@@ -1,13 +1,21 @@
+import { useChartPairState } from '@/features/feed/chart/chart-store'
 import { MiniChart } from '@/features/feed/mini-chart'
+import { TradingViewMiniChart } from '@/features/feed/tradingview-mini-chart'
 import { TokenFeedItem } from '@/features/feed/types'
+import { useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { semanticColors } from '@/constants/semantic-colors'
+import { interFontFamily } from '@/constants/typography'
 
 interface TokenCardProps {
   item: TokenFeedItem
   availableHeight: number
+  enableTradingView?: boolean
 }
+
+type ChartRendererState = 'loading' | 'ready' | 'error' | 'fallback'
+type StreamBadgeState = 'live' | 'delayed' | 'reconnecting'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -36,30 +44,94 @@ function formatPercent(value: number): string {
   return `${sign}${value.toFixed(2)}%`
 }
 
-export function TokenCard({ item, availableHeight }: TokenCardProps) {
+export function TokenCard({ item, availableHeight, enableTradingView = false }: TokenCardProps) {
   const { width } = useWindowDimensions()
   const isUp = item.priceChange24h >= 0
+  const [tradingViewUnavailable, setTradingViewUnavailable] = useState(false)
+  const [chartRendererState, setChartRendererState] = useState<ChartRendererState>('fallback')
   const cardPadding = clamp(width * 0.055, 18, 26)
   const symbolSize = clamp(width * 0.12, 44, 60)
   const nameSize = clamp(width * 0.06, 19, 23)
   const badgeFontSize = clamp(width * 0.03, 11, 13)
-  const priceSize = clamp(width * 0.145, 48, 68)
+  const priceSize = clamp(width * 0.125, 42, 58)
   const changeSize = clamp(width * 0.083, 24, 34)
   const metricLabelSize = clamp(width * 0.028, 10, 12)
   const metricValueSize = clamp(width * 0.047, 16, 20)
   const chartHeight = Math.max(availableHeight - 6, 320)
+  const hasChartPoints = Array.isArray(item.sparkline) && item.sparkline.length >= 4
+  const tradingViewEnabled = process.env.EXPO_PUBLIC_ENABLE_TV_CHART !== 'false'
+  const realtimeChartsEnabled = process.env.EXPO_PUBLIC_ENABLE_TV_REALTIME_CHART !== 'false'
+  const pairChartState = useChartPairState(item.pairAddress)
+  const hasPairAddress = Boolean(item.pairAddress)
+  const useRealtimeTradingViewChart = useMemo(
+    () => Boolean(enableTradingView && hasPairAddress && tradingViewEnabled && realtimeChartsEnabled && !tradingViewUnavailable),
+    [enableTradingView, hasPairAddress, tradingViewEnabled, realtimeChartsEnabled, tradingViewUnavailable],
+  )
+  const useLegacyTradingViewChart = useMemo(
+    () =>
+      Boolean(enableTradingView && hasChartPoints && tradingViewEnabled && !realtimeChartsEnabled && !tradingViewUnavailable),
+    [enableTradingView, hasChartPoints, tradingViewEnabled, realtimeChartsEnabled, tradingViewUnavailable],
+  )
+  const useTradingViewChart = useMemo(
+    () => useRealtimeTradingViewChart || useLegacyTradingViewChart,
+    [useLegacyTradingViewChart, useRealtimeTradingViewChart],
+  )
+  const realtimeCandleCount = pairChartState?.candles.length ?? 0
+  const tvBootstrapPoints = useMemo(
+    () => (useRealtimeTradingViewChart && realtimeCandleCount < 2 ? item.sparkline : undefined),
+    [useRealtimeTradingViewChart, realtimeCandleCount, item.sparkline],
+  )
+  const streamBadgeState: StreamBadgeState | null = useRealtimeTradingViewChart
+    ? (pairChartState?.status ?? 'reconnecting')
+    : null
+  const realtimeDisplayPriceUsd = useMemo(() => {
+    const close = pairChartState?.latestCandle?.close
+    if (!useRealtimeTradingViewChart || typeof close !== 'number' || !Number.isFinite(close) || close <= 0) {
+      return null
+    }
+
+    return close
+  }, [pairChartState?.latestCandle?.close, useRealtimeTradingViewChart])
+  const displayPriceUsd = realtimeDisplayPriceUsd ?? item.priceUsd
+
+  useEffect(() => {
+    setTradingViewUnavailable(false)
+    setChartRendererState('fallback')
+  }, [item.mint, item.pairAddress])
+
+  useEffect(() => {
+    if (useTradingViewChart) {
+      setChartRendererState((state) => (state === 'ready' ? state : 'loading'))
+      return
+    }
+
+    setChartRendererState(tradingViewUnavailable ? 'error' : 'fallback')
+  }, [tradingViewUnavailable, useTradingViewChart])
 
   return (
     <View style={styles.card}>
-      <MiniChart
-        points={item.sparkline}
-        positiveTrend={isUp}
-        fullBleed
-        height={chartHeight}
-        candleCount={32}
-        showAxis={false}
-        showPriceBubble={false}
-      />
+      {useTradingViewChart ? (
+        <TradingViewMiniChart
+          points={useLegacyTradingViewChart ? item.sparkline : tvBootstrapPoints}
+          candles={useRealtimeTradingViewChart ? pairChartState?.candles : undefined}
+          latestCandle={useRealtimeTradingViewChart ? pairChartState?.latestCandle : null}
+          streamStatus={streamBadgeState ?? undefined}
+          pairAddress={item.pairAddress ?? undefined}
+          positiveTrend={isUp}
+          onStatusChange={(status) => setChartRendererState(status)}
+          onUnavailable={() => setTradingViewUnavailable(true)}
+        />
+      ) : (
+        <MiniChart
+          points={item.sparkline}
+          positiveTrend={isUp}
+          fullBleed
+          height={chartHeight}
+          candleCount={32}
+          showAxis={false}
+          showPriceBubble={false}
+        />
+      )}
 
       <LinearGradient
         colors={[semanticColors.overlay.topStrong, semanticColors.overlay.topClear]}
@@ -79,13 +151,28 @@ export function TokenCard({ item, availableHeight }: TokenCardProps) {
           <Text style={[styles.name, { fontSize: nameSize }]}>{item.name}</Text>
         </View>
         <View style={styles.badgeColumn}>
+          <Text
+            style={[
+              styles.badge,
+              styles.chartSourceBadge,
+              chartRendererState === 'ready' ? styles.chartSourceBadgeTv : styles.chartSourceBadgeFallback,
+              { fontSize: badgeFontSize },
+            ]}
+          >
+            {chartRendererState === 'ready' ? 'TV' : chartRendererState === 'loading' ? 'TV…' : 'FALLBACK'}
+          </Text>
+          {streamBadgeState ? (
+            <Text style={[styles.badge, streamBadgeStyles[streamBadgeState], { fontSize: badgeFontSize }]}>
+              {streamBadgeState.toUpperCase()}
+            </Text>
+          ) : null}
           <Text style={[styles.badge, styles.categoryBadge, { fontSize: badgeFontSize }]}>{item.category}</Text>
           <Text style={[styles.badge, riskStyles[item.riskTier], { fontSize: badgeFontSize }]}>{item.riskTier}</Text>
         </View>
       </View>
 
       <View style={[styles.bottomOverlay, { paddingHorizontal: cardPadding, paddingBottom: cardPadding + 6 }]}>
-        <Text style={[styles.price, { fontSize: priceSize }]}>{formatUsd(item.priceUsd)}</Text>
+        <Text style={[styles.price, { fontSize: priceSize }]}>{formatUsd(displayPriceUsd)}</Text>
         <Text style={[styles.change, { fontSize: changeSize }, isUp ? styles.changeUp : styles.changeDown]}>
           {formatPercent(item.priceChange24h)}
         </Text>
@@ -123,7 +210,7 @@ const riskStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   badge: {
     borderRadius: 8,
-    fontWeight: '800',
+    fontFamily: interFontFamily.extraBold,
     overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -159,8 +246,19 @@ const styles = StyleSheet.create({
     backgroundColor: semanticColors.status.info.background,
     color: semanticColors.status.info.text,
   },
+  chartSourceBadge: {
+    minWidth: 72,
+  },
+  chartSourceBadgeFallback: {
+    backgroundColor: 'rgba(71, 85, 105, 0.72)',
+    color: '#E2E8F0',
+  },
+  chartSourceBadgeTv: {
+    backgroundColor: 'rgba(20, 83, 45, 0.82)',
+    color: '#86EFAC',
+  },
   change: {
-    fontWeight: '800',
+    fontFamily: interFontFamily.extraBold,
     marginTop: 6,
   },
   changeDown: {
@@ -181,12 +279,12 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     color: semanticColors.text.chartLabel,
-    fontWeight: '700',
+    fontFamily: interFontFamily.bold,
     marginBottom: 6,
   },
   metricValue: {
     color: semanticColors.text.bodyOnDark,
-    fontWeight: '800',
+    fontFamily: interFontFamily.extraBold,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -195,17 +293,17 @@ const styles = StyleSheet.create({
   },
   name: {
     color: semanticColors.text.tertiary,
-    fontWeight: '500',
+    fontFamily: interFontFamily.medium,
     marginTop: 2,
   },
   price: {
     color: semanticColors.text.headingOnDark,
-    fontWeight: '900',
+    fontFamily: interFontFamily.black,
     letterSpacing: 0.2,
   },
   symbol: {
     color: semanticColors.text.headingOnDark,
-    fontWeight: '900',
+    fontFamily: interFontFamily.black,
     letterSpacing: 0.4,
   },
   topOverlay: {
@@ -223,5 +321,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: 0,
+  },
+})
+
+const streamBadgeStyles = StyleSheet.create({
+  live: {
+    backgroundColor: 'rgba(20, 83, 45, 0.82)',
+    color: '#86EFAC',
+  },
+  delayed: {
+    backgroundColor: 'rgba(120, 53, 15, 0.82)',
+    color: '#FDBA74',
+  },
+  reconnecting: {
+    backgroundColor: 'rgba(30, 41, 59, 0.82)',
+    color: '#BFDBFE',
   },
 })

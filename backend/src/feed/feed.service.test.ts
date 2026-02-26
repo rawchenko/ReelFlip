@@ -125,3 +125,46 @@ test('ranking deduplicates duplicate mints', () => {
   assert.equal(duplicated.length, 1)
   assert.equal(duplicated[0]?.pairAddress, 'pair-b')
 })
+
+test('ranking deduplicates duplicate symbols and prefers active/liquid pair', () => {
+  const ranking = new FeedRankingService()
+  const ranked = ranking.rank([
+    {
+      mint: 'mint-a',
+      name: 'Token One',
+      symbol: 'SOL',
+      imageUri: null,
+      priceUsd: 143,
+      priceChange24h: 1,
+      volume24h: 10_000,
+      recentVolume5m: 0,
+      recentTxns5m: 0,
+      liquidity: 10_000,
+      marketCap: 1_000_000,
+      sparkline: [],
+      pairAddress: 'pair-a',
+      category: 'trending',
+      riskTier: 'allow',
+    },
+    {
+      mint: 'mint-b',
+      name: 'Token Two',
+      symbol: 'SOL',
+      imageUri: null,
+      priceUsd: 144,
+      priceChange24h: 1,
+      volume24h: 500_000,
+      recentVolume5m: 20_000,
+      recentTxns5m: 50,
+      liquidity: 300_000,
+      marketCap: 2_000_000,
+      sparkline: [],
+      pairAddress: 'pair-b',
+      category: 'trending',
+      riskTier: 'allow',
+    },
+  ])
+
+  assert.equal(ranked.length, 1)
+  assert.equal(ranked[0]?.pairAddress, 'pair-b')
+})

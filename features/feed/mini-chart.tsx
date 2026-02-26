@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { semanticColors } from '@/constants/semantic-colors'
+import { interFontFamily } from '@/constants/typography'
 
 interface MiniChartProps {
   points?: number[]
@@ -176,8 +177,8 @@ const styles = StyleSheet.create({
   },
   axisLabel: {
     color: semanticColors.text.chartAxis,
+    fontFamily: interFontFamily.medium,
     fontSize: 14,
-    fontWeight: '500',
     textAlign: 'right',
   },
   body: {
@@ -249,8 +250,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   priceBubbleText: {
+    fontFamily: interFontFamily.bold,
     fontSize: 11,
-    fontWeight: '700',
   },
   priceLine: {
     borderTopColor: semanticColors.chart.priceLine,

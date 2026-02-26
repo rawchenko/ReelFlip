@@ -13,6 +13,9 @@ export interface TokenFeedItem {
   marketCap: number
   sparkline: number[]
   pairAddress: string | null
+  quoteSymbol?: string | null
+  recentVolume5m?: number
+  recentTxns5m?: number
   category: FeedCategory
   riskTier: RiskTier
 }
@@ -84,13 +87,51 @@ export class DexScreenerFeedProvider implements FeedProvider {
   ) {}
 
   async fetchFeed(signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const queries = parseDexSearchQueries(this.options.searchQuery)
+    const settled = await Promise.allSettled(queries.map((query) => this.fetchSearchQuery(query, signal)))
+
+    const combined: TokenFeedItem[] = []
+    let successCount = 0
+
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        successCount += 1
+        combined.push(...result.value)
+        continue
+      }
+
+      this.logger.warn({ error: result.reason }, 'DexScreener search query failed')
+    }
+
+    const dedupedByPair = new Map<string, TokenFeedItem>()
+    for (const item of combined) {
+      const pairKey = item.pairAddress ?? `${item.mint}:${item.symbol}:${item.priceUsd}`
+      const existing = dedupedByPair.get(pairKey)
+      if (!existing || item.liquidity > existing.liquidity) {
+        dedupedByPair.set(pairKey, item)
+      }
+    }
+
+    const normalized = Array.from(dedupedByPair.values())
+    if (normalized.length === 0) {
+      throw new Error(
+        successCount > 0
+          ? 'DexScreener returned no usable Solana pairs for configured search queries'
+          : 'DexScreener search requests failed for all configured queries',
+      )
+    }
+
+    return normalized
+  }
+
+  private async fetchSearchQuery(query: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
     const abortOnParent = () => controller.abort()
     signal.addEventListener('abort', abortOnParent, { once: true })
 
     try {
-      const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(this.options.searchQuery)}`
+      const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
       const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal,
@@ -98,26 +139,31 @@ export class DexScreenerFeedProvider implements FeedProvider {
       })
 
       if (!response.ok) {
-        throw new Error(`DexScreener request failed with status ${response.status}`)
+        throw new Error(`DexScreener request failed with status ${response.status} for query ${query}`)
       }
 
       const payload = (await response.json()) as { pairs?: unknown }
       const pairs = Array.isArray(payload.pairs) ? payload.pairs : []
-      const normalized = pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
 
-      if (normalized.length === 0) {
-        throw new Error('DexScreener returned no usable Solana pairs')
-      }
-
-      return normalized
-    } catch (error) {
-      this.logger.warn({ error }, 'DexScreener fetch failed')
-      throw error
+      return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
     } finally {
       clearTimeout(timeoutId)
       signal.removeEventListener('abort', abortOnParent)
     }
   }
+}
+
+function parseDexSearchQueries(raw: string): string[] {
+  const parsed = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+
+  if (parsed.length === 0) {
+    return ['solana']
+  }
+
+  return Array.from(new Set(parsed))
 }
 
 function normalizePair(input: unknown): TokenFeedItem | null {
@@ -137,15 +183,22 @@ function normalizePair(input: unknown): TokenFeedItem | null {
   const name = stringOrNull(baseToken?.name)
   const symbol = stringOrNull(baseToken?.symbol)
   const priceUsd = numberOrNull(input.priceUsd)
+  const quoteToken = isRecord(input.quoteToken) ? input.quoteToken : null
 
   if (!mint || !name || !symbol || priceUsd === null) {
     return null
   }
 
+  if (isLikelySpoofedMajorSymbol(mint, symbol)) {
+    return null
+  }
+
   const priceChange24h = numberOr(input.priceChange, 'h24')
   const volume24h = numberOr(input.volume, 'h24')
+  const recentVolume5m = numberOr(input.volume, 'm5')
   const liquidity = numberOr(input.liquidity, 'usd')
   const marketCap = numberOrNull(input.marketCap) ?? numberOrNull(input.fdv) ?? Math.max(liquidity * 8, 0)
+  const recentTxns5m = sumBuysAndSells(input.txns, 'm5')
   const sparkline = deriveSparkline(priceUsd, input.priceChange)
 
   return {
@@ -160,9 +213,27 @@ function normalizePair(input: unknown): TokenFeedItem | null {
     marketCap,
     sparkline,
     pairAddress: stringOrNull(input.pairAddress),
+    quoteSymbol: stringOrNull(quoteToken?.symbol),
+    recentVolume5m,
+    recentTxns5m,
     category: deriveCategory({ symbol, priceChange24h, volume24h, pairCreatedAt }),
     riskTier: deriveRiskTier({ liquidity, volume24h, priceChange24h }),
   }
+}
+
+const CANONICAL_MAJOR_MINT_BY_SYMBOL: Record<string, string> = {
+  SOL: 'So11111111111111111111111111111111111111112',
+  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  USDT: 'Es9vMFrzaCERmJfrF4H2FYD4nJbH6kQQn1JrVN6a8GN',
+}
+
+function isLikelySpoofedMajorSymbol(mint: string, symbol: string): boolean {
+  const expectedMint = CANONICAL_MAJOR_MINT_BY_SYMBOL[symbol.toUpperCase()]
+  if (!expectedMint) {
+    return false
+  }
+
+  return mint !== expectedMint
 }
 
 function deriveSparkline(priceUsd: number, priceChange: unknown): number[] {
@@ -259,6 +330,19 @@ function numberOr(input: unknown, key: string): number {
 
   const value = numberOrNull(input[key])
   return value ?? 0
+}
+
+function sumBuysAndSells(input: unknown, key: string): number {
+  if (!isRecord(input)) {
+    return 0
+  }
+
+  const bucket = isRecord(input[key]) ? input[key] : null
+  if (!bucket) {
+    return 0
+  }
+
+  return Math.max(0, numberOrNull(bucket.buys) ?? 0) + Math.max(0, numberOrNull(bucket.sells) ?? 0)
 }
 
 function numberOrNull(input: unknown): number | null {

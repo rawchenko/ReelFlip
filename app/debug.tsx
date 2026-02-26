@@ -5,6 +5,7 @@ import { Text, View, ScrollView } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import React from 'react'
 import { appStyles } from '@/constants/app-styles'
+import { interFontFamily } from '@/constants/typography'
 
 export default function DebugScreen() {
   return (
@@ -14,10 +15,10 @@ export default function DebugScreen() {
           <Text style={appStyles.title}>App Config</Text>
           <View style={appStyles.card}>
             <Text>
-              Name <Text style={{ fontWeight: 'bold' }}>{AppConfig.identity.name}</Text>
+              Name <Text style={{ fontFamily: interFontFamily.bold }}>{AppConfig.identity.name}</Text>
             </Text>
             <Text>
-              URL <Text style={{ fontWeight: 'bold' }}>{AppConfig.identity.uri}</Text>
+              URL <Text style={{ fontFamily: interFontFamily.bold }}>{AppConfig.identity.uri}</Text>
             </Text>
           </View>
           <AccountFeatureIndex />

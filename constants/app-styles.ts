@@ -1,5 +1,6 @@
 import { StyleSheet } from 'react-native'
 import { semanticColors } from '@/constants/semantic-colors'
+import { interFontFamily } from '@/constants/typography'
 
 export const appStyles = StyleSheet.create({
   card: {
@@ -29,8 +30,8 @@ export const appStyles = StyleSheet.create({
   },
   feedEmptyTitle: {
     color: semanticColors.text.primary,
+    fontFamily: interFontFamily.bold,
     fontSize: 20,
-    fontWeight: '700',
   },
   feedList: {
     flex: 1,
@@ -48,8 +49,8 @@ export const appStyles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     color: semanticColors.text.secondary,
+    fontFamily: interFontFamily.bold,
     fontSize: 16,
-    fontWeight: '700',
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -71,15 +72,15 @@ export const appStyles = StyleSheet.create({
   },
   tabPlaceholderTitle: {
     color: semanticColors.text.primary,
+    fontFamily: interFontFamily.extraBold,
     fontSize: 30,
-    fontWeight: '800',
   },
   tabScreen: {
     backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   title: {
+    fontFamily: interFontFamily.bold,
     fontSize: 20,
-    fontWeight: 'bold',
   },
 })

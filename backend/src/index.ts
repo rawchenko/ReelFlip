@@ -1,5 +1,8 @@
 import cors from '@fastify/cors'
 import Fastify from 'fastify'
+import { DexScreenerChartProvider } from './chart/chart.provider.dexscreener.js'
+import { ChartRegistry } from './chart/chart.registry.js'
+import { registerChartRoutes } from './chart/chart.route.js'
 import { loadEnv } from './config/env.js'
 import { FeedCache } from './feed/feed.cache.js'
 import { registerFeedRoutes } from './feed/feed.route.js'
@@ -45,6 +48,25 @@ const feedProvider = new CompositeFeedProvider(
 
 const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit)
 
+const chartRegistry = new ChartRegistry(
+  new DexScreenerChartProvider(
+    {
+      timeoutMs: env.dexScreenerTimeoutMs,
+    },
+    app.log,
+  ),
+  {
+    enabled: env.chartEnabled,
+    pollIntervalMs: env.chartIntervalMs,
+    historyLimit: env.chartHistoryLimit,
+    staleAfterMs: env.chartStaleAfterMs,
+    pairIdleTtlMs: env.chartPairIdleTtlMs,
+    maxPairsPerStream: env.chartMaxPairsPerStream,
+    maxActivePairsGlobal: env.chartMaxActivePairsGlobal,
+  },
+  app.log,
+)
+
 await app.register(cors, {
   origin: true,
 })
@@ -53,6 +75,10 @@ await registerFeedRoutes(app, {
   feedService,
   feedDefaultLimit: env.feedDefaultLimit,
   feedMaxLimit: env.feedMaxLimit,
+})
+
+await registerChartRoutes(app, {
+  chartRegistry,
 })
 
 app.get('/health', async () => {
@@ -70,6 +96,7 @@ app.setErrorHandler((error, _request, reply) => {
 
 const closeGracefully = async () => {
   await app.close()
+  await chartRegistry.close()
   await feedCache.close()
 }
 

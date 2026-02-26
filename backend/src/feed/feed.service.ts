@@ -57,7 +57,31 @@ export class FeedRankingService {
       }
     }
 
-    return Array.from(bestByMint.values())
+    const bestBySymbol = new Map<string, (typeof scored)[number]>()
+
+    for (const candidate of bestByMint.values()) {
+      const symbolKey = candidate.item.symbol.trim().toUpperCase()
+      if (symbolKey.length === 0) {
+        continue
+      }
+
+      const existing = bestBySymbol.get(symbolKey)
+      if (!existing) {
+        bestBySymbol.set(symbolKey, candidate)
+        continue
+      }
+
+      if (candidate.score > existing.score) {
+        bestBySymbol.set(symbolKey, candidate)
+        continue
+      }
+
+      if (candidate.score === existing.score && candidate.item.liquidity > existing.item.liquidity) {
+        bestBySymbol.set(symbolKey, candidate)
+      }
+    }
+
+    return Array.from(bestBySymbol.values())
       .sort((left, right) => {
         if (right.score !== left.score) {
           return right.score - left.score
@@ -75,10 +99,28 @@ export class FeedRankingService {
   private score(item: TokenFeedItem): number {
     const liquidityScore = Math.log10(Math.max(1, item.liquidity))
     const volumeScore = Math.log10(Math.max(1, item.volume24h))
+    const recentVolumeScore = Math.log10(Math.max(1, item.recentVolume5m ?? 0))
+    const recentTradesScore = Math.log10(Math.max(1, item.recentTxns5m ?? 0))
     const moveScore = Math.min(Math.max(item.priceChange24h, -40), 40) / 40
     const riskPenalty = item.riskTier === 'block' ? 2 : item.riskTier === 'warn' ? 0.5 : 0
+    const stalePenalty = (item.recentTxns5m ?? 0) === 0 ? 0.8 : 0
+    const quoteBonus =
+      item.quoteSymbol === 'USDC' || item.quoteSymbol === 'USDT'
+        ? 0.3
+        : item.quoteSymbol === 'SOL' || item.quoteSymbol === 'WSOL'
+          ? 0.15
+          : 0
 
-    return liquidityScore * 0.45 + volumeScore * 0.35 + moveScore * 0.2 - riskPenalty
+    return (
+      liquidityScore * 0.33 +
+      volumeScore * 0.22 +
+      recentVolumeScore * 0.16 +
+      recentTradesScore * 0.12 +
+      moveScore * 0.17 +
+      quoteBonus -
+      stalePenalty -
+      riskPenalty
+    )
   }
 }
 

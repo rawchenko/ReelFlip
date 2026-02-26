@@ -8,6 +8,13 @@ export interface BackendEnv {
   feedMaxLimit: number
   dexScreenerTimeoutMs: number
   dexScreenerSearchQuery: string
+  chartEnabled: boolean
+  chartIntervalMs: number
+  chartHistoryLimit: number
+  chartStaleAfterMs: number
+  chartPairIdleTtlMs: number
+  chartMaxPairsPerStream: number
+  chartMaxActivePairsGlobal: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 }
 
@@ -18,8 +25,15 @@ const DEFAULTS = {
   feedCacheStaleTtlSeconds: 30,
   feedDefaultLimit: 10,
   feedMaxLimit: 20,
-  dexScreenerTimeoutMs: 1500,
-  dexScreenerSearchQuery: 'solana',
+  dexScreenerTimeoutMs: 5000,
+  dexScreenerSearchQuery: 'solana,bonk,wif,jup',
+  chartEnabled: true,
+  chartIntervalMs: 1000,
+  chartHistoryLimit: 240,
+  chartStaleAfterMs: 3000,
+  chartPairIdleTtlMs: 15000,
+  chartMaxPairsPerStream: 3,
+  chartMaxActivePairsGlobal: 256,
   logLevel: 'info',
 } as const
 
@@ -51,6 +65,23 @@ function parseLogLevel(): BackendEnv['logLevel'] {
   return raw as BackendEnv['logLevel']
 }
 
+function parseBoolEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) {
+    return fallback
+  }
+
+  const normalized = raw.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false
+  }
+
+  throw new Error(`Invalid ${name}: expected boolean`)
+}
+
 export function loadEnv(): BackendEnv {
   return {
     host: process.env.HOST ?? DEFAULTS.host,
@@ -62,6 +93,17 @@ export function loadEnv(): BackendEnv {
     feedMaxLimit: parseIntEnv('FEED_MAX_LIMIT', DEFAULTS.feedMaxLimit, 1),
     dexScreenerTimeoutMs: parseIntEnv('DEXSCREENER_TIMEOUT_MS', DEFAULTS.dexScreenerTimeoutMs, 200),
     dexScreenerSearchQuery: process.env.DEXSCREENER_SEARCH_QUERY ?? DEFAULTS.dexScreenerSearchQuery,
+    chartEnabled: parseBoolEnv('CHART_ENABLED', DEFAULTS.chartEnabled),
+    chartIntervalMs: parseIntEnv('CHART_INTERVAL_MS', DEFAULTS.chartIntervalMs, 250),
+    chartHistoryLimit: parseIntEnv('CHART_HISTORY_LIMIT', DEFAULTS.chartHistoryLimit, 1),
+    chartStaleAfterMs: parseIntEnv('CHART_STALE_AFTER_MS', DEFAULTS.chartStaleAfterMs, 1000),
+    chartPairIdleTtlMs: parseIntEnv('CHART_PAIR_IDLE_TTL_MS', DEFAULTS.chartPairIdleTtlMs, 1000),
+    chartMaxPairsPerStream: parseIntEnv('CHART_MAX_PAIRS_PER_STREAM', DEFAULTS.chartMaxPairsPerStream, 1),
+    chartMaxActivePairsGlobal: parseIntEnv(
+      'CHART_MAX_ACTIVE_PAIRS_GLOBAL',
+      DEFAULTS.chartMaxActivePairsGlobal,
+      1,
+    ),
     logLevel: parseLogLevel(),
   }
 }
