@@ -1,11 +1,13 @@
 import { useSyncExternalStore } from 'react'
-import { ChartCandle, ChartStreamStatus } from '@/features/feed/chart/types'
+import { ChartCandle, ChartHistoryQuality, ChartStreamStatus } from '@/features/feed/chart/types'
 
 export interface ChartPairState {
   pairAddress: string
   candles: ChartCandle[]
   latestCandle: ChartCandle | null
   status: ChartStreamStatus
+  historySource: string | null
+  historyQuality: ChartHistoryQuality | null
   lastUpdateTimeMs: number | null
   lastHistoryHydratedAtMs: number | null
   refCount: number
@@ -28,9 +30,16 @@ const DEFAULT_PAIR_STATE: ChartPairState = {
   candles: [],
   latestCandle: null,
   status: 'reconnecting',
+  historySource: null,
+  historyQuality: null,
   lastUpdateTimeMs: null,
   lastHistoryHydratedAtMs: null,
   refCount: 0,
+}
+
+interface HydrateHistoryMetadata {
+  source?: string | null
+  historyQuality?: ChartHistoryQuality | null
 }
 
 class FeedChartStore {
@@ -75,13 +84,15 @@ class FeedChartStore {
     }))
   }
 
-  hydrateHistory(pairAddress: string, candles: ChartCandle[]): void {
+  hydrateHistory(pairAddress: string, candles: ChartCandle[], metadata?: HydrateHistoryMetadata): void {
     const sanitized = sanitizeCandles(candles)
     const now = Date.now()
     this.updatePair(pairAddress, (current) => ({
       ...current,
       candles: sanitized.slice(-240),
       latestCandle: sanitized.length > 0 ? { ...sanitized[sanitized.length - 1] } : null,
+      historySource: metadata?.source ?? current.historySource,
+      historyQuality: metadata?.historyQuality ?? current.historyQuality,
       lastHistoryHydratedAtMs: now,
       lastTouchedAtMs: now,
       lastUpdateTimeMs: sanitized.length > 0 ? now : current.lastUpdateTimeMs,

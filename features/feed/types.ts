@@ -1,6 +1,8 @@
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
 
 export type RiskTier = 'block' | 'warn' | 'allow'
+export type FeedCardAction = 'like' | 'comment' | 'share' | 'hide'
+export type FeedTradeSide = 'buy' | 'sell'
 
 export interface TokenFeedItem {
   mint: string

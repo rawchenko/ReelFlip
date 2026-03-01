@@ -15,6 +15,13 @@ export interface BackendEnv {
   chartPairIdleTtlMs: number
   chartMaxPairsPerStream: number
   chartMaxActivePairsGlobal: number
+  chartBatchMaxPairs: number
+  chartBootstrapLimit: number
+  chartHistoryBackfillEnabled: boolean
+  chartHistoryWarmupTopPairs: number
+  chartHistoryProvider: 'public' | 'none'
+  chartHistoryProviderTimeoutMs: number
+  chartHistoryBackfillConcurrency: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 }
 
@@ -34,6 +41,13 @@ const DEFAULTS = {
   chartPairIdleTtlMs: 15000,
   chartMaxPairsPerStream: 3,
   chartMaxActivePairsGlobal: 256,
+  chartBatchMaxPairs: 8,
+  chartBootstrapLimit: 60,
+  chartHistoryBackfillEnabled: true,
+  chartHistoryWarmupTopPairs: 10,
+  chartHistoryProvider: 'public',
+  chartHistoryProviderTimeoutMs: 3000,
+  chartHistoryBackfillConcurrency: 4,
   logLevel: 'info',
 } as const
 
@@ -83,6 +97,11 @@ function parseBoolEnv(name: string, fallback: boolean): boolean {
 }
 
 export function loadEnv(): BackendEnv {
+  const chartHistoryProvider = (process.env.CHART_HISTORY_PROVIDER ?? DEFAULTS.chartHistoryProvider).trim().toLowerCase()
+  if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'none') {
+    throw new Error(`Invalid CHART_HISTORY_PROVIDER: ${chartHistoryProvider}`)
+  }
+
   return {
     host: process.env.HOST ?? DEFAULTS.host,
     port: parseIntEnv('PORT', DEFAULTS.port, 1),
@@ -102,6 +121,21 @@ export function loadEnv(): BackendEnv {
     chartMaxActivePairsGlobal: parseIntEnv(
       'CHART_MAX_ACTIVE_PAIRS_GLOBAL',
       DEFAULTS.chartMaxActivePairsGlobal,
+      1,
+    ),
+    chartBatchMaxPairs: parseIntEnv('CHART_BATCH_MAX_PAIRS', DEFAULTS.chartBatchMaxPairs, 1),
+    chartBootstrapLimit: parseIntEnv('CHART_BOOTSTRAP_LIMIT', DEFAULTS.chartBootstrapLimit, 1),
+    chartHistoryBackfillEnabled: parseBoolEnv('CHART_HISTORY_BACKFILL_ENABLED', DEFAULTS.chartHistoryBackfillEnabled),
+    chartHistoryWarmupTopPairs: parseIntEnv('CHART_HISTORY_WARMUP_TOP_PAIRS', DEFAULTS.chartHistoryWarmupTopPairs, 0),
+    chartHistoryProvider: chartHistoryProvider as BackendEnv['chartHistoryProvider'],
+    chartHistoryProviderTimeoutMs: parseIntEnv(
+      'CHART_HISTORY_PROVIDER_TIMEOUT_MS',
+      DEFAULTS.chartHistoryProviderTimeoutMs,
+      200,
+    ),
+    chartHistoryBackfillConcurrency: parseIntEnv(
+      'CHART_HISTORY_BACKFILL_CONCURRENCY',
+      DEFAULTS.chartHistoryBackfillConcurrency,
       1,
     ),
     logLevel: parseLogLevel(),

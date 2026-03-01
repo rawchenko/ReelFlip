@@ -1,4 +1,4 @@
-export type ChartInterval = '1m'
+export type ChartInterval = '1m' | '1s'
 
 export interface ChartTickSample {
   pairAddress: string
@@ -25,15 +25,32 @@ export interface ChartCandleDto {
   volume?: number
 }
 
-export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting'
+export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
+export type ChartHistoryQuality = 'real_backfill' | 'runtime_only' | 'partial' | 'unavailable'
 
 export interface ChartHistoryResponse {
   pairAddress: string
   interval: ChartInterval
   generatedAt: string
-  source: 'dexscreener'
+  source: string
   delayed: boolean
+  historyQuality?: ChartHistoryQuality
   candles: ChartCandleDto[]
+}
+
+export interface ChartBatchHistoryPairResult {
+  pairAddress: string
+  delayed: boolean
+  status: ChartStreamStatus
+  source: string
+  historyQuality: ChartHistoryQuality
+  candles: ChartCandleDto[]
+}
+
+export interface ChartBatchHistoryResponse {
+  interval: ChartInterval
+  generatedAt: string
+  results: ChartBatchHistoryPairResult[]
 }
 
 export interface ChartProvider {
@@ -73,6 +90,17 @@ export type ChartStreamEvent =
 export function toChartCandleDto(candle: OhlcCandle): ChartCandleDto {
   return {
     time: candle.timeSec,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    ...(candle.volume !== undefined ? { volume: candle.volume } : {}),
+  }
+}
+
+export function fromChartCandleDto(candle: ChartCandleDto): OhlcCandle {
+  return {
+    timeSec: candle.time,
     open: candle.open,
     high: candle.high,
     low: candle.low,

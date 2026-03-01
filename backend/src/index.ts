@@ -1,5 +1,9 @@
 import cors from '@fastify/cors'
 import Fastify from 'fastify'
+import { ChartHistoryCache } from './chart/chart.history-cache.js'
+import { ChartHistoryService } from './chart/chart.history-service.js'
+import { GeckoTerminalHistoricalCandleProvider } from './chart/chart.history-provider.geckoterminal.js'
+import { NoopHistoricalCandleProvider } from './chart/chart.history-provider.js'
 import { DexScreenerChartProvider } from './chart/chart.provider.dexscreener.js'
 import { ChartRegistry } from './chart/chart.registry.js'
 import { registerChartRoutes } from './chart/chart.route.js'
@@ -48,6 +52,24 @@ const feedProvider = new CompositeFeedProvider(
 
 const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit)
 
+const chartHistoryCache = new ChartHistoryCache({
+  redisUrl: env.redisUrl,
+  maxCandles: env.chartHistoryLimit,
+  logger: app.log,
+})
+
+await chartHistoryCache.initialize()
+
+const chartHistoricalProvider =
+  env.chartHistoryProvider === 'public'
+    ? new GeckoTerminalHistoricalCandleProvider(
+        {
+          timeoutMs: env.chartHistoryProviderTimeoutMs,
+        },
+        app.log,
+      )
+    : new NoopHistoricalCandleProvider()
+
 const chartRegistry = new ChartRegistry(
   new DexScreenerChartProvider(
     {
@@ -65,6 +87,22 @@ const chartRegistry = new ChartRegistry(
     maxActivePairsGlobal: env.chartMaxActivePairsGlobal,
   },
   app.log,
+  chartHistoryCache,
+)
+
+const chartHistoryService = new ChartHistoryService(
+  chartRegistry,
+  chartHistoryCache,
+  chartHistoricalProvider,
+  {
+    historyLimit: env.chartHistoryLimit,
+    bootstrapLimit: env.chartBootstrapLimit,
+    batchMaxPairs: env.chartBatchMaxPairs,
+    backfillEnabled: env.chartHistoryBackfillEnabled,
+    backfillConcurrency: env.chartHistoryBackfillConcurrency,
+    warmupTopPairs: env.chartHistoryWarmupTopPairs,
+  },
+  app.log,
 )
 
 await app.register(cors, {
@@ -75,16 +113,26 @@ await registerFeedRoutes(app, {
   feedService,
   feedDefaultLimit: env.feedDefaultLimit,
   feedMaxLimit: env.feedMaxLimit,
+  onFeedItemsServed: (items) => {
+    if (env.chartHistoryWarmupTopPairs <= 0) {
+      return
+    }
+
+    const pairAddresses = items.map((item) => item.pairAddress ?? '').filter((pair) => pair.length > 0)
+    chartHistoryService.warmupPairs(pairAddresses)
+  },
 })
 
 await registerChartRoutes(app, {
   chartRegistry,
+  chartHistoryService,
 })
 
 app.get('/health', async () => {
   return {
     status: 'ok',
     cacheMode: feedCache.cacheMode(),
+    chartHistoryCacheMode: chartHistoryCache.cacheMode(),
   }
 })
 
@@ -97,6 +145,7 @@ app.setErrorHandler((error, _request, reply) => {
 const closeGracefully = async () => {
   await app.close()
   await chartRegistry.close()
+  await chartHistoryCache.close()
   await feedCache.close()
 }
 
@@ -113,4 +162,12 @@ await app.listen({
   port: env.port,
 })
 
-app.log.info({ host: env.host, port: env.port, cacheMode: feedCache.cacheMode() }, 'Feed backend started')
+app.log.info(
+  {
+    host: env.host,
+    port: env.port,
+    cacheMode: feedCache.cacheMode(),
+    chartHistoryCacheMode: chartHistoryCache.cacheMode(),
+  },
+  'Feed backend started',
+)

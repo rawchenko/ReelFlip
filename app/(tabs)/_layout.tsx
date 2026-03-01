@@ -1,8 +1,19 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Tabs } from 'expo-router'
+import { Redirect, Tabs } from 'expo-router'
 import { semanticColors } from '@/constants/semantic-colors'
+import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
 export default function TabsLayout() {
+  const { hasCompletedOnboarding, hasHydrated } = useOnboarding()
+
+  if (!hasHydrated) {
+    return null
+  }
+
+  if (!hasCompletedOnboarding) {
+    return <Redirect href="../onboarding" />
+  }
+
   return (
     <Tabs
       screenOptions={{

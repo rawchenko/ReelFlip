@@ -59,7 +59,7 @@ test('subscribers receive live status and candle updates, and snapshot can be bu
   )
 
   const events: ChartStreamEvent[] = []
-  const unsubscribe = registry.subscribe([pairAddress], (event) => {
+  const unsubscribe = registry.subscribe([pairAddress], '1m', (event) => {
     events.push(event)
   })
 
@@ -69,10 +69,11 @@ test('subscribers receive live status and candle updates, and snapshot can be bu
       events.some((event) => event.type === 'candle_update' && event.pairAddress === pairAddress),
   )
 
-  const snapshot = registry.buildSnapshotEvent(pairAddress, 10)
+  const snapshot = registry.buildSnapshotEvent(pairAddress, 10, '1m')
   assert.ok(snapshot)
   assert.equal(snapshot?.type, 'snapshot')
   assert.equal(snapshot?.pairAddress, pairAddress)
+  assert.equal(snapshot?.interval, '1m')
   assert.equal(snapshot?.candles.length, 1)
 
   unsubscribe()
@@ -101,14 +102,14 @@ test('pair transitions to delayed after stale threshold', async () => {
     logger,
   )
 
-  const unsubscribe = registry.subscribe([pairAddress], () => undefined)
+  const unsubscribe = registry.subscribe([pairAddress], '1m', () => undefined)
   await waitFor(() => {
     const event = registry.buildStatusEvent(pairAddress)
     return event.type === 'status' && event.status === 'live'
   })
 
   await delay(35)
-  const snapshot = registry.getPairSnapshot(pairAddress, 10)
+  const snapshot = registry.getPairSnapshot(pairAddress, 10, '1m')
   const statusEvent = registry.buildStatusEvent(pairAddress)
   assert.equal(statusEvent.type, 'status')
 

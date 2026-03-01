@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify'
 import { errorEnvelope } from '../lib/error-envelope.js'
 import { FeedCategory } from './feed.provider.js'
 import { FeedService, InvalidFeedRequestError } from './feed.service.js'
+import type { TokenFeedItem } from './feed.provider.js'
 
 interface FeedRouteDependencies {
   feedService: FeedService
   feedDefaultLimit: number
   feedMaxLimit: number
+  onFeedItemsServed?: (items: TokenFeedItem[]) => void
 }
 
 interface FeedQuerystring {
@@ -44,6 +46,8 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
         },
         'Feed request completed',
       )
+
+      dependencies.onFeedItemsServed?.(result.items)
 
       return {
         items: result.items,

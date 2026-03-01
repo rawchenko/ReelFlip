@@ -1,10 +1,14 @@
+import websocket from '@fastify/websocket'
 import { FastifyInstance } from 'fastify'
+import { ChartHistoryService } from './chart.history-service.js'
 import { ChartRegistry } from './chart.registry.js'
-import { ChartHistoryResponse, ChartStreamEvent } from './chart.types.js'
+import { registerChartWebSocketTransport } from './chart.transport.ws.js'
+import { ChartInterval, ChartStreamEvent } from './chart.types.js'
 import { errorEnvelope } from '../lib/error-envelope.js'
 
 interface ChartRouteDependencies {
   chartRegistry: ChartRegistry
+  chartHistoryService: ChartHistoryService
 }
 
 interface ChartHistoryParams {
@@ -21,11 +25,21 @@ interface ChartStreamQuery {
   interval?: string
 }
 
-const SUPPORTED_INTERVAL = '1m'
+interface ChartBatchBody {
+  pairs?: unknown
+  interval?: unknown
+  limit?: unknown
+}
+
+const SUPPORTED_INTERVALS: ChartInterval[] = ['1s', '1m']
 const MAX_HISTORY_LIMIT = 240
+const MAX_BATCH_LIMIT = 60
 const HEARTBEAT_MS = 15_000
 
 export async function registerChartRoutes(app: FastifyInstance, dependencies: ChartRouteDependencies): Promise<void> {
+  await app.register(websocket)
+  registerChartWebSocketTransport(app, dependencies)
+
   app.get<{ Params: ChartHistoryParams; Querystring: ChartHistoryQuery }>('/v1/chart/:pairAddress', async (request, reply) => {
     if (!dependencies.chartRegistry.isEnabled()) {
       return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
@@ -35,19 +49,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
       const pairAddress = parsePairAddress(request.params.pairAddress)
       const interval = parseInterval(request.query.interval)
       const limit = parseLimit(request.query.limit)
-      await dependencies.chartRegistry.ensurePairSeeded(pairAddress)
-      const snapshot = dependencies.chartRegistry.getPairSnapshot(pairAddress, limit)
-
-      const response: ChartHistoryResponse = {
-        pairAddress,
-        interval,
-        generatedAt: new Date().toISOString(),
-        source: 'dexscreener',
-        delayed: snapshot.delayed,
-        candles: snapshot.candles,
-      }
-
-      return response
+      return await dependencies.chartHistoryService.getPairHistory(pairAddress, limit, interval)
     } catch (error) {
       if (error instanceof ChartRouteError) {
         return reply.code(400).send(errorEnvelope('BAD_REQUEST', error.message))
@@ -58,13 +60,29 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
     }
   })
 
+  app.post<{ Body: ChartBatchBody }>('/v1/chart/batch', async (request, reply) => {
+    if (!dependencies.chartRegistry.isEnabled()) {
+      return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
+    }
+
+    try {
+      const interval = parseInterval(asOptionalString(request.body?.interval))
+      const limit = parseBatchLimit(request.body?.limit, dependencies.chartHistoryService.getDefaultBootstrapLimit())
+      const pairs = parsePairsArray(request.body?.pairs, dependencies.chartHistoryService.getBatchMaxPairs())
+      return await dependencies.chartHistoryService.getBatchHistory(pairs, limit, interval)
+    } catch (error) {
+      const message = error instanceof ChartRouteError ? error.message : 'Invalid chart batch request'
+      return reply.code(400).send(errorEnvelope('BAD_REQUEST', message))
+    }
+  })
+
   app.get<{ Querystring: ChartStreamQuery }>('/v1/chart/stream', async (request, reply) => {
     if (!dependencies.chartRegistry.isEnabled()) {
       return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
     }
 
     try {
-      parseInterval(request.query.interval)
+      const interval = parseInterval(request.query.interval)
       const pairs = parsePairs(request.query.pairs, dependencies.chartRegistry.getOptions().maxPairsPerStream)
 
       reply.hijack()
@@ -90,7 +108,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
           request.log.warn({ error, pairAddress }, 'Failed to seed pair for SSE bootstrap')
         }
 
-        const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, 120)
+        const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, 120, interval)
         if (snapshotEvent) {
           writeEvent('snapshot', snapshotEvent)
         }
@@ -98,7 +116,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
         writeEvent('status', dependencies.chartRegistry.buildStatusEvent(pairAddress))
       }
 
-      const unsubscribe = dependencies.chartRegistry.subscribe(pairs, (event) => {
+      const unsubscribe = dependencies.chartRegistry.subscribe(pairs, interval, (event) => {
         writeEvent(mapEventTypeToSseName(event.type), event)
       })
 
@@ -166,12 +184,37 @@ function parsePairs(raw: string | undefined, maxPairsPerStream: number): string[
   return deduped
 }
 
-function parseInterval(raw: string | undefined): '1m' {
-  if (raw === undefined || raw === SUPPORTED_INTERVAL) {
-    return SUPPORTED_INTERVAL
+function parsePairsArray(raw: unknown, maxPairs: number): string[] {
+  if (!Array.isArray(raw)) {
+    throw new ChartRouteError('pairs is required and must be an array')
   }
 
-  throw new ChartRouteError(`interval must be ${SUPPORTED_INTERVAL}`)
+  const values = raw
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter((value) => value.length > 0)
+  const deduped = Array.from(new Set(values))
+
+  if (deduped.length === 0) {
+    throw new ChartRouteError('pairs must include at least one pair address')
+  }
+
+  if (deduped.length > maxPairs) {
+    throw new ChartRouteError(`pairs supports up to ${maxPairs} addresses`)
+  }
+
+  return deduped
+}
+
+function parseInterval(raw: string | undefined): ChartInterval {
+  if (raw === undefined) {
+    return '1m'
+  }
+
+  if (raw === '1s' || raw === '1m') {
+    return raw
+  }
+
+  throw new ChartRouteError(`interval must be one of: ${SUPPORTED_INTERVALS.join(', ')}`)
 }
 
 function parseLimit(raw: string | number | undefined): number {
@@ -186,6 +229,28 @@ function parseLimit(raw: string | number | undefined): number {
 
   if (value < 1 || value > MAX_HISTORY_LIMIT) {
     throw new ChartRouteError(`limit must be between 1 and ${MAX_HISTORY_LIMIT}`)
+  }
+
+  return value
+}
+
+function parseBatchLimit(raw: unknown, fallback: number): number {
+  if (raw === undefined) {
+    return Math.max(1, Math.min(fallback, MAX_BATCH_LIMIT))
+  }
+
+  const value =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string'
+        ? Number.parseInt(raw, 10)
+        : Number.NaN
+  if (!Number.isInteger(value)) {
+    throw new ChartRouteError('limit must be an integer')
+  }
+
+  if (value < 1 || value > MAX_BATCH_LIMIT) {
+    throw new ChartRouteError(`limit must be between 1 and ${MAX_BATCH_LIMIT}`)
   }
 
   return value
@@ -208,4 +273,8 @@ function mapEventTypeToSseName(type: ChartStreamEvent['type']): string {
 
 function formatSseEvent(eventName: string, payload: ChartStreamEvent): string {
   return `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }

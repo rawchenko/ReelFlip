@@ -1,7 +1,7 @@
 import { appStyles } from '@/constants/app-styles'
 import { useFeedChartRealtime } from '@/features/feed/chart/use-feed-chart-realtime'
 import { TokenCard } from '@/features/feed/token-card'
-import { TokenFeedItem } from '@/features/feed/types'
+import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { FlatList, Text, View, ViewToken, useWindowDimensions } from 'react-native'
 
@@ -10,9 +10,18 @@ interface VerticalFeedProps {
   topInset?: number
   refreshing?: boolean
   onRefresh?: () => void
+  onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
+  onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
 }
 
-export function VerticalFeed({ items, topInset = 96, refreshing = false, onRefresh }: VerticalFeedProps) {
+export function VerticalFeed({
+  items,
+  topInset = 96,
+  refreshing = false,
+  onRefresh,
+  onActionPress,
+  onTradePress,
+}: VerticalFeedProps) {
   const { height: windowHeight } = useWindowDimensions()
   const [listHeight, setListHeight] = useState(windowHeight)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -75,7 +84,13 @@ export function VerticalFeed({ items, topInset = 96, refreshing = false, onRefre
       getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
       renderItem={({ item, index }) => (
         <View style={[appStyles.feedPage, { height: pageHeight }]}>
-          <TokenCard item={item} availableHeight={pageHeight} enableTradingView={Math.abs(index - activeIndex) <= 1} />
+          <TokenCard
+            item={item}
+            availableHeight={pageHeight}
+            enableTradingView={Math.abs(index - activeIndex) <= 1}
+            onActionPress={onActionPress}
+            onTradePress={onTradePress}
+          />
         </View>
       )}
     />

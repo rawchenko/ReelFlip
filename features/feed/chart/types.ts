@@ -1,3 +1,5 @@
+export type ChartInterval = '1m' | '1s'
+
 export interface ChartCandle {
   time: number
   open: number
@@ -7,22 +9,39 @@ export interface ChartCandle {
   volume?: number
 }
 
-export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting'
+export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
+export type ChartHistoryQuality = 'real_backfill' | 'runtime_only' | 'partial' | 'unavailable'
 
 export interface ChartHistoryResponse {
   pairAddress: string
-  interval: '1m'
+  interval: ChartInterval
   generatedAt: string
-  source: 'dexscreener'
+  source: string
   delayed: boolean
+  historyQuality?: ChartHistoryQuality
   candles: ChartCandle[]
+}
+
+export interface ChartBatchHistoryPairResult {
+  pairAddress: string
+  delayed: boolean
+  status: ChartStreamStatus
+  source: string
+  historyQuality: ChartHistoryQuality
+  candles: ChartCandle[]
+}
+
+export interface ChartBatchHistoryResponse {
+  interval: ChartInterval
+  generatedAt: string
+  results: ChartBatchHistoryPairResult[]
 }
 
 export type ChartStreamEvent =
   | {
       type: 'snapshot'
       pairAddress: string
-      interval: '1m'
+      interval: ChartInterval
       delayed: boolean
       candles: ChartCandle[]
       serverTime: string
@@ -30,7 +49,7 @@ export type ChartStreamEvent =
   | {
       type: 'candle_update'
       pairAddress: string
-      interval: '1m'
+      interval: ChartInterval
       delayed: boolean
       candle: ChartCandle
       isNewCandle: boolean

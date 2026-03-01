@@ -73,3 +73,34 @@ test('out-of-order sample is ignored', () => {
   assert.equal(candles.length, 1)
   assert.equal(candles[0]?.close, 5)
 })
+
+test('1s interval creates a new candle for the next second', () => {
+  const aggregator = new ChartAggregator(10, '1s')
+  const pairAddress = 'pair-1s'
+  const baseMs = Date.UTC(2026, 1, 26, 12, 0, 10, 200)
+
+  const first = aggregator.applySample({
+    pairAddress,
+    observedAtMs: baseMs,
+    priceUsd: 10,
+  })
+  const second = aggregator.applySample({
+    pairAddress,
+    observedAtMs: baseMs + 600,
+    priceUsd: 10.5,
+  })
+  const third = aggregator.applySample({
+    pairAddress,
+    observedAtMs: baseMs + 1_100,
+    priceUsd: 11,
+  })
+
+  assert.equal(first?.isNewCandle, true)
+  assert.equal(second?.isNewCandle, false)
+  assert.equal(third?.isNewCandle, true)
+
+  const candles = aggregator.getCandles(pairAddress)
+  assert.equal(candles.length, 2)
+  assert.equal(candles[0]?.close, 10.5)
+  assert.equal(candles[1]?.open, 11)
+})

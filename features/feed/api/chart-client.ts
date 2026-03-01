@@ -1,5 +1,11 @@
 import { Platform } from 'react-native'
-import { ChartHistoryResponse, ChartStreamEvent } from '@/features/feed/chart/types'
+import {
+  ChartBatchHistoryResponse,
+  ChartHistoryQuality,
+  ChartHistoryResponse,
+  ChartInterval,
+  ChartStreamEvent,
+} from '@/features/feed/chart/types'
 
 interface ChartErrorEnvelope {
   error?: {
@@ -9,14 +15,20 @@ interface ChartErrorEnvelope {
 }
 
 interface FetchChartHistoryOptions {
-  interval?: '1m'
+  interval?: ChartInterval
+  limit?: number
+  signal?: AbortSignal
+}
+
+interface FetchChartBatchHistoryOptions {
+  interval?: ChartInterval
   limit?: number
   signal?: AbortSignal
 }
 
 interface CreateChartStreamOptions {
   pairs: string[]
-  interval?: '1m'
+  interval?: ChartInterval
   onEvent: (event: ChartStreamEvent) => void
   onError?: (error: Error) => void
   onOpen?: () => void
@@ -25,6 +37,7 @@ interface CreateChartStreamOptions {
 
 export interface ChartStreamConnection {
   close: () => void
+  transport: 'ws' | 'sse'
 }
 
 const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
@@ -84,15 +97,163 @@ export async function fetchChartHistory(
 
   return {
     pairAddress: typeof payload.pairAddress === 'string' ? payload.pairAddress : pairAddress,
-    interval: payload.interval === '1m' ? '1m' : '1m',
+    interval: normalizeInterval(payload.interval),
     generatedAt: typeof payload.generatedAt === 'string' ? payload.generatedAt : new Date(0).toISOString(),
-    source: 'dexscreener',
+    source: typeof payload.source === 'string' ? payload.source : 'runtime_aggregator',
     delayed: Boolean(payload.delayed),
+    ...(isHistoryQuality(payload.historyQuality) ? { historyQuality: payload.historyQuality } : {}),
     candles: sanitizeCandles(payload.candles),
   }
 }
 
+export async function fetchChartBatchHistory(
+  pairAddresses: string[],
+  options: FetchChartBatchHistoryOptions = {},
+): Promise<ChartBatchHistoryResponse> {
+  const baseUrl = normalizeBaseUrl(getApiBaseUrl())
+  const pairs = Array.from(new Set(pairAddresses.map((pair) => pair.trim()).filter((pair) => pair.length > 0)))
+  if (pairs.length === 0) {
+    return {
+      interval: options.interval ?? '1m',
+      generatedAt: new Date().toISOString(),
+      results: [],
+    }
+  }
+
+  const response = await fetch(`${baseUrl}/v1/chart/batch`, {
+    method: 'POST',
+    signal: options.signal,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      pairs,
+      interval: options.interval ?? '1m',
+      limit: options.limit ?? 60,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `Chart batch request failed with status ${response.status}`))
+  }
+
+  const payload = (await response.json()) as Partial<ChartBatchHistoryResponse> & { results?: unknown }
+  const rawResults = Array.isArray(payload.results) ? payload.results : []
+
+  return {
+    interval: normalizeInterval(payload.interval),
+    generatedAt: typeof payload.generatedAt === 'string' ? payload.generatedAt : new Date(0).toISOString(),
+    results: rawResults
+      .map((result) => normalizeBatchHistoryPairResult(result))
+      .filter((result): result is ChartBatchHistoryResponse['results'][number] => result !== null),
+  }
+}
+
 export function createChartStream(options: CreateChartStreamOptions): ChartStreamConnection {
+  return createChartStreamSse(options)
+}
+
+export function createChartStreamWs(options: CreateChartStreamOptions): ChartStreamConnection {
+  const interval = options.interval ?? '1m'
+  const pairs = Array.from(new Set(options.pairs.map((pair) => pair.trim()).filter((pair) => pair.length > 0)))
+
+  if (pairs.length === 0) {
+    throw new Error('createChartStreamWs requires at least one pair address')
+  }
+
+  const baseUrl = normalizeBaseUrl(getApiBaseUrl())
+  const wsUrl = toWebSocketUrl(`${baseUrl}/v1/chart/ws`)
+  let closed = false
+  let socket: WebSocket | null = null
+
+  const close = () => {
+    if (closed) {
+      return
+    }
+    closed = true
+
+    try {
+      socket?.close()
+    } catch {
+      // Ignore close errors during shutdown.
+    }
+  }
+
+  try {
+    socket = new WebSocket(wsUrl)
+  } catch (error) {
+    queueMicrotask(() => {
+      if (closed) {
+        return
+      }
+      options.onError?.(error instanceof Error ? error : new Error(String(error)))
+      options.onClose?.()
+    })
+
+    return { close, transport: 'ws' }
+  }
+
+  socket.onopen = () => {
+    if (closed || !socket) {
+      return
+    }
+
+    logChartClientDiagnostic('ws_stream_connected', {
+      pairs,
+      interval,
+    })
+    options.onOpen?.()
+
+    try {
+      socket.send(
+        JSON.stringify({
+          op: 'subscribe',
+          pairs,
+          interval,
+        }),
+      )
+    } catch (error) {
+      options.onError?.(error instanceof Error ? error : new Error(String(error)))
+      close()
+    }
+  }
+
+  socket.onmessage = (message) => {
+    if (closed) {
+      return
+    }
+
+    const normalized = normalizeWsStreamMessage(message.data)
+    if (normalized) {
+      options.onEvent(normalized)
+    }
+  }
+
+  socket.onerror = () => {
+    if (closed) {
+      return
+    }
+
+    logChartClientDiagnostic('ws_stream_error', {
+      pairs,
+      interval,
+    })
+    options.onError?.(new Error('WebSocket chart stream error'))
+  }
+
+  socket.onclose = () => {
+    if (closed) {
+      return
+    }
+
+    options.onClose?.()
+  }
+
+  return { close, transport: 'ws' }
+}
+
+export function createChartStreamSse(options: CreateChartStreamOptions): ChartStreamConnection {
   const controller = new AbortController()
   const interval = options.interval ?? '1m'
   const pairs = Array.from(new Set(options.pairs.map((pair) => pair.trim()).filter((pair) => pair.length > 0)))
@@ -123,11 +284,11 @@ export function createChartStream(options: CreateChartStreamOptions): ChartStrea
       }
     })
 
-  return { close }
+  return { close, transport: 'sse' }
 }
 
 async function runFetchSse(
-  options: CreateChartStreamOptions & { interval: '1m'; pairs: string[]; signal: AbortSignal },
+  options: CreateChartStreamOptions & { interval: ChartInterval; pairs: string[]; signal: AbortSignal },
 ): Promise<void> {
   const baseUrl = normalizeBaseUrl(getApiBaseUrl())
   const searchParams = new URLSearchParams()
@@ -160,7 +321,7 @@ async function runFetchSse(
     throw new Error('Streaming response body is not available in this runtime')
   }
 
-  logChartClientDiagnostic('stream_connected', {
+  logChartClientDiagnostic('sse_stream_connected', {
     pairs: options.pairs,
     interval: options.interval,
   })
@@ -232,6 +393,21 @@ function emitBufferedEvent(
   }
 }
 
+function normalizeWsStreamMessage(input: unknown): ChartStreamEvent | null {
+  if (typeof input !== 'string') {
+    return null
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(input)
+  } catch {
+    return null
+  }
+
+  return normalizeStreamEvent(parsed, null)
+}
+
 function normalizeStreamEvent(input: unknown, eventName: string | null): ChartStreamEvent | null {
   if (!isRecord(input)) {
     return null
@@ -249,7 +425,7 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
     const status = input.status
     if (
       typeof input.pairAddress !== 'string' ||
-      (status !== 'live' && status !== 'delayed' && status !== 'reconnecting')
+      (status !== 'live' && status !== 'delayed' && status !== 'reconnecting' && status !== 'fallback_polling')
     ) {
       return null
     }
@@ -271,7 +447,7 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
     return {
       type: 'snapshot',
       pairAddress: input.pairAddress,
-      interval: '1m',
+      interval: normalizeInterval(input.interval),
       delayed: Boolean(input.delayed),
       candles: sanitizeCandles(input.candles),
       serverTime: typeof input.serverTime === 'string' ? input.serverTime : new Date().toISOString(),
@@ -291,7 +467,7 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
     return {
       type: 'candle_update',
       pairAddress: input.pairAddress,
-      interval: '1m',
+      interval: normalizeInterval(input.interval),
       delayed: Boolean(input.delayed),
       candle,
       isNewCandle: Boolean(input.isNewCandle),
@@ -311,6 +487,32 @@ function sanitizeCandles(candles: unknown[]): ChartHistoryResponse['candles'] {
     }
   }
   return normalized
+}
+
+function normalizeBatchHistoryPairResult(input: unknown): ChartBatchHistoryResponse['results'][number] | null {
+  if (!isRecord(input) || typeof input.pairAddress !== 'string' || !Array.isArray(input.candles)) {
+    return null
+  }
+
+  if (
+    input.status !== 'live' &&
+    input.status !== 'delayed' &&
+    input.status !== 'reconnecting' &&
+    input.status !== 'fallback_polling'
+  ) {
+    return null
+  }
+
+  const historyQuality = isHistoryQuality(input.historyQuality) ? input.historyQuality : 'unavailable'
+
+  return {
+    pairAddress: input.pairAddress,
+    delayed: Boolean(input.delayed),
+    status: input.status,
+    source: typeof input.source === 'string' ? input.source : 'runtime_aggregator',
+    historyQuality,
+    candles: sanitizeCandles(input.candles),
+  }
 }
 
 function sanitizeCandle(input: unknown): ChartHistoryResponse['candles'][number] | null {
@@ -379,4 +581,24 @@ function readFiniteNumber(value: unknown): number | null {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null
+}
+
+function isHistoryQuality(value: unknown): value is ChartHistoryQuality {
+  return value === 'real_backfill' || value === 'runtime_only' || value === 'partial' || value === 'unavailable'
+}
+
+function normalizeInterval(value: unknown): ChartInterval {
+  return value === '1s' ? '1s' : '1m'
+}
+
+function toWebSocketUrl(url: string): string {
+  if (url.startsWith('https://')) {
+    return `wss://${url.slice('https://'.length)}`
+  }
+
+  if (url.startsWith('http://')) {
+    return `ws://${url.slice('http://'.length)}`
+  }
+
+  return url
 }

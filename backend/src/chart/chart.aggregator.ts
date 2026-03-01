@@ -1,4 +1,4 @@
-import { ChartTickSample, OhlcCandle } from './chart.types.js'
+import { ChartInterval, ChartTickSample, OhlcCandle } from './chart.types.js'
 
 export interface AggregatorUpdate {
   candle: OhlcCandle
@@ -13,8 +13,14 @@ interface PairSeriesState {
 
 export class ChartAggregator {
   private readonly pairState = new Map<string, PairSeriesState>()
+  private readonly bucketSizeMs: number
 
-  constructor(private readonly historyLimit: number) {}
+  constructor(
+    private readonly historyLimit: number,
+    interval: ChartInterval = '1m',
+  ) {
+    this.bucketSizeMs = interval === '1s' ? 1_000 : 60_000
+  }
 
   applySample(sample: ChartTickSample): AggregatorUpdate | null {
     if (!isValidSample(sample)) {
@@ -29,7 +35,7 @@ export class ChartAggregator {
 
     state.lastObservedAtMs = sample.observedAtMs
 
-    const bucketTimeSec = Math.floor(sample.observedAtMs / 60_000) * 60
+    const bucketTimeSec = Math.floor(sample.observedAtMs / this.bucketSizeMs) * (this.bucketSizeMs / 1_000)
     const lastCandle = state.candles[state.candles.length - 1]
 
     if (!lastCandle || bucketTimeSec > lastCandle.timeSec) {

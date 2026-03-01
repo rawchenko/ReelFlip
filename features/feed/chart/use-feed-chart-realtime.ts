@@ -1,6 +1,6 @@
 import { useIsFocused } from '@react-navigation/native'
 import { useEffect, useMemo, useRef } from 'react'
-import { createChartStream, fetchChartHistory } from '@/features/feed/api/chart-client'
+import { createChartStreamSse, createChartStreamWs, fetchChartBatchHistory, fetchChartHistory } from '@/features/feed/api/chart-client'
 import { feedChartStore, getChartPairState } from '@/features/feed/chart/chart-store'
 import { ChartStreamEvent } from '@/features/feed/chart/types'
 import { TokenFeedItem } from '@/features/feed/types'
@@ -15,6 +15,8 @@ const ACTIVE_RADIUS = 1
 const PAIRS_PER_STREAM = 3
 const RECONNECT_BACKOFF_MS = [1000, 2000, 5000] as const
 const HISTORY_POLL_INTERVAL_MS = 1000
+const HISTORY_VISIBLE_CANDLES = 60
+const CHART_INTERVAL = '1s' as const
 
 function logChartRealtimeDiagnostic(event: string, details?: Record<string, unknown>): void {
   if (!__DEV__) {
@@ -82,27 +84,120 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       return
     }
 
-    for (const pairAddress of stableActivePairs) {
+    const pairsNeedingHistory = stableActivePairs.filter((pairAddress) => {
       const existing = getChartPairState(pairAddress)
-      if ((existing?.candles.length ?? 0) > 0 || historyInFlightRef.current.has(pairAddress)) {
-        continue
-      }
+      return (existing?.candles.length ?? 0) === 0 && !historyInFlightRef.current.has(pairAddress)
+    })
 
+    if (pairsNeedingHistory.length === 0) {
+      return
+    }
+
+    for (const pairAddress of pairsNeedingHistory) {
       historyInFlightRef.current.add(pairAddress)
       feedChartStore.setStatus(pairAddress, 'reconnecting')
+    }
 
-      void fetchChartHistory(pairAddress, { interval: '1m', limit: 120 })
-        .then((history) => {
-          feedChartStore.hydrateHistory(history.pairAddress, history.candles)
-          feedChartStore.setStatus(history.pairAddress, history.delayed ? 'delayed' : 'live')
-        })
-        .catch((error) => {
-          console.warn('[chart] history fetch failed', pairAddress, error)
-          feedChartStore.setStatus(pairAddress, 'reconnecting')
-        })
-        .finally(() => {
-          historyInFlightRef.current.delete(pairAddress)
-        })
+    let cancelled = false
+
+    const finishPair = (pairAddress: string) => {
+      historyInFlightRef.current.delete(pairAddress)
+    }
+
+    void fetchChartBatchHistory(pairsNeedingHistory, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES })
+      .then(async (batch) => {
+        if (__DEV__) {
+          const summary = batch.results.map((result) => ({
+            pairAddress: result.pairAddress,
+            source: result.source,
+            historyQuality: result.historyQuality,
+            candleCount: result.candles.length,
+          }))
+          logChartRealtimeDiagnostic('history_batch_bootstrap', {
+            pairCount: batch.results.length,
+            results: summary,
+          })
+        }
+
+        const seenPairs = new Set<string>()
+        for (const result of batch.results) {
+          seenPairs.add(result.pairAddress)
+          if (cancelled) {
+            continue
+          }
+
+          if (result.candles.length > 0) {
+            feedChartStore.hydrateHistory(result.pairAddress, result.candles, {
+              source: result.source,
+              historyQuality: result.historyQuality,
+            })
+          }
+          feedChartStore.setStatus(result.pairAddress, result.delayed ? 'delayed' : result.status)
+          finishPair(result.pairAddress)
+        }
+
+        const missingPairs = pairsNeedingHistory.filter((pairAddress) => !seenPairs.has(pairAddress))
+        if (missingPairs.length === 0) {
+          return
+        }
+
+        await Promise.all(
+          missingPairs.map(async (pairAddress) => {
+            try {
+              const history = await fetchChartHistory(pairAddress, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES })
+              if (!cancelled) {
+                feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+                  source: history.source,
+                  historyQuality: history.historyQuality ?? null,
+                })
+                feedChartStore.setStatus(history.pairAddress, history.delayed ? 'delayed' : 'live')
+              }
+            } catch (error) {
+              if (__DEV__) {
+                console.warn('[chart] fallback history fetch failed', pairAddress, error)
+              }
+              if (!cancelled) {
+                feedChartStore.setStatus(pairAddress, 'reconnecting')
+              }
+            } finally {
+              finishPair(pairAddress)
+            }
+          }),
+        )
+      })
+      .catch(async (error) => {
+        if (__DEV__) {
+          console.warn('[chart] history batch fetch failed', error)
+        }
+
+        await Promise.all(
+          pairsNeedingHistory.map(async (pairAddress) => {
+            try {
+              const history = await fetchChartHistory(pairAddress, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES })
+              if (!cancelled) {
+                feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+                  source: history.source,
+                  historyQuality: history.historyQuality ?? null,
+                })
+                feedChartStore.setStatus(history.pairAddress, history.delayed ? 'delayed' : 'live')
+              }
+            } catch (innerError) {
+              console.warn('[chart] history fetch failed', pairAddress, innerError)
+              if (!cancelled) {
+                feedChartStore.setStatus(pairAddress, 'reconnecting')
+              }
+            } finally {
+              finishPair(pairAddress)
+            }
+          }),
+        )
+      })
+
+    return () => {
+      cancelled = true
+      for (const pairAddress of pairsNeedingHistory) {
+        finishPair(pairAddress)
+      }
     }
   }, [activePairsKey, enabled, stableActivePairs])
 
@@ -119,10 +214,19 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
     let pollTimer: ReturnType<typeof setTimeout> | null = null
     let fallbackPollingMode = false
     let pollInFlight = false
+    let wsDisabledForSession = false
+    let currentTransport: 'ws' | 'sse' | 'polling_fallback' | null = null
+    let connectGeneration = 0
 
     const markPairsReconnecting = () => {
       for (const pairAddress of stableActivePairs) {
         feedChartStore.setStatus(pairAddress, 'reconnecting')
+      }
+    }
+
+    const markPairsFallbackPolling = () => {
+      for (const pairAddress of stableActivePairs) {
+        feedChartStore.setStatus(pairAddress, 'fallback_polling')
       }
     }
 
@@ -148,6 +252,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       }
       streamConnection.close()
       streamConnection = null
+      currentTransport = null
     }
 
     const scheduleHistoryPoll = () => {
@@ -170,12 +275,17 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       pollInFlight = true
       try {
         const results = await Promise.all(
-          stableActivePairs.map((pairAddress) => fetchChartHistory(pairAddress, { interval: '1m', limit: 120 })),
+          stableActivePairs.map((pairAddress) =>
+            fetchChartHistory(pairAddress, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES }),
+          ),
         )
 
         for (const history of results) {
-          feedChartStore.hydrateHistory(history.pairAddress, history.candles)
-          feedChartStore.setStatus(history.pairAddress, history.delayed ? 'delayed' : 'live')
+          feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+            source: history.source,
+            historyQuality: history.historyQuality ?? null,
+          })
+          feedChartStore.setStatus(history.pairAddress, history.delayed ? 'delayed' : 'fallback_polling')
         }
       } catch (error) {
         if (__DEV__) {
@@ -204,11 +314,15 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       }
 
       fallbackPollingMode = true
+      closeStream()
+      clearReconnectTimer()
+      currentTransport = 'polling_fallback'
+      markPairsFallbackPolling()
       if (__DEV__) {
         console.warn('[chart] falling back to 1s history polling (SSE streaming unsupported)')
       }
       logChartRealtimeDiagnostic('stream_fallback_to_polling', {
-        reason: 'sse_unsupported_or_stream_error',
+        reason: 'streaming_unavailable',
         pairCount: stableActivePairs.length,
       })
       void pollHistoryOnce()
@@ -226,7 +340,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
         attempt: retryAttempt + 1,
         delayMs: delay,
         pairCount: stableActivePairs.length,
-        mode: fallbackPollingMode ? 'polling_fallback' : 'sse',
+        mode: fallbackPollingMode ? 'polling_fallback' : currentTransport ?? (wsDisabledForSession ? 'sse' : 'ws'),
       })
       retryAttempt += 1
       reconnectTimer = setTimeout(connect, delay)
@@ -254,10 +368,156 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
           pairAddress: event.pairAddress,
           status: event.status,
           reason: event.reason ?? null,
-          transport: fallbackPollingMode ? 'polling_fallback' : 'sse',
+          transport: fallbackPollingMode ? 'polling_fallback' : currentTransport ?? (wsDisabledForSession ? 'sse' : 'ws'),
         })
         feedChartStore.setStatus(event.pairAddress, event.status)
       }
+    }
+
+    const connectSse = (generation: number, reason: 'ws_unavailable' | 'ws_disabled' | 'direct' = 'direct') => {
+      if (disposed || fallbackPollingMode || generation !== connectGeneration) {
+        return
+      }
+
+      let opened = false
+      let terminated = false
+
+      currentTransport = 'sse'
+      streamConnection = createChartStreamSse({
+        pairs: stableActivePairs,
+        interval: CHART_INTERVAL,
+        onOpen: () => {
+          if (disposed || generation !== connectGeneration) {
+            return
+          }
+
+          opened = true
+          retryAttempt = 0
+          currentTransport = 'sse'
+          logChartRealtimeDiagnostic('stream_connected', {
+            pairCount: stableActivePairs.length,
+            pairs: stableActivePairs,
+            transport: 'sse',
+            reason,
+          })
+          if (__DEV__) {
+            console.log('[chart] stream connected (sse)', stableActivePairs)
+          }
+        },
+        onEvent: handleStreamEvent,
+        onError: (error) => {
+          if (disposed || generation !== connectGeneration || terminated) {
+            return
+          }
+
+          terminated = true
+
+          if (error.message.includes('Streaming response body is not available')) {
+            startHistoryPollingFallback()
+            return
+          }
+
+          logChartRealtimeDiagnostic('stream_error', {
+            pairCount: stableActivePairs.length,
+            message: error.message,
+            transport: 'sse',
+          })
+          if (__DEV__) {
+            console.warn('[chart] sse stream error', error)
+          }
+          scheduleReconnect()
+        },
+        onClose: () => {
+          if (disposed || generation !== connectGeneration || terminated) {
+            return
+          }
+
+          terminated = true
+          logChartRealtimeDiagnostic('stream_closed', {
+            pairCount: stableActivePairs.length,
+            transport: 'sse',
+            opened,
+          })
+          scheduleReconnect()
+        },
+      })
+    }
+
+    const connectWs = (generation: number) => {
+      if (disposed || fallbackPollingMode || generation !== connectGeneration) {
+        return
+      }
+
+      let opened = false
+      let terminated = false
+
+      currentTransport = 'ws'
+      streamConnection = createChartStreamWs({
+        pairs: stableActivePairs,
+        interval: CHART_INTERVAL,
+        onOpen: () => {
+          if (disposed || generation !== connectGeneration) {
+            return
+          }
+
+          opened = true
+          retryAttempt = 0
+          currentTransport = 'ws'
+          logChartRealtimeDiagnostic('stream_connected', {
+            pairCount: stableActivePairs.length,
+            pairs: stableActivePairs,
+            transport: 'ws',
+          })
+          if (__DEV__) {
+            console.log('[chart] stream connected (ws)', stableActivePairs)
+          }
+        },
+        onEvent: handleStreamEvent,
+        onError: (error) => {
+          if (disposed || generation !== connectGeneration || terminated) {
+            return
+          }
+
+          logChartRealtimeDiagnostic('stream_error', {
+            pairCount: stableActivePairs.length,
+            message: error.message,
+            transport: 'ws',
+          })
+
+          if (!opened) {
+            terminated = true
+            wsDisabledForSession = true
+            closeStream()
+            logChartRealtimeDiagnostic('stream_transport_downgrade', {
+              from: 'ws',
+              to: 'sse',
+              pairCount: stableActivePairs.length,
+              reason: error.message,
+            })
+            connectSse(generation, 'ws_unavailable')
+          }
+        },
+        onClose: () => {
+          if (disposed || generation !== connectGeneration || terminated) {
+            return
+          }
+
+          terminated = true
+          logChartRealtimeDiagnostic('stream_closed', {
+            pairCount: stableActivePairs.length,
+            transport: 'ws',
+            opened,
+          })
+
+          if (!opened) {
+            wsDisabledForSession = true
+            connectSse(generation, 'ws_unavailable')
+            return
+          }
+
+          scheduleReconnect()
+        },
+      })
     }
 
     const connect = () => {
@@ -265,48 +525,16 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
         return
       }
 
+      connectGeneration += 1
+      const generation = connectGeneration
       closeStream()
       markPairsReconnecting()
+      if (wsDisabledForSession) {
+        connectSse(generation, 'ws_disabled')
+        return
+      }
 
-      streamConnection = createChartStream({
-        pairs: stableActivePairs,
-        interval: '1m',
-        onOpen: () => {
-          retryAttempt = 0
-          logChartRealtimeDiagnostic('stream_connected', {
-            pairCount: stableActivePairs.length,
-            pairs: stableActivePairs,
-            transport: 'sse',
-          })
-          if (__DEV__) {
-            console.log('[chart] stream connected', stableActivePairs)
-          }
-        },
-        onEvent: handleStreamEvent,
-        onError: (error) => {
-          if (error.message.includes('Streaming response body is not available')) {
-            startHistoryPollingFallback()
-            return
-          }
-          logChartRealtimeDiagnostic('stream_error', {
-            pairCount: stableActivePairs.length,
-            message: error.message,
-          })
-          if (__DEV__) {
-            console.warn('[chart] stream error', error)
-          }
-          scheduleReconnect()
-        },
-        onClose: () => {
-          logChartRealtimeDiagnostic('stream_closed', {
-            pairCount: stableActivePairs.length,
-            transport: fallbackPollingMode ? 'polling_fallback' : 'sse',
-          })
-          if (!disposed) {
-            scheduleReconnect()
-          }
-        },
-      })
+      connectWs(generation)
     }
 
     connectDebounceTimer = setTimeout(connect, 150)

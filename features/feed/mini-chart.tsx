@@ -7,6 +7,7 @@ interface MiniChartProps {
   positiveTrend: boolean
   height?: number
   fullBleed?: boolean
+  feedMode?: boolean
   showAxis?: boolean
   showPriceBubble?: boolean
   candleCount?: number
@@ -84,6 +85,7 @@ export function MiniChart({
   positiveTrend,
   height = DEFAULT_PLOT_HEIGHT,
   fullBleed = false,
+  feedMode = false,
   showAxis = true,
   showPriceBubble = true,
   candleCount = fullBleed ? 28 : 18,
@@ -105,6 +107,10 @@ export function MiniChart({
   const bubbleY = clamp(priceLineY - 12, 4, plotHeight - 24)
   const fallbackBodyColor = positiveTrend ? semanticColors.chart.bullFallback : semanticColors.chart.bearFallback
   const fallbackGlowColor = positiveTrend ? semanticColors.chart.bullFallbackGlow : semanticColors.chart.bearFallbackGlow
+  const gridOpacity = feedMode ? 0.2 : 0.7
+  const priceLineOpacity = feedMode ? 0.18 : 1
+  const trailOpacity = feedMode ? 0.35 : 1
+  const glowOpacity = feedMode ? 0.45 : 0.95
 
   return (
     <View style={[styles.container, fullBleed ? styles.containerFullBleed : styles.containerCompact]}>
@@ -115,10 +121,10 @@ export function MiniChart({
           { height: plotHeight },
         ]}
       >
-        <View style={[styles.gridLine, { top: plotHeight * 0.2 }]} />
-        <View style={[styles.gridLine, { top: plotHeight * 0.5 }]} />
-        <View style={[styles.gridLine, { top: plotHeight * 0.8 }]} />
-        <View style={[styles.priceLine, { top: priceLineY }]} />
+        <View style={[styles.gridLine, { top: plotHeight * 0.2, opacity: gridOpacity }]} />
+        <View style={[styles.gridLine, { top: plotHeight * 0.5, opacity: gridOpacity }]} />
+        <View style={[styles.gridLine, { top: plotHeight * 0.8, opacity: gridOpacity }]} />
+        <View style={[styles.priceLine, { top: priceLineY, opacity: priceLineOpacity }]} />
         <View style={[styles.candleRow, { height: plotHeight }]}>
           {candles.map((candle, index) => {
             const bullish = candle.close >= candle.open
@@ -140,10 +146,18 @@ export function MiniChart({
                 key={`${index}:${candle.open}:${candle.close}`}
                 style={[styles.candleSlot, { marginHorizontal: fullBleed ? 0.6 : 0.3, height: plotHeight }]}
               >
-                <View style={[styles.trail, { top: bodyTop + bodyHeight, bottom: 0, backgroundColor: trailColor }]} />
+                <View
+                  style={[
+                    styles.trail,
+                    { top: bodyTop + bodyHeight, bottom: 0, backgroundColor: trailColor, opacity: trailOpacity },
+                  ]}
+                />
                 <View style={[styles.wick, { top: wickTop, height: wickHeight, backgroundColor: wickColor }]} />
                 <View
-                  style={[styles.glow, { top: bodyTop - 6, height: bodyHeight + 12, backgroundColor: glowColor }]}
+                  style={[
+                    styles.glow,
+                    { top: bodyTop - 6, height: bodyHeight + 12, backgroundColor: glowColor, opacity: glowOpacity },
+                  ]}
                 />
                 <View style={[styles.body, { top: bodyTop, height: bodyHeight, backgroundColor: bodyColor }]} />
               </View>
