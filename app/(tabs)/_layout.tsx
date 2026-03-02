@@ -20,32 +20,26 @@ export default function TabsLayout() {
         headerShown: false,
         sceneStyle: { backgroundColor: semanticColors.app.background },
         tabBarStyle: {
-          backgroundColor: semanticColors.app.background,
-          borderTopColor: semanticColors.border.default,
+          backgroundColor: '#1A1A1A',
+          borderTopColor: 'rgba(255, 255, 255, 0.12)',
+          borderTopWidth: 0.5,
         },
-        tabBarActiveTintColor: semanticColors.text.primary,
-        tabBarInactiveTintColor: semanticColors.text.muted,
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.50)',
       }}
     >
       <Tabs.Screen
         name="feed"
         options={{
-          title: 'Feed',
-          tabBarIcon: ({ color, size }) => <Ionicons name="play-circle-outline" size={size} color={color} />,
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="discover"
+        name="activity"
         options={{
-          title: 'Discover',
-          tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="portfolio"
-        options={{
-          title: 'Portfolio',
-          tabBarIcon: ({ color, size }) => <Ionicons name="wallet-outline" size={size} color={color} />,
+          title: 'Activity',
+          tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

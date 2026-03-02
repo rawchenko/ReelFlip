@@ -1,10 +1,23 @@
 export const semanticColors = {
   app: {
     backgroundCanvas: '#ffffff',
-    background: '#070d1a',
-    backgroundElevated: '#0A0B10',
-    backgroundPanel: '#0F172A',
-    backgroundPanelAlt: '#1E293B',
+    background: '#000000',
+    backgroundElevated: '#000000',
+    backgroundPanel: '#111111',
+    backgroundPanelAlt: '#1A1A1A',
+  },
+  tabBar: {
+    background: 'rgba(255, 255, 255, 0.10)',
+    border: 'rgba(255, 255, 255, 0.12)',
+    activeIndicator: '#FFFFFF',
+    inactiveOpacity: 0.5,
+  },
+  button: {
+    buyBackground: '#FFFFFF',
+    buyText: '#000000',
+    sellBackground: 'rgba(255, 255, 255, 0.20)',
+    sellText: '#FFFFFF',
+    sellBorder: 'rgba(255, 255, 255, 0.40)',
   },
   text: {
     primary: '#f5f8ff',

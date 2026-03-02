@@ -11,15 +11,13 @@ import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { FeedCategory, FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
-import { useRouter } from 'expo-router'
+import { LinearGradient } from 'expo-linear-gradient'
 import React, { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Button, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-type FeedUiTab = 'for_you' | 'hot' | 'following'
 
-const HEADER_ROW_HEIGHT = 56
-const HEADER_BOTTOM_GAP = 10
+type FeedUiTab = 'for_you' | 'trending' | 'watchlist'
 
 interface FeedTabConfig {
   key: FeedUiTab
@@ -27,17 +25,17 @@ interface FeedTabConfig {
 }
 
 const FEED_TABS: FeedTabConfig[] = [
-  { key: 'for_you', label: 'For you' },
-  { key: 'hot', label: 'Hot' },
-  { key: 'following', label: 'Following' },
+  { key: 'for_you', label: 'For You' },
+  { key: 'trending', label: 'Trending' },
+  { key: 'watchlist', label: 'Watchlist' },
 ]
 
 function triggerSelectionHaptic() {
-  void Haptics.selectionAsync().catch(() => {})
+  void Haptics.selectionAsync().catch(() => { })
 }
 
 function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
-  if (tab === 'hot') {
+  if (tab === 'trending') {
     return 'trending'
   }
 
@@ -45,16 +43,15 @@ function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
 }
 
 export default function FeedScreen() {
-  const router = useRouter()
   const [uiTab, setUiTab] = useState<FeedUiTab>('for_you')
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [activeSheet, setActiveSheet] = useState<FeedPlaceholderSheetPayload | null>(null)
 
-  const isFollowingTab = uiTab === 'following'
+  const isWatchlistTab = uiTab === 'watchlist'
   const queryCategory = useMemo(() => mapUiTabToCategory(uiTab), [uiTab])
   const { data, isLoading, isError, refetch, error } = useFeedQuery({
     category: queryCategory,
-    enabled: !isFollowingTab,
+    enabled: !isWatchlistTab,
     limit: 20,
   })
 
@@ -81,8 +78,7 @@ export default function FeedScreen() {
 
   const handleSearchPress = useCallback(() => {
     triggerSelectionHaptic()
-    router.push('/(tabs)/discover')
-  }, [router])
+  }, [])
 
   const handleTabPress = useCallback((nextTab: FeedUiTab) => {
     setUiTab((current) => {
@@ -93,15 +89,50 @@ export default function FeedScreen() {
     })
   }, [])
 
-  const contentTopPadding = HEADER_ROW_HEIGHT + HEADER_BOTTOM_GAP
-  const showLoadingState = !isFollowingTab && isLoading && !data
-  const showErrorState = !isFollowingTab && isError && !data
+  const showLoadingState = !isWatchlistTab && isLoading && !data
+  const showErrorState = !isWatchlistTab && isError && !data
 
   return (
-    <SafeAreaView edges={['top']} style={appStyles.feedScreen}>
-      <View style={styles.screenRoot}>
-        <View style={styles.headerChrome} pointerEvents="box-none">
-          <View style={styles.headerRow}>
+    <View style={styles.screenRoot}>
+      <View style={styles.contentContainer}>
+        {isWatchlistTab ? (
+          <View style={[appStyles.tabPlaceholder, styles.watchlistPlaceholder]}>
+            <Text style={appStyles.tabPlaceholderTitle}>Watchlist coming soon</Text>
+            <Text style={appStyles.tabPlaceholderText}>
+              Followed and watchlisted tokens will appear here in a future iteration.
+            </Text>
+          </View>
+        ) : showLoadingState ? (
+          <View style={appStyles.feedEmptyState}>
+            <ActivityIndicator size="large" color={semanticColors.text.primary} />
+            <Text style={appStyles.feedEmptyText}>Loading feed...</Text>
+          </View>
+        ) : showErrorState ? (
+          <View style={appStyles.feedEmptyState}>
+            <Text style={appStyles.feedEmptyTitle}>Feed unavailable</Text>
+            <Text style={appStyles.feedEmptyText}>{error instanceof Error ? error.message : 'Failed to load feed'}</Text>
+            <Button title="Retry" onPress={() => void refetch()} />
+          </View>
+        ) : (
+          <VerticalFeed
+            key={uiTab}
+            items={data?.items ?? []}
+            topInset={0}
+            refreshing={isManualRefreshing}
+            onRefresh={() => void handleRefresh()}
+            onActionPress={handleActionPress}
+            onTradePress={handleTradePress}
+          />
+        )}
+      </View>
+
+      <SafeAreaView edges={['top']} style={styles.headerOverlay} pointerEvents="box-none">
+        <LinearGradient
+          colors={['rgba(0, 0, 0, 0.80)', 'rgba(0, 0, 0, 0)']}
+          style={styles.headerGradient}
+          pointerEvents="box-none"
+        >
+          <View style={styles.headerRow} pointerEvents="box-none">
             <View style={styles.tabsRow} accessibilityRole="tablist">
               {FEED_TABS.map((tab) => {
                 const selected = uiTab === tab.key
@@ -117,7 +148,6 @@ export default function FeedScreen() {
                     <Text style={[styles.tabLabel, selected ? styles.tabLabelSelected : styles.tabLabelMuted]}>
                       {tab.label}
                     </Text>
-                    <View style={[styles.tabUnderline, selected ? styles.tabUnderlineVisible : styles.tabUnderlineHidden]} />
                   </Pressable>
                 )
               })}
@@ -125,50 +155,18 @@ export default function FeedScreen() {
             <Pressable
               onPress={handleSearchPress}
               accessibilityRole="button"
-              accessibilityLabel="Open Discover tab"
+              accessibilityLabel="Search tokens"
               hitSlop={8}
               style={styles.searchButton}
             >
-              <Ionicons name="search-outline" size={20} color={semanticColors.text.primary} />
+              <Ionicons name="search-outline" size={22} color="#FFFFFF" />
             </Pressable>
           </View>
-        </View>
+        </LinearGradient>
+      </SafeAreaView>
 
-        <View style={[styles.contentContainer, { paddingTop: contentTopPadding }]}>
-          {isFollowingTab ? (
-            <View style={[appStyles.tabPlaceholder, styles.followingPlaceholder]}>
-              <Text style={appStyles.tabPlaceholderTitle}>Following coming soon</Text>
-              <Text style={appStyles.tabPlaceholderText}>
-                Followed and watchlisted tokens will appear here in a future iteration.
-              </Text>
-              <Text style={styles.followingHint}>Use the heart action on cards (placeholder for now).</Text>
-            </View>
-          ) : showLoadingState ? (
-            <View style={appStyles.feedEmptyState}>
-              <ActivityIndicator size="large" color={semanticColors.text.primary} />
-              <Text style={appStyles.feedEmptyText}>Loading feed...</Text>
-            </View>
-          ) : showErrorState ? (
-            <View style={appStyles.feedEmptyState}>
-              <Text style={appStyles.feedEmptyTitle}>Feed unavailable</Text>
-              <Text style={appStyles.feedEmptyText}>{error instanceof Error ? error.message : 'Failed to load feed'}</Text>
-              <Button title="Retry" onPress={() => void refetch()} />
-            </View>
-          ) : (
-            <VerticalFeed
-              key={uiTab}
-              items={data?.items ?? []}
-              topInset={0}
-              refreshing={isManualRefreshing}
-              onRefresh={() => void handleRefresh()}
-              onActionPress={handleActionPress}
-              onTradePress={handleTradePress}
-            />
-          )}
-        </View>
-      </View>
       <FeedPlaceholderSheet payload={activeSheet} onClose={() => setActiveSheet(null)} />
-    </SafeAreaView>
+    </View>
   )
 }
 
@@ -176,16 +174,12 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
   },
-  followingHint: {
-    color: semanticColors.text.info,
-    fontFamily: interFontFamily.medium,
-    fontSize: 14,
-    textAlign: 'center',
+  headerGradient: {
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    paddingTop: 16,
   },
-  followingPlaceholder: {
-    paddingTop: 8,
-  },
-  headerChrome: {
+  headerOverlay: {
     left: 0,
     position: 'absolute',
     right: 0,
@@ -194,57 +188,41 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     alignItems: 'center',
-    backgroundColor: 'rgba(7, 13, 26, 0.68)',
-    borderBottomColor: 'rgba(27, 42, 71, 0.45)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    height: HEADER_ROW_HEIGHT,
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
   },
   screenRoot: {
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   searchButton: {
     alignItems: 'center',
-    borderColor: 'rgba(143, 166, 204, 0.25)',
-    borderRadius: 15,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 34,
+    height: 40,
     justifyContent: 'center',
-    width: 34,
+    width: 40,
   },
   tabButton: {
-    alignItems: 'flex-start',
-    gap: 5,
-    minHeight: 38,
-    justifyContent: 'center',
+    paddingBottom: 4,
+    paddingVertical: 4,
   },
   tabLabel: {
     fontFamily: interFontFamily.bold,
-    fontSize: 15,
+    fontSize: 14,
+    lineHeight: 18,
   },
   tabLabelMuted: {
-    color: semanticColors.text.muted,
+    color: '#FFFFFF',
+    opacity: 0.6,
   },
   tabLabelSelected: {
-    color: semanticColors.text.primary,
-  },
-  tabUnderline: {
-    borderRadius: 999,
-    height: 2,
-    width: '100%',
-  },
-  tabUnderlineHidden: {
-    backgroundColor: 'transparent',
-  },
-  tabUnderlineVisible: {
-    backgroundColor: semanticColors.text.primary,
+    color: '#FFFFFF',
   },
   tabsRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 18,
-    paddingRight: 8,
+    gap: 16,
+  },
+  watchlistPlaceholder: {
+    paddingTop: 80,
   },
 })

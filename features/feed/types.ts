@@ -8,6 +8,7 @@ export interface TokenFeedItem {
   mint: string
   name: string
   symbol: string
+  description?: string
   imageUri?: string
   priceUsd: number
   priceChange24h: number

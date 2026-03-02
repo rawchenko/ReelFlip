@@ -5,7 +5,6 @@ import type { ChartCandle } from '@/features/feed/chart/types'
 import { MiniChart } from '@/features/feed/mini-chart'
 import { TradingViewMiniChart } from '@/features/feed/tradingview-mini-chart'
 import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
-import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useEffect, useMemo, useState } from 'react'
@@ -19,25 +18,7 @@ interface TokenCardProps {
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
 }
 
-type StreamBadgeState = 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
-
-interface ActionButtonConfig {
-  action: FeedCardAction
-  iconName: keyof typeof Ionicons.glyphMap
-  label: string
-}
-
-const ACTION_BUTTONS: ActionButtonConfig[] = [
-  { action: 'like', iconName: 'heart-outline', label: 'Like token' },
-  { action: 'comment', iconName: 'chatbubble-outline', label: 'Open comments' },
-  { action: 'share', iconName: 'share-social-outline', label: 'Share token' },
-  { action: 'hide', iconName: 'eye-off-outline', label: 'Hide token' },
-]
 const CHART_COLOR_LOOKBACK_CANDLES = 60
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
 
 function deriveTrendFromPoints(points?: number[]): boolean | null {
   if (!Array.isArray(points)) {
@@ -110,43 +91,48 @@ function formatCompactCurrencyStable(value?: number): string {
   return `$${trimTrailingZeros(value.toFixed(value >= 100 ? 0 : value >= 1 ? 2 : 4))}`
 }
 
-function triggerHaptic(kind: 'selection' | 'impactLight' = 'selection') {
-  const promise = kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  void promise.catch(() => {})
-}
-
-function getActionIconName(action: FeedCardAction, liked: boolean): keyof typeof Ionicons.glyphMap {
-  if (action === 'like' && liked) {
-    return 'heart'
+function formatPriceStable(value?: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return '--'
   }
 
-  return ACTION_BUTTONS.find((config) => config.action === action)?.iconName ?? 'ellipse-outline'
+  if (value >= 1) {
+    return `$${trimTrailingZeros(value.toFixed(2))}`
+  }
+
+  return `$${trimTrailingZeros(value.toFixed(4))}`
+}
+
+function triggerHaptic(kind: 'selection' | 'impactLight' = 'selection') {
+  const promise = kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  void promise.catch(() => { })
+}
+
+function getCategoryLabel(category: string): string | null {
+  switch (category) {
+    case 'trending':
+      return 'Trending'
+    case 'new':
+      return 'New'
+    case 'memecoin':
+      return 'Meme'
+    case 'gainer':
+      return 'Gainer'
+    default:
+      return null
+  }
 }
 
 export function TokenCard({
   item,
   availableHeight,
   enableTradingView = false,
-  onActionPress,
   onTradePress,
 }: TokenCardProps) {
   const { width } = useWindowDimensions()
   const isUp24h = item.priceChange24h >= 0
   const [tradingViewUnavailable, setTradingViewUnavailable] = useState(false)
-  const [liked, setLiked] = useState(false)
 
-  const isVeryNarrow = width < 360
-  const isNarrow = width < 390
-  const isWide = width > 430
-
-  const cardPadding = clamp(width * 0.048, 14, 22)
-  const symbolSize = clamp(width * (isNarrow ? 0.095 : 0.105), 20, isWide ? 36 : 32)
-  const badgeFontSize = clamp(width * 0.029, 10, 12)
-  const metricsFontSize = clamp(width * 0.031, 11, 13)
-  const ctaFontSize = clamp(width * (isVeryNarrow ? 0.043 : 0.046), 16, 22)
-  const ctaHeight = clamp(width * 0.118, 46, 54)
-  const actionButtonSize = clamp(width * (isNarrow ? 0.102 : 0.112), 40, 48)
-  const avatarSize = clamp(width * (isNarrow ? 0.14 : 0.155), 44, 58)
   const hasChartPoints = Array.isArray(item.sparkline) && item.sparkline.length >= 4
 
   const webChartEnabled = process.env.EXPO_PUBLIC_ENABLE_TV_CHART !== 'false'
@@ -177,7 +163,7 @@ export function TokenCard({
     () => (useRealtimeWebChart && realtimeCandleCount > 0 ? pairChartState?.candles : undefined),
     [pairChartState?.candles, realtimeCandleCount, useRealtimeWebChart],
   )
-  const streamBadgeState: StreamBadgeState | null = useRealtimeWebChart
+  const streamBadgeState = useRealtimeWebChart
     ? (pairChartState?.status ?? 'reconnecting')
     : null
   const chartIsUp = useMemo(() => {
@@ -198,44 +184,35 @@ export function TokenCard({
 
   useEffect(() => {
     setTradingViewUnavailable(false)
-    setLiked(false)
   }, [item.mint, item.pairAddress])
 
   const metricsValues = useMemo(
     () => ({
+      price: formatPriceStable(item.priceUsd),
       marketCap: formatCompactCurrencyStable(item.marketCap),
-      volume24h: formatCompactCurrencyStable(item.volume24h),
     }),
-    [item.marketCap, item.volume24h],
+    [item.marketCap, item.priceUsd],
   )
 
-  const handleActionPress = (action: FeedCardAction) => {
-    triggerHaptic('selection')
-    if (action === 'like') {
-      setLiked((current) => !current)
-    }
-    onActionPress?.(action, item)
-  }
+  const priceChange24hFormatted = useMemo(() => {
+    const sign = item.priceChange24h >= 0 ? '+' : ''
+    return `${sign}${item.priceChange24h.toFixed(1)}%`
+  }, [item.priceChange24h])
 
   const handleTradePress = (side: FeedTradeSide) => {
     triggerHaptic('impactLight')
     onTradePress?.(side, item)
   }
 
-  const metricsStacked = isNarrow
-  const railPanelWidth = actionButtonSize + (isNarrow ? 20 : 24)
-  const bottomPanelPadding = cardPadding
-  const bottomPanelTopPadding = isNarrow ? 12 : 14
-  const infoEstimatedHeight = Math.max(avatarSize + (metricsStacked ? 8 : 4), metricsStacked ? 74 : 64)
-  const bottomPanelHeight = clamp(
-    bottomPanelTopPadding + infoEstimatedHeight + 12 + ctaHeight + bottomPanelPadding,
-    148,
-    210,
-  )
-  const chartViewportHeight = Math.max(availableHeight - bottomPanelHeight - 6, 220)
+  // Layout calculations
+  const avatarSize = 48
+  const bottomPanelHeight = 300
+  const chartViewportHeight = Math.max(availableHeight - bottomPanelHeight, 220)
   const webChartPoints = useLegacyWebChart ? item.sparkline : tvBootstrapPoints
   const webChartCandles = useRealtimeWebChart ? tvRealtimeCandles : undefined
   const webChartLatestCandle = useRealtimeWebChart ? pairChartState?.latestCandle : null
+  const categoryLabel = getCategoryLabel(item.category)
+  const descriptionText = item.description || item.name
 
   const renderMiniFallback = () => (
     <MiniChart
@@ -265,114 +242,77 @@ export function TokenCard({
 
   return (
     <View style={styles.card}>
-      <View style={[styles.chartViewport, { right: railPanelWidth, bottom: bottomPanelHeight }]}>
+      {/* Chart area — full width */}
+      <View style={[styles.chartViewport, { height: chartViewportHeight }]}>
         {useWebChart ? renderTradingView() : renderMiniFallback()}
 
         <LinearGradient
-          colors={['rgba(7, 13, 26, 0)', 'rgba(7, 13, 26, 0.18)', 'rgba(7, 13, 26, 0.62)']}
-          locations={[0, 0.6, 1]}
+          colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.85)']}
+          locations={[0, 0.5, 1]}
           style={styles.chartBottomFade}
           pointerEvents="none"
         />
       </View>
 
-      <View style={[styles.rightPanel, { width: railPanelWidth, bottom: bottomPanelHeight }]}>
-        <View style={[styles.rightRail, { gap: isNarrow ? 10 : 12 }]}>
-        {ACTION_BUTTONS.map((config) => {
-          const isLike = config.action === 'like'
-          const active = isLike && liked
-          return (
-            <Pressable
-              key={config.action}
-              onPress={() => handleActionPress(config.action)}
-              accessibilityRole="button"
-              accessibilityLabel={config.label}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.actionButton,
-                active ? styles.actionButtonActive : null,
-                {
-                  width: actionButtonSize,
-                  height: actionButtonSize,
-                  borderRadius: actionButtonSize / 2,
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
-                  opacity: pressed ? 0.84 : 1,
-                },
-              ]}
-            >
-              <Ionicons
-                name={getActionIconName(config.action, liked)}
-                size={Math.round(actionButtonSize * 0.5)}
-                color={active ? '#FCA5A5' : semanticColors.text.primary}
-              />
-            </Pressable>
-          )
-        })}
-        </View>
-      </View>
-
-      <View style={[styles.bottomPanel, { height: bottomPanelHeight, paddingHorizontal: bottomPanelPadding, paddingTop: bottomPanelTopPadding, paddingBottom: bottomPanelPadding }]}>
-        <View style={[styles.identityRow, { gap: isNarrow ? 10 : 12 }]}>
-          <View style={[styles.avatarOuter, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
-            {item.imageUri ? (
-              <Image
-                source={{ uri: item.imageUri }}
-                style={{ width: avatarSize - 4, height: avatarSize - 4, borderRadius: (avatarSize - 4) / 2 }}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={[styles.avatarFallbackText, { fontSize: Math.max(14, Math.round(avatarSize * 0.3)) }]}>
-                {item.symbol.slice(0, 1).toUpperCase()}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.identityTextCol}>
-            <View style={[styles.symbolRow, { gap: 8 }]}> 
-              <Text style={[styles.symbolText, { fontSize: symbolSize }]} numberOfLines={1} ellipsizeMode="tail">
-                {item.symbol}
-              </Text>
-              {item.category === 'new' ? (
-                <View style={styles.newBadge}>
-                  <Text style={[styles.newBadgeText, { fontSize: badgeFontSize }]}>NEW</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <Text style={styles.nameText} numberOfLines={1} ellipsizeMode="tail">
-              {item.name}
+      {/* Bottom info panel */}
+      <View style={styles.bottomPanel}>
+        {/* Avatar */}
+        <View style={[styles.avatarOuter, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
+          {item.imageUri ? (
+            <Image
+              source={{ uri: item.imageUri }}
+              style={{ width: avatarSize - 4, height: avatarSize - 4, borderRadius: (avatarSize - 4) / 2 }}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={styles.avatarFallbackText}>
+              {item.symbol.slice(0, 1).toUpperCase()}
             </Text>
+          )}
+        </View>
 
-            {metricsStacked ? (
-              <View style={styles.metricChipsWrap}>
-                <View style={styles.metricChip}>
-                  <Text style={styles.metricChipLabel}>MC</Text>
-                  <Text style={[styles.metricChipValue, { fontSize: metricsFontSize }]} numberOfLines={1}>
-                    {metricsValues.marketCap}
-                  </Text>
-                </View>
-                <View style={styles.metricChip}>
-                  <Text style={styles.metricChipLabel}>VOL</Text>
-                  <Text style={[styles.metricChipValue, { fontSize: metricsFontSize }]} numberOfLines={1}>
-                    {metricsValues.volume24h}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.metricsLineRow}>
-                <Text style={[styles.metricLineText, { fontSize: metricsFontSize }]} numberOfLines={1} ellipsizeMode="tail">
-                  MC {metricsValues.marketCap}
-                </Text>
-                <Text style={[styles.metricDot, { fontSize: metricsFontSize }]}>·</Text>
-                <Text style={[styles.metricLineText, { fontSize: metricsFontSize }]} numberOfLines={1} ellipsizeMode="tail">
-                  VOL {metricsValues.volume24h}
-                </Text>
-              </View>
-            )}
+        {/* Symbol + badges */}
+        <View style={styles.symbolRow}>
+          <Text style={styles.symbolText} numberOfLines={1}>
+            {item.symbol.startsWith('$') ? item.symbol : `$${item.symbol}`}
+          </Text>
+          {categoryLabel ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{categoryLabel}</Text>
+            </View>
+          ) : null}
+          {item.category === 'memecoin' ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>Meme</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Description */}
+        <Text style={styles.descriptionText} numberOfLines={2}>
+          {descriptionText} ...more
+        </Text>
+
+        {/* Metrics row */}
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCol}>
+            <Text style={styles.metricLabel}>Current Price</Text>
+            <Text style={styles.metricValue}>{metricsValues.price}</Text>
+          </View>
+          <View style={styles.metricCol}>
+            <Text style={styles.metricLabel}>M.Cap</Text>
+            <Text style={styles.metricValue}>{metricsValues.marketCap}</Text>
+          </View>
+          <View style={styles.metricCol}>
+            <Text style={styles.metricLabel}>24h</Text>
+            <Text style={[styles.metricValue, { color: isUp24h ? semanticColors.text.success : '#E74837' }]}>
+              {priceChange24hFormatted}
+            </Text>
           </View>
         </View>
 
-        <View style={[styles.ctaRow, { marginTop: 12, gap: 10 }]}>
+        {/* Buy / Sell buttons */}
+        <View style={styles.ctaRow}>
           <Pressable
             onPress={() => handleTradePress('sell')}
             accessibilityRole="button"
@@ -380,10 +320,10 @@ export function TokenCard({
             style={({ pressed }) => [
               styles.ctaButton,
               styles.sellButton,
-              { minHeight: ctaHeight, opacity: pressed ? 0.88 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+              { opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
             ]}
           >
-            <Text style={[styles.ctaLabel, { fontSize: ctaFontSize }]}>Sell</Text>
+            <Text style={styles.sellLabel}>Sell</Text>
           </Pressable>
           <Pressable
             onPress={() => handleTradePress('buy')}
@@ -392,10 +332,10 @@ export function TokenCard({
             style={({ pressed }) => [
               styles.ctaButton,
               styles.buyButton,
-              { minHeight: ctaHeight, opacity: pressed ? 0.88 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+              { opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
             ]}
           >
-            <Text style={[styles.ctaLabel, { fontSize: ctaFontSize }]}>Buy</Text>
+            <Text style={styles.buyLabel}>Buy</Text>
           </Pressable>
         </View>
       </View>
@@ -404,20 +344,10 @@ export function TokenCard({
 }
 
 const styles = StyleSheet.create({
-  actionButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(2, 6, 23, 0.28)',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderWidth: 1,
-    justifyContent: 'center',
-  },
-  actionButtonActive: {
-    backgroundColor: 'rgba(127, 29, 29, 0.28)',
-    borderColor: 'rgba(252, 165, 165, 0.32)',
-  },
   avatarFallbackText: {
-    color: semanticColors.text.headingOnDark,
+    color: '#FFFFFF',
     fontFamily: interFontFamily.extraBold,
+    fontSize: 18,
   },
   avatarOuter: {
     alignItems: 'center',
@@ -427,170 +357,108 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  bottomShade: {
-    bottom: 0,
-    height: '68%',
-    left: 0,
-    position: 'absolute',
-    right: 0,
+  badge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.20)',
+    borderColor: 'rgba(255, 255, 255, 0.40)',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontFamily: interFontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  bottomPanel: {
+    gap: 12,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   buyButton: {
-    backgroundColor: 'rgba(22, 163, 74, 0.24)',
-    borderColor: 'rgba(134, 239, 172, 0.45)',
+    backgroundColor: semanticColors.button.buyBackground,
+  },
+  buyLabel: {
+    color: semanticColors.button.buyText,
+    fontFamily: interFontFamily.bold,
+    fontSize: 18,
   },
   card: {
-    backgroundColor: semanticColors.app.backgroundElevated,
-    borderColor: semanticColors.border.strong,
-    borderRadius: 28,
-    borderWidth: 1,
+    backgroundColor: '#000000',
     flex: 1,
     overflow: 'hidden',
   },
   chartBottomFade: {
     bottom: 0,
-    height: '32%',
+    height: '40%',
     left: 0,
     position: 'absolute',
     right: 0,
   },
   chartViewport: {
-    backgroundColor: semanticColors.chart.background,
-    borderBottomColor: 'rgba(148, 163, 184, 0.08)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderRightColor: 'rgba(148, 163, 184, 0.08)',
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderTopLeftRadius: 28,
-    left: 0,
+    backgroundColor: '#000000',
     overflow: 'hidden',
-    position: 'absolute',
-    top: 0,
-  },
-  bottomPanel: {
-    backgroundColor: 'rgba(6, 11, 22, 0.96)',
-    borderTopColor: 'rgba(148, 163, 184, 0.1)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    bottom: 0,
-    justifyContent: 'flex-end',
-    left: 0,
-    position: 'absolute',
-    right: 0,
+    width: '100%',
   },
   ctaButton: {
     alignItems: 'center',
     borderRadius: 16,
-    borderWidth: 1,
     flex: 1,
+    height: 56,
     justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  ctaLabel: {
-    color: semanticColors.text.headingOnDark,
-    fontFamily: interFontFamily.extraBold,
-    letterSpacing: 0.2,
   },
   ctaRow: {
     flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
   },
-  identityRow: {
-    alignItems: 'center',
+  descriptionText: {
+    color: 'rgba(255, 255, 255, 0.60)',
+    fontFamily: interFontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  metricCol: {
+    gap: 2,
+  },
+  metricLabel: {
+    color: '#888888',
+    fontFamily: interFontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  metricValue: {
+    color: '#FFFFFF',
+    fontFamily: interFontFamily.regular,
+    fontSize: 20,
+    letterSpacing: -0.5,
+    lineHeight: 24,
+  },
+  metricsRow: {
     flexDirection: 'row',
-  },
-  identityTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  metricChip: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.62)',
-    borderColor: 'rgba(148, 163, 184, 0.18)',
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  metricChipLabel: {
-    color: semanticColors.text.muted,
-    fontFamily: interFontFamily.bold,
-    fontSize: 10,
-  },
-  metricChipValue: {
-    color: semanticColors.text.secondary,
-    fontFamily: interFontFamily.bold,
-  },
-  metricChipsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 5,
-  },
-  metricDot: {
-    color: semanticColors.text.muted,
-    fontFamily: interFontFamily.medium,
-    marginHorizontal: 4,
-  },
-  metricLineText: {
-    color: semanticColors.text.secondary,
-    flexShrink: 1,
-    fontFamily: interFontFamily.bold,
-  },
-  metricsLineRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginTop: 5,
-    minWidth: 0,
-  },
-  nameText: {
-    color: semanticColors.text.muted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 13,
-    marginTop: 1,
-  },
-  newBadge: {
-    backgroundColor: 'rgba(59, 130, 246, 0.22)',
-    borderColor: 'rgba(147, 197, 253, 0.36)',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  newBadgeText: {
-    color: '#93C5FD',
-    fontFamily: interFontFamily.extraBold,
-    letterSpacing: 0.25,
-  },
-  rightPanel: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(4, 9, 19, 0.96)',
-    borderLeftColor: 'rgba(148, 163, 184, 0.08)',
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderTopRightRadius: 28,
-    justifyContent: 'center',
-    paddingVertical: 12,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  rightRail: {
-    alignItems: 'center',
+    gap: 24,
   },
   sellButton: {
-    backgroundColor: 'rgba(185, 28, 28, 0.22)',
-    borderColor: 'rgba(252, 165, 165, 0.34)',
+    backgroundColor: semanticColors.button.sellBackground,
+    borderColor: semanticColors.button.sellBorder,
+    borderWidth: 1,
+  },
+  sellLabel: {
+    color: semanticColors.button.sellText,
+    fontFamily: interFontFamily.bold,
+    fontSize: 18,
   },
   symbolRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    minWidth: 0,
+    gap: 8,
   },
   symbolText: {
-    color: semanticColors.text.headingOnDark,
-    flexShrink: 1,
-    fontFamily: interFontFamily.black,
-    letterSpacing: 0.35,
+    color: '#FFFFFF',
+    fontFamily: interFontFamily.regular,
+    fontSize: 24,
+    lineHeight: 30,
   },
 })

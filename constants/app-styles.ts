@@ -37,8 +37,8 @@ export const appStyles = StyleSheet.create({
     flex: 1,
   },
   feedPage: {
-    paddingBottom: 12,
-    paddingHorizontal: 12,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
   },
   feedScreen: {
     backgroundColor: semanticColors.app.background,
