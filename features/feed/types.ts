@@ -1,4 +1,5 @@
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
+export type FeedLabel = 'trending' | 'gainer' | 'new' | 'meme'
 
 export type RiskTier = 'block' | 'warn' | 'allow'
 export type FeedCardAction = 'like' | 'comment' | 'share' | 'hide'
@@ -18,5 +19,6 @@ export interface TokenFeedItem {
   sparkline?: number[]
   pairAddress?: string
   category: FeedCategory
+  labels?: FeedLabel[]
   riskTier: RiskTier
 }

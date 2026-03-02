@@ -2,6 +2,7 @@ import { appStyles } from '@/constants/app-styles'
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { useFeedQuery } from '@/features/feed/api/use-feed-query'
+import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import {
   FeedPlaceholderSheet,
   FeedPlaceholderSheetPayload,
@@ -128,7 +129,7 @@ export default function FeedScreen() {
 
       <SafeAreaView edges={['top']} style={styles.headerOverlay} pointerEvents="box-none">
         <LinearGradient
-          colors={['rgba(0, 0, 0, 0.80)', 'rgba(0, 0, 0, 0)']}
+          colors={homeDesignSpec.header.gradientColors}
           style={styles.headerGradient}
           pointerEvents="box-none"
         >
@@ -159,7 +160,7 @@ export default function FeedScreen() {
               hitSlop={8}
               style={styles.searchButton}
             >
-              <Ionicons name="search-outline" size={22} color="#FFFFFF" />
+              <Ionicons name="search-outline" size={homeDesignSpec.header.searchIconSize} color="#FFFFFF" />
             </Pressable>
           </View>
         </LinearGradient>
@@ -175,9 +176,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerGradient: {
-    paddingBottom: 20,
-    paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingBottom: homeDesignSpec.header.bottomPadding,
+    paddingHorizontal: homeDesignSpec.header.horizontalPadding,
+    paddingTop: homeDesignSpec.header.topPadding,
   },
   headerOverlay: {
     left: 0,
@@ -206,21 +207,24 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   tabLabel: {
-    fontFamily: interFontFamily.bold,
+    fontFamily: interFontFamily.medium,
     fontSize: 14,
     lineHeight: 18,
   },
   tabLabelMuted: {
     color: '#FFFFFF',
-    opacity: 0.6,
+    fontWeight: '500',
+    opacity: homeDesignSpec.header.mutedTabOpacity,
   },
   tabLabelSelected: {
     color: '#FFFFFF',
+    fontWeight: '600',
+    opacity: homeDesignSpec.header.selectedTabOpacity,
   },
   tabsRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
+    gap: homeDesignSpec.header.tabGap,
   },
   watchlistPlaceholder: {
     paddingTop: 80,

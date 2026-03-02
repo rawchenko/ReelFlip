@@ -1,4 +1,5 @@
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
+export type FeedLabel = 'trending' | 'gainer' | 'new' | 'meme'
 export type RiskTier = 'block' | 'warn' | 'allow'
 
 export interface TokenFeedItem {
@@ -13,6 +14,7 @@ export interface TokenFeedItem {
   marketCap: number
   sparkline: number[]
   pairAddress: string | null
+  labels?: FeedLabel[]
   quoteSymbol?: string | null
   recentVolume5m?: number
   recentTxns5m?: number
@@ -200,6 +202,14 @@ function normalizePair(input: unknown): TokenFeedItem | null {
   const marketCap = numberOrNull(input.marketCap) ?? numberOrNull(input.fdv) ?? Math.max(liquidity * 8, 0)
   const recentTxns5m = sumBuysAndSells(input.txns, 'm5')
   const sparkline = deriveSparkline(priceUsd, input.priceChange)
+  const category = deriveCategory({ symbol, priceChange24h, volume24h, pairCreatedAt })
+  const labels = deriveLabels({
+    category,
+    symbol,
+    priceChange24h,
+    volume24h,
+    pairCreatedAt,
+  })
 
   return {
     mint,
@@ -213,10 +223,11 @@ function normalizePair(input: unknown): TokenFeedItem | null {
     marketCap,
     sparkline,
     pairAddress: stringOrNull(input.pairAddress),
+    labels,
     quoteSymbol: stringOrNull(quoteToken?.symbol),
     recentVolume5m,
     recentTxns5m,
-    category: deriveCategory({ symbol, priceChange24h, volume24h, pairCreatedAt }),
+    category,
     riskTier: deriveRiskTier({ liquidity, volume24h, priceChange24h }),
   }
 }
@@ -285,14 +296,7 @@ function deriveCategory(input: {
   volume24h: number
   pairCreatedAt: number | null
 }): FeedCategory {
-  const symbol = input.symbol.toLowerCase()
-  if (
-    symbol.includes('dog') ||
-    symbol.includes('cat') ||
-    symbol.includes('pepe') ||
-    symbol.includes('bonk') ||
-    symbol.includes('wif')
-  ) {
+  if (isMemeSymbol(input.symbol)) {
     return 'memecoin'
   }
 
@@ -309,6 +313,54 @@ function deriveCategory(input: {
   }
 
   return 'new'
+}
+
+function mapCategoryToLabel(category: FeedCategory): FeedLabel {
+  if (category === 'memecoin') {
+    return 'meme'
+  }
+
+  return category
+}
+
+function isMemeSymbol(symbol: string): boolean {
+  const normalized = symbol.toLowerCase()
+  return (
+    normalized.includes('dog') ||
+    normalized.includes('cat') ||
+    normalized.includes('pepe') ||
+    normalized.includes('bonk') ||
+    normalized.includes('wif')
+  )
+}
+
+function deriveLabels(input: {
+  category: FeedCategory
+  symbol: string
+  priceChange24h: number
+  volume24h: number
+  pairCreatedAt: number | null
+}): FeedLabel[] {
+  const labels = new Set<FeedLabel>()
+  const isNewPair = Boolean(input.pairCreatedAt && Date.now() - input.pairCreatedAt < 3 * 24 * 60 * 60 * 1000)
+
+  if (input.volume24h > 0) {
+    labels.add('trending')
+  }
+  if (isMemeSymbol(input.symbol) || input.category === 'memecoin') {
+    labels.add('meme')
+  }
+  if (input.priceChange24h >= 8) {
+    labels.add('gainer')
+  }
+  if (isNewPair || input.category === 'new') {
+    labels.add('new')
+  }
+
+  labels.add(mapCategoryToLabel(input.category))
+
+  const priority: FeedLabel[] = ['trending', 'meme', 'gainer', 'new']
+  return priority.filter((label) => labels.has(label))
 }
 
 function deriveRiskTier(input: { liquidity: number; volume24h: number; priceChange24h: number }): RiskTier {

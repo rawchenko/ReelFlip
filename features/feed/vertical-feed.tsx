@@ -1,4 +1,5 @@
 import { appStyles } from '@/constants/app-styles'
+import { useAccountTokenBalances } from '@/features/account/use-account-token-balances'
 import { useFeedChartRealtime } from '@/features/feed/chart/use-feed-chart-realtime'
 import { TokenCard } from '@/features/feed/token-card'
 import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
@@ -27,6 +28,7 @@ export function VerticalFeed({
   const [activeIndex, setActiveIndex] = useState(0)
   const pageHeight = Math.max(listHeight - topInset, 460)
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 70 })
+  const { data: ownedAmountByMint } = useAccountTokenBalances()
 
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -88,6 +90,7 @@ export function VerticalFeed({
             item={item}
             availableHeight={pageHeight}
             enableTradingView={Math.abs(index - activeIndex) <= 1}
+            canSell={Boolean(ownedAmountByMint && (ownedAmountByMint[item.mint] ?? 0n) > 0n)}
             onActionPress={onActionPress}
             onTradePress={onTradePress}
           />
