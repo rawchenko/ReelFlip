@@ -68,7 +68,7 @@ function trimTrailingZeros(value: string): string {
   return value.replace(/0+$/, '').replace(/\.$/, '')
 }
 
-function formatCompactCurrencyStable(value?: number): string {
+function formatCompactCurrencyStable(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return '--'
   }
@@ -136,11 +136,13 @@ function formatLabel(label: FeedLabel): string {
   return 'Meme'
 }
 
-function getDisplayLabels(item: Pick<TokenFeedItem, 'labels' | 'category'>): FeedLabel[] {
+function getDisplayLabels(item: Pick<TokenFeedItem, 'tags' | 'labels' | 'category'>): FeedLabel[] {
   const normalized = new Set<FeedLabel>()
 
-  if (Array.isArray(item.labels)) {
-    for (const label of item.labels) {
+  const preferred = Array.isArray(item.tags?.discovery) && item.tags.discovery.length > 0 ? item.tags.discovery : item.labels
+
+  if (Array.isArray(preferred)) {
+    for (const label of preferred) {
       if (LABEL_PRIORITY.includes(label)) {
         normalized.add(label)
       }
@@ -152,6 +154,31 @@ function getDisplayLabels(item: Pick<TokenFeedItem, 'labels' | 'category'>): Fee
   }
 
   return LABEL_PRIORITY.filter((label) => normalized.has(label)).slice(0, 2)
+}
+
+function formatTrustTag(tag: string): string {
+  if (tag === 'verified') {
+    return 'Verified'
+  }
+  if (tag === 'lst') {
+    return 'LST'
+  }
+  if (tag === 'risk_warn') {
+    return 'Risk: Warn'
+  }
+  if (tag === 'risk_block') {
+    return 'Risk: High'
+  }
+
+  return tag.replace(/_/g, ' ').replace(/\\b\\w/g, (char) => char.toUpperCase())
+}
+
+function getTrustTags(item: Pick<TokenFeedItem, 'tags'>): string[] {
+  if (!Array.isArray(item.tags?.trust)) {
+    return []
+  }
+
+  return item.tags.trust.slice(0, 2)
 }
 
 export function TokenCard({
@@ -255,6 +282,7 @@ export function TokenCard({
   const webChartLatestCandle = useRealtimeWebChart ? pairChartState?.latestCandle : null
   const descriptionText = item.description || item.name
   const displayLabels = getDisplayLabels(item)
+  const trustTags = getTrustTags(item)
 
   const handleTradePress = (side: FeedTradeSide) => {
     triggerHaptic('impactLight')
@@ -337,6 +365,16 @@ export function TokenCard({
               </View>
             ))}
           </View>
+
+          {trustTags.length > 0 ? (
+            <View style={styles.trustTagsRow}>
+              {trustTags.map((tag) => (
+                <View key={tag} style={styles.trustBadge}>
+                  <Text style={styles.trustBadgeText}>{formatTrustTag(tag)}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <Text style={styles.descriptionText} numberOfLines={2}>
             {descriptionText} ...more
@@ -541,5 +579,24 @@ const styles = StyleSheet.create({
     fontFamily: interFontFamily.regular,
     fontSize: 24,
     lineHeight: 30,
+  },
+  trustBadge: {
+    backgroundColor: 'rgba(111, 239, 180, 0.18)',
+    borderColor: 'rgba(111, 239, 180, 0.55)',
+    borderRadius: homeDesignSpec.card.badgeRadius,
+    borderWidth: 1,
+    paddingHorizontal: homeDesignSpec.card.badgeHorizontalPadding,
+    paddingVertical: homeDesignSpec.card.badgeVerticalPadding,
+  },
+  trustBadgeText: {
+    color: '#D7FFE9',
+    fontFamily: interFontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  trustTagsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: -2,
   },
 })

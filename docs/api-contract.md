@@ -77,6 +77,7 @@ Response `200`:
       "mint": "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
       "name": "Example Token",
       "symbol": "EXMPL",
+      "description": "Example token description",
       "imageUri": null,
       "priceUsd": 0.1234,
       "priceChange24h": 12.4,
@@ -84,7 +85,25 @@ Response `200`:
       "liquidity": 2100000,
       "marketCap": 15000000,
       "sparkline": [0.11, 0.113, 0.119, 0.1234],
+      "sparklineMeta": {
+        "window": "6h",
+        "interval": "1m",
+        "source": "historical_provider",
+        "points": 4,
+        "generatedAt": "2026-02-25T19:40:00.000Z"
+      },
       "pairAddress": "A1B2C3...",
+      "tags": {
+        "trust": ["verified"],
+        "discovery": ["trending", "gainer"]
+      },
+      "labels": ["trending", "gainer"],
+      "sources": {
+        "price": "birdeye",
+        "marketCap": "birdeye",
+        "metadata": "helius",
+        "tags": ["jupiter", "internal_risk"]
+      },
       "category": "trending",
       "riskTier": "warn"
     }
@@ -99,14 +118,19 @@ Response `200`:
 - `mint`: `string`
 - `name`: `string`
 - `symbol`: `string`
+- `description`: `string | null`
 - `imageUri`: `string | null`
 - `priceUsd`: `number`
 - `priceChange24h`: `number`
 - `volume24h`: `number`
 - `liquidity`: `number`
-- `marketCap`: `number`
+- `marketCap`: `number | null`
 - `sparkline`: `number[]`
+- `sparklineMeta`: `{ window: "6h"; interval: "1m"; source: string; points: number; generatedAt: string } | null`
 - `pairAddress`: `string | null`
+- `tags`: `{ trust: string[]; discovery: ("trending" | "gainer" | "new" | "meme")[] }`
+- `labels`: `("trending" | "gainer" | "new" | "meme")[]` (backward-compat alias of `tags.discovery`)
+- `sources`: `{ price: "birdeye" | "dexscreener" | "seed"; marketCap: "birdeye" | "dexscreener_market_cap" | "dexscreener_fdv" | "seed" | "unavailable"; metadata: "helius" | "dexscreener" | "seed"; tags: string[] }`
 - `category`: `trending | gainer | new | memecoin`
 - `riskTier`: `block | warn | allow`
 
@@ -235,4 +259,3 @@ These are draft payload shapes to lock before implementation.
 5. Idempotency: require idempotency key on trade build/submit.
 6. Error code taxonomy: finalize canonical codes beyond `BAD_REQUEST` and `INTERNAL` (for example `UNAUTHORIZED`, `RATE_LIMITED`, `QUOTE_EXPIRED`, `RISK_BLOCKED`).
 7. Versioning rule: define how breaking changes are introduced (`/v1` discipline vs `/v2` cutover).
-

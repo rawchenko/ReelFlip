@@ -8,6 +8,16 @@ export interface BackendEnv {
   feedMaxLimit: number
   dexScreenerTimeoutMs: number
   dexScreenerSearchQuery: string
+  birdeyeApiKey?: string
+  birdeyeTimeoutMs: number
+  heliusApiKey?: string
+  heliusDasUrl: string
+  heliusTimeoutMs: number
+  jupiterTagsTtlMs: number
+  feedEnrichmentMaxItems: number
+  feedEnrichmentConcurrency: number
+  feedSparklineWindowMinutes: number
+  feedSparklinePoints: number
   chartEnabled: boolean
   chartIntervalMs: number
   chartHistoryLimit: number
@@ -34,9 +44,17 @@ const DEFAULTS = {
   feedMaxLimit: 20,
   dexScreenerTimeoutMs: 5000,
   dexScreenerSearchQuery: 'solana,bonk,wif,jup',
+  birdeyeTimeoutMs: 2500,
+  heliusDasUrl: 'https://mainnet.helius-rpc.com',
+  heliusTimeoutMs: 2500,
+  jupiterTagsTtlMs: 900000,
+  feedEnrichmentMaxItems: 80,
+  feedEnrichmentConcurrency: 8,
+  feedSparklineWindowMinutes: 360,
+  feedSparklinePoints: 72,
   chartEnabled: true,
   chartIntervalMs: 1000,
-  chartHistoryLimit: 240,
+  chartHistoryLimit: 360,
   chartStaleAfterMs: 3000,
   chartPairIdleTtlMs: 15000,
   chartMaxPairsPerStream: 3,
@@ -112,6 +130,20 @@ export function loadEnv(): BackendEnv {
     feedMaxLimit: parseIntEnv('FEED_MAX_LIMIT', DEFAULTS.feedMaxLimit, 1),
     dexScreenerTimeoutMs: parseIntEnv('DEXSCREENER_TIMEOUT_MS', DEFAULTS.dexScreenerTimeoutMs, 200),
     dexScreenerSearchQuery: process.env.DEXSCREENER_SEARCH_QUERY ?? DEFAULTS.dexScreenerSearchQuery,
+    birdeyeApiKey: process.env.BIRDEYE_API_KEY,
+    birdeyeTimeoutMs: parseIntEnv('BIRDEYE_TIMEOUT_MS', DEFAULTS.birdeyeTimeoutMs, 200),
+    heliusApiKey: process.env.HELIUS_API_KEY,
+    heliusDasUrl: process.env.HELIUS_DAS_URL ?? DEFAULTS.heliusDasUrl,
+    heliusTimeoutMs: parseIntEnv('HELIUS_TIMEOUT_MS', DEFAULTS.heliusTimeoutMs, 200),
+    jupiterTagsTtlMs: parseIntEnv('JUPITER_TAGS_TTL_MS', DEFAULTS.jupiterTagsTtlMs, 1),
+    feedEnrichmentMaxItems: parseIntEnv('FEED_ENRICHMENT_MAX_ITEMS', DEFAULTS.feedEnrichmentMaxItems, 1),
+    feedEnrichmentConcurrency: parseIntEnv('FEED_ENRICHMENT_CONCURRENCY', DEFAULTS.feedEnrichmentConcurrency, 1),
+    feedSparklineWindowMinutes: parseIntEnv(
+      'FEED_SPARKLINE_WINDOW_MINUTES',
+      DEFAULTS.feedSparklineWindowMinutes,
+      1,
+    ),
+    feedSparklinePoints: parseIntEnv('FEED_SPARKLINE_POINTS', DEFAULTS.feedSparklinePoints, 2),
     chartEnabled: parseBoolEnv('CHART_ENABLED', DEFAULTS.chartEnabled),
     chartIntervalMs: parseIntEnv('CHART_INTERVAL_MS', DEFAULTS.chartIntervalMs, 250),
     chartHistoryLimit: parseIntEnv('CHART_HISTORY_LIMIT', DEFAULTS.chartHistoryLimit, 1),

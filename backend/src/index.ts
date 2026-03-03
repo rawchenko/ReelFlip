@@ -9,6 +9,12 @@ import { ChartRegistry } from './chart/chart.registry.js'
 import { registerChartRoutes } from './chart/chart.route.js'
 import { loadEnv } from './config/env.js'
 import { FeedCache } from './feed/feed.cache.js'
+import {
+  BirdeyeMarketDataClient,
+  FeedEnrichmentService,
+  HeliusMetadataClient,
+  JupiterTrustTagsClient,
+} from './feed/feed.enrichment.js'
 import { registerFeedRoutes } from './feed/feed.route.js'
 import { CompositeFeedProvider, DexScreenerFeedProvider, SeedFeedProvider } from './feed/feed.provider.js'
 import { DEFAULT_SEEDED_FEED } from './feed/feed.seed.js'
@@ -35,22 +41,6 @@ const feedCache = new FeedCache({
 })
 
 await feedCache.initialize()
-
-const feedProvider = new CompositeFeedProvider(
-  [
-    new DexScreenerFeedProvider(
-      {
-        timeoutMs: env.dexScreenerTimeoutMs,
-        searchQuery: env.dexScreenerSearchQuery,
-      },
-      app.log,
-    ),
-  ],
-  new SeedFeedProvider(DEFAULT_SEEDED_FEED),
-  app.log,
-)
-
-const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit)
 
 const chartHistoryCache = new ChartHistoryCache({
   redisUrl: env.redisUrl,
@@ -104,6 +94,55 @@ const chartHistoryService = new ChartHistoryService(
   },
   app.log,
 )
+
+const feedEnrichmentService = new FeedEnrichmentService(
+  new BirdeyeMarketDataClient(
+    {
+      apiKey: env.birdeyeApiKey,
+      timeoutMs: env.birdeyeTimeoutMs,
+    },
+    app.log,
+  ),
+  new HeliusMetadataClient(
+    {
+      apiKey: env.heliusApiKey,
+      timeoutMs: env.heliusTimeoutMs,
+      dasUrl: env.heliusDasUrl,
+    },
+    app.log,
+  ),
+  new JupiterTrustTagsClient(
+    {
+      ttlMs: env.jupiterTagsTtlMs,
+    },
+    app.log,
+  ),
+  chartHistoryService,
+  {
+    maxItems: env.feedEnrichmentMaxItems,
+    concurrency: env.feedEnrichmentConcurrency,
+    sparklineWindowMinutes: env.feedSparklineWindowMinutes,
+    sparklinePoints: env.feedSparklinePoints,
+  },
+  app.log,
+)
+
+const feedProvider = new CompositeFeedProvider(
+  [
+    new DexScreenerFeedProvider(
+      {
+        timeoutMs: env.dexScreenerTimeoutMs,
+        searchQuery: env.dexScreenerSearchQuery,
+      },
+      app.log,
+      feedEnrichmentService,
+    ),
+  ],
+  new SeedFeedProvider(DEFAULT_SEEDED_FEED),
+  app.log,
+)
+
+const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit)
 
 await app.register(cors, {
   origin: true,

@@ -1,7 +1,51 @@
-import { TokenFeedItem } from './feed.provider.js'
+import { FeedLabel, TokenFeedItem } from './feed.provider.js'
+
+const DEFAULT_SEED_SPARKLINE_META = {
+  window: '6h' as const,
+  interval: '1m' as const,
+  source: 'seed_static',
+  generatedAt: new Date(0).toISOString(),
+}
+
+function buildSeededItem(
+  item: Omit<TokenFeedItem, 'description' | 'tags' | 'sources' | 'sparklineMeta'> & {
+    description?: string | null
+    labels?: FeedLabel[]
+  },
+): TokenFeedItem {
+  const discovery: FeedLabel[] =
+    Array.isArray(item.labels) && item.labels.length > 0
+      ? item.labels
+      : item.category === 'memecoin'
+        ? ['meme']
+        : [item.category]
+  const trust = item.riskTier === 'block' ? ['risk_block'] : item.riskTier === 'warn' ? ['risk_warn'] : []
+
+  return {
+    ...item,
+    description: item.description ?? null,
+    tags: {
+      trust,
+      discovery,
+    },
+    sources: {
+      price: 'seed',
+      marketCap: 'seed',
+      metadata: 'seed',
+      tags: trust.length > 0 ? ['internal_risk', 'seed'] : ['seed'],
+    },
+    sparklineMeta:
+      item.sparkline.length > 0
+        ? {
+            ...DEFAULT_SEED_SPARKLINE_META,
+            points: item.sparkline.length,
+          }
+        : null,
+  }
+}
 
 export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
-  {
+  buildSeededItem({
     mint: 'So11111111111111111111111111111111111111112',
     name: 'Wrapped SOL',
     symbol: 'SOL',
@@ -16,8 +60,8 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending'],
     category: 'trending',
     riskTier: 'allow',
-  },
-  {
+  }),
+  buildSeededItem({
     mint: '4nKiBzUscGCKkEpz1Jz8upgbaRySigVF94FcDZ6RN5u5',
     name: 'dogwifhat',
     symbol: 'WIF',
@@ -32,8 +76,8 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending', 'meme'],
     category: 'memecoin',
     riskTier: 'warn',
-  },
-  {
+  }),
+  buildSeededItem({
     mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
     name: 'Bonk',
     symbol: 'BONK',
@@ -48,8 +92,8 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending', 'meme'],
     category: 'gainer',
     riskTier: 'warn',
-  },
-  {
+  }),
+  buildSeededItem({
     mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
     name: 'Jupiter',
     symbol: 'JUP',
@@ -64,8 +108,8 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending'],
     category: 'trending',
     riskTier: 'allow',
-  },
-  {
+  }),
+  buildSeededItem({
     mint: 'rndrxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     name: 'Render',
     symbol: 'RNDR',
@@ -80,8 +124,8 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending', 'new'],
     category: 'new',
     riskTier: 'allow',
-  },
-  {
+  }),
+  buildSeededItem({
     mint: 'F8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f',
     name: 'Turbo Cat',
     symbol: 'TCAT',
@@ -96,5 +140,5 @@ export const DEFAULT_SEEDED_FEED: TokenFeedItem[] = [
     labels: ['trending', 'meme'],
     category: 'memecoin',
     riskTier: 'block',
-  },
+  }),
 ]

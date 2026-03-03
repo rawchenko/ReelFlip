@@ -20,7 +20,7 @@ export class NoopHistoricalCandleProvider implements HistoricalCandleProvider {
   }
 }
 
-export function normalizeHistoricalCandles(candles: OhlcCandle[], max = 240): OhlcCandle[] {
+export function normalizeHistoricalCandles(candles: OhlcCandle[], max = 360): OhlcCandle[] {
   const byTime = new Map<number, OhlcCandle>()
 
   for (const candle of candles) {

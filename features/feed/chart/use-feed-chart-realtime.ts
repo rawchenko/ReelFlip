@@ -15,8 +15,8 @@ const ACTIVE_RADIUS = 1
 const PAIRS_PER_STREAM = 3
 const RECONNECT_BACKOFF_MS = [1000, 2000, 5000] as const
 const HISTORY_POLL_INTERVAL_MS = 1000
-const HISTORY_VISIBLE_CANDLES = 60
-const CHART_INTERVAL = '1s' as const
+const HISTORY_VISIBLE_CANDLES = 360
+const CHART_INTERVAL = '1m' as const
 
 function logChartRealtimeDiagnostic(event: string, details?: Record<string, unknown>): void {
   if (!__DEV__) {
@@ -319,7 +319,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       currentTransport = 'polling_fallback'
       markPairsFallbackPolling()
       if (__DEV__) {
-        console.warn('[chart] falling back to 1s history polling (SSE streaming unsupported)')
+        console.warn('[chart] falling back to 1m history polling (SSE streaming unsupported)')
       }
       logChartRealtimeDiagnostic('stream_fallback_to_polling', {
         reason: 'streaming_unavailable',

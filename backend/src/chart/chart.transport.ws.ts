@@ -8,7 +8,7 @@ interface ChartWsTransportDependencies {
 }
 
 const SUPPORTED_INTERVALS: ChartInterval[] = ['1s', '1m']
-const SNAPSHOT_LIMIT = 120
+const SNAPSHOT_LIMIT = 360
 const HEARTBEAT_MS = 15_000
 
 export function registerChartWebSocketTransport(

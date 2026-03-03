@@ -54,7 +54,7 @@ export class GeckoTerminalHistoricalCandleProvider implements HistoricalCandlePr
 function buildOhlcvUrl(params: HistoricalCandleProviderFetchParams): string {
   const search = new URLSearchParams()
   search.set('aggregate', '1')
-  search.set('limit', String(Math.max(1, Math.min(240, Math.floor(params.limit)))))
+  search.set('limit', String(Math.max(1, Math.min(360, Math.floor(params.limit)))))
   search.set('currency', 'usd')
   search.set('token', 'base')
   if (typeof params.endTimeSec === 'number' && Number.isFinite(params.endTimeSec) && params.endTimeSec > 0) {

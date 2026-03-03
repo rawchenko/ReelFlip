@@ -1,20 +1,46 @@
+import type { FeedEnricher } from './feed.enrichment.js'
+
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
 export type FeedLabel = 'trending' | 'gainer' | 'new' | 'meme'
 export type RiskTier = 'block' | 'warn' | 'allow'
+
+export interface TokenFeedTags {
+  trust: string[]
+  discovery: FeedLabel[]
+}
+
+export interface TokenFeedSparklineMeta {
+  window: '6h'
+  interval: '1m'
+  source: string
+  points: number
+  generatedAt: string
+}
+
+export interface TokenFeedSources {
+  price: 'birdeye' | 'dexscreener' | 'seed'
+  marketCap: 'birdeye' | 'dexscreener_market_cap' | 'dexscreener_fdv' | 'seed' | 'unavailable'
+  metadata: 'helius' | 'dexscreener' | 'seed'
+  tags: string[]
+}
 
 export interface TokenFeedItem {
   mint: string
   name: string
   symbol: string
+  description: string | null
   imageUri: string | null
   priceUsd: number
   priceChange24h: number
   volume24h: number
   liquidity: number
-  marketCap: number
+  marketCap: number | null
   sparkline: number[]
+  sparklineMeta: TokenFeedSparklineMeta | null
   pairAddress: string | null
+  tags: TokenFeedTags
   labels?: FeedLabel[]
+  sources: TokenFeedSources
   quoteSymbol?: string | null
   recentVolume5m?: number
   recentTxns5m?: number
@@ -35,6 +61,7 @@ export interface FeedFetchResult {
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void
+  info?: (obj: unknown, msg?: string) => void
 }
 
 export class SeedFeedProvider implements FeedProvider {
@@ -86,6 +113,7 @@ export class DexScreenerFeedProvider implements FeedProvider {
   constructor(
     private readonly options: DexScreenerProviderOptions,
     private readonly logger: Logger,
+    private readonly enricher?: FeedEnricher,
   ) {}
 
   async fetchFeed(signal: AbortSignal): Promise<TokenFeedItem[]> {
@@ -123,7 +151,11 @@ export class DexScreenerFeedProvider implements FeedProvider {
       )
     }
 
-    return normalized
+    if (!this.enricher) {
+      return normalized
+    }
+
+    return this.enricher.enrich(normalized, signal)
   }
 
   private async fetchSearchQuery(query: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
@@ -199,9 +231,10 @@ function normalizePair(input: unknown): TokenFeedItem | null {
   const volume24h = numberOr(input.volume, 'h24')
   const recentVolume5m = numberOr(input.volume, 'm5')
   const liquidity = numberOr(input.liquidity, 'usd')
-  const marketCap = numberOrNull(input.marketCap) ?? numberOrNull(input.fdv) ?? Math.max(liquidity * 8, 0)
+  const marketCapDirect = numberOrNull(input.marketCap)
+  const marketCapFdv = numberOrNull(input.fdv)
+  const marketCap = marketCapDirect ?? marketCapFdv
   const recentTxns5m = sumBuysAndSells(input.txns, 'm5')
-  const sparkline = deriveSparkline(priceUsd, input.priceChange)
   const category = deriveCategory({ symbol, priceChange24h, volume24h, pairCreatedAt })
   const labels = deriveLabels({
     category,
@@ -210,25 +243,44 @@ function normalizePair(input: unknown): TokenFeedItem | null {
     volume24h,
     pairCreatedAt,
   })
+  const riskTier = deriveRiskTier({ liquidity, volume24h, priceChange24h })
+  const initialTrustTags = deriveRiskTrustTags(riskTier)
 
   return {
     mint,
     name,
     symbol,
+    description: null,
     imageUri: stringOrNull(info?.imageUrl),
     priceUsd,
     priceChange24h,
     volume24h,
     liquidity,
     marketCap,
-    sparkline,
+    sparkline: [],
+    sparklineMeta: null,
     pairAddress: stringOrNull(input.pairAddress),
+    tags: {
+      trust: initialTrustTags,
+      discovery: labels,
+    },
     labels,
+    sources: {
+      price: 'dexscreener',
+      marketCap:
+        marketCapDirect !== null
+          ? 'dexscreener_market_cap'
+          : marketCapFdv !== null
+            ? 'dexscreener_fdv'
+            : 'unavailable',
+      metadata: 'dexscreener',
+      tags: initialTrustTags.length > 0 ? ['internal_risk'] : [],
+    },
     quoteSymbol: stringOrNull(quoteToken?.symbol),
     recentVolume5m,
     recentTxns5m,
     category,
-    riskTier: deriveRiskTier({ liquidity, volume24h, priceChange24h }),
+    riskTier,
   }
 }
 
@@ -245,49 +297,6 @@ function isLikelySpoofedMajorSymbol(mint: string, symbol: string): boolean {
   }
 
   return mint !== expectedMint
-}
-
-function deriveSparkline(priceUsd: number, priceChange: unknown): number[] {
-  if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
-    return []
-  }
-
-  const change24h = numberOr(priceChange, 'h24')
-  const change6h = numberOr(priceChange, 'h6')
-  const change1h = numberOr(priceChange, 'h1')
-  const change5m = numberOr(priceChange, 'm5')
-
-  const startPrice = priceFromPercentChange(priceUsd, change24h)
-  const start = Number.isFinite(startPrice) && startPrice > 0 ? startPrice : priceUsd
-  const pointsCount = 56
-  const volatilityScale = Math.min(
-    0.06,
-    Math.max(Math.abs(change1h) / 100, (Math.abs(change5m) * 4) / 100, Math.abs(change6h) / 6 / 100, 0.003),
-  )
-
-  const output: number[] = []
-
-  for (let index = 0; index < pointsCount; index += 1) {
-    const t = index / (pointsCount - 1)
-    const trend = start + (priceUsd - start) * t
-    const oscillationA = Math.sin((index + 3) * 0.62) * trend * volatilityScale * 0.35
-    const oscillationB = Math.cos((index + 11) * 0.19) * trend * volatilityScale * 0.2
-    const drift = Math.sin((index + 1) * 0.11) * trend * volatilityScale * 0.08
-    const value = Math.max(Number.EPSILON, trend + oscillationA + oscillationB + drift)
-    output.push(value)
-  }
-
-  output[output.length - 1] = priceUsd
-  return output
-}
-
-function priceFromPercentChange(currentPriceUsd: number, percentChange: number): number {
-  const denominator = 1 + percentChange / 100
-  if (!Number.isFinite(denominator) || denominator <= 0) {
-    return currentPriceUsd
-  }
-
-  return currentPriceUsd / denominator
 }
 
 function deriveCategory(input: {
@@ -373,6 +382,18 @@ function deriveRiskTier(input: { liquidity: number; volume24h: number; priceChan
   }
 
   return 'allow'
+}
+
+function deriveRiskTrustTags(riskTier: RiskTier): string[] {
+  if (riskTier === 'block') {
+    return ['risk_block']
+  }
+
+  if (riskTier === 'warn') {
+    return ['risk_warn']
+  }
+
+  return []
 }
 
 function numberOr(input: unknown, key: string): number {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { FeedCache } from './feed.cache.js'
-import { CompositeFeedProvider, SeedFeedProvider, TokenFeedItem } from './feed.provider.js'
+import { CompositeFeedProvider, FeedLabel, SeedFeedProvider, TokenFeedItem } from './feed.provider.js'
 import { FeedRankingService, FeedService, InvalidFeedRequestError } from './feed.service.js'
 
 const logger = {
@@ -9,52 +9,97 @@ const logger = {
   warn: () => undefined,
 }
 
+function buildItem(input: {
+  mint: string
+  name: string
+  symbol: string
+  priceUsd: number
+  priceChange24h: number
+  volume24h: number
+  liquidity: number
+  marketCap: number | null
+  pairAddress: string | null
+  category: TokenFeedItem['category']
+  riskTier: TokenFeedItem['riskTier']
+  labels?: FeedLabel[]
+  recentVolume5m?: number
+  recentTxns5m?: number
+}): TokenFeedItem {
+  const discovery = input.labels ?? (input.category === 'memecoin' ? ['meme'] : [input.category])
+  const trust = input.riskTier === 'block' ? ['risk_block'] : input.riskTier === 'warn' ? ['risk_warn'] : []
+
+  return {
+    mint: input.mint,
+    name: input.name,
+    symbol: input.symbol,
+    description: null,
+    imageUri: null,
+    priceUsd: input.priceUsd,
+    priceChange24h: input.priceChange24h,
+    volume24h: input.volume24h,
+    liquidity: input.liquidity,
+    marketCap: input.marketCap,
+    sparkline: [],
+    sparklineMeta: null,
+    pairAddress: input.pairAddress,
+    tags: {
+      trust,
+      discovery,
+    },
+    labels: discovery,
+    sources: {
+      price: 'dexscreener',
+      marketCap: input.marketCap !== null ? 'dexscreener_market_cap' : 'unavailable',
+      metadata: 'dexscreener',
+      tags: trust.length > 0 ? ['internal_risk'] : [],
+    },
+    recentVolume5m: input.recentVolume5m,
+    recentTxns5m: input.recentTxns5m,
+    category: input.category,
+    riskTier: input.riskTier,
+  }
+}
+
 const seededItems: TokenFeedItem[] = [
-  {
+  buildItem({
     mint: 'mint-1',
     name: 'Token A',
     symbol: 'TKA',
-    imageUri: null,
     priceUsd: 1,
     priceChange24h: 2,
     volume24h: 10_000,
     liquidity: 10_000,
     marketCap: 20_000,
-    sparkline: [],
     pairAddress: null,
     category: 'trending',
     riskTier: 'allow',
-  },
-  {
+  }),
+  buildItem({
     mint: 'mint-2',
     name: 'Token B',
     symbol: 'TKB',
-    imageUri: null,
     priceUsd: 2,
     priceChange24h: 8,
     volume24h: 20_000,
     liquidity: 15_000,
     marketCap: 25_000,
-    sparkline: [],
     pairAddress: null,
     category: 'gainer',
     riskTier: 'warn',
-  },
-  {
+  }),
+  buildItem({
     mint: 'mint-3',
     name: 'Token C',
     symbol: 'TKC',
-    imageUri: null,
     priceUsd: 3,
     priceChange24h: -1,
     volume24h: 30_000,
     liquidity: 20_000,
     marketCap: 30_000,
-    sparkline: [],
     pairAddress: null,
     category: 'new',
     riskTier: 'allow',
-  },
+  }),
 ]
 
 test('returns cursor pages and enforces cursor consistency', async () => {
@@ -90,36 +135,32 @@ test('returns cursor pages and enforces cursor consistency', async () => {
 test('ranking deduplicates duplicate mints', () => {
   const ranking = new FeedRankingService()
   const duplicated = ranking.rank([
-    {
+    buildItem({
       mint: 'dup-mint',
       name: 'Token One',
       symbol: 'DUP',
-      imageUri: null,
       priceUsd: 1,
       priceChange24h: 2,
       volume24h: 100_000,
       liquidity: 100_000,
       marketCap: 1_000_000,
-      sparkline: [],
       pairAddress: 'pair-a',
       category: 'trending',
       riskTier: 'allow',
-    },
-    {
+    }),
+    buildItem({
       mint: 'dup-mint',
       name: 'Token One',
       symbol: 'DUP',
-      imageUri: null,
       priceUsd: 1,
       priceChange24h: 2,
       volume24h: 100_000,
       liquidity: 200_000,
       marketCap: 1_000_000,
-      sparkline: [],
       pairAddress: 'pair-b',
       category: 'trending',
       riskTier: 'allow',
-    },
+    }),
   ])
 
   assert.equal(duplicated.length, 1)
@@ -129,11 +170,10 @@ test('ranking deduplicates duplicate mints', () => {
 test('ranking deduplicates duplicate symbols and prefers active/liquid pair', () => {
   const ranking = new FeedRankingService()
   const ranked = ranking.rank([
-    {
+    buildItem({
       mint: 'mint-a',
       name: 'Token One',
       symbol: 'SOL',
-      imageUri: null,
       priceUsd: 143,
       priceChange24h: 1,
       volume24h: 10_000,
@@ -141,16 +181,14 @@ test('ranking deduplicates duplicate symbols and prefers active/liquid pair', ()
       recentTxns5m: 0,
       liquidity: 10_000,
       marketCap: 1_000_000,
-      sparkline: [],
       pairAddress: 'pair-a',
       category: 'trending',
       riskTier: 'allow',
-    },
-    {
+    }),
+    buildItem({
       mint: 'mint-b',
       name: 'Token Two',
       symbol: 'SOL',
-      imageUri: null,
       priceUsd: 144,
       priceChange24h: 1,
       volume24h: 500_000,
@@ -158,11 +196,10 @@ test('ranking deduplicates duplicate symbols and prefers active/liquid pair', ()
       recentTxns5m: 50,
       liquidity: 300_000,
       marketCap: 2_000_000,
-      sparkline: [],
       pairAddress: 'pair-b',
       category: 'trending',
       riskTier: 'allow',
-    },
+    }),
   ])
 
   assert.equal(ranked.length, 1)

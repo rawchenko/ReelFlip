@@ -130,7 +130,7 @@ export async function fetchChartBatchHistory(
     body: JSON.stringify({
       pairs,
       interval: options.interval ?? '1m',
-      limit: options.limit ?? 60,
+      limit: options.limit ?? 360,
     }),
   })
 

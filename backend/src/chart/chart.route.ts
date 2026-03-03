@@ -32,8 +32,8 @@ interface ChartBatchBody {
 }
 
 const SUPPORTED_INTERVALS: ChartInterval[] = ['1s', '1m']
-const MAX_HISTORY_LIMIT = 240
-const MAX_BATCH_LIMIT = 60
+const MAX_HISTORY_LIMIT = 360
+const MAX_BATCH_LIMIT = 360
 const HEARTBEAT_MS = 15_000
 
 export async function registerChartRoutes(app: FastifyInstance, dependencies: ChartRouteDependencies): Promise<void> {
@@ -108,7 +108,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
           request.log.warn({ error, pairAddress }, 'Failed to seed pair for SSE bootstrap')
         }
 
-        const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, 120, interval)
+        const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, 360, interval)
         if (snapshotEvent) {
           writeEvent('snapshot', snapshotEvent)
         }

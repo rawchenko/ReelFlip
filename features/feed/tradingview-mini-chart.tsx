@@ -23,8 +23,8 @@ interface WebMessagePayload {
   message?: string
 }
 
-const MAX_POINTS = 60
-const MAX_CANDLES = 60
+const MAX_POINTS = 360
+const MAX_CANDLES = 360
 
 function sanitizePoints(points?: number[]): number[] {
   if (!Array.isArray(points)) {
@@ -85,14 +85,17 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
   const bullWick = semanticColors.chart.bullWick
   const bearBody = semanticColors.chart.bearBody
   const bearWick = semanticColors.chart.bearWick
-  const neonLine = positiveTrend ? '#2CFF73' : '#FF6B7A'
-  const neonGlowStrong = positiveTrend ? 'rgba(44, 255, 115, 0.28)' : 'rgba(255, 107, 122, 0.26)'
-  const neonGlowSoft = positiveTrend ? 'rgba(44, 255, 115, 0.12)' : 'rgba(255, 107, 122, 0.11)'
-  const neonFillTop = positiveTrend ? 'rgba(22, 255, 113, 0.14)' : 'rgba(255, 107, 122, 0.12)'
-  const neonFillBottom = 'rgba(0, 0, 0, 0)'
-  const grid = feedMode ? 'rgba(0, 0, 0, 0)' : semanticColors.chart.grid
-  const background = feedMode ? '#04060b' : semanticColors.chart.background
-  const text = feedMode ? 'rgba(127, 138, 162, 0.18)' : semanticColors.text.chartAxis
+  const baselineTopLine = '#22d3a5'
+  const baselineBottomLine = '#ff3b57'
+  const baselineTopFillStrong = 'rgba(34, 211, 165, 0.32)'
+  const baselineTopFillSoft = 'rgba(34, 211, 165, 0.03)'
+  const baselineBottomFillStrong = 'rgba(255, 59, 87, 0.28)'
+  const baselineBottomFillSoft = 'rgba(255, 59, 87, 0.03)'
+  const referenceLineColor = 'rgba(226, 232, 240, 0.62)'
+  const horizontalGrid = feedMode ? 'rgba(120, 130, 150, 0.24)' : semanticColors.chart.grid
+  const verticalGrid = feedMode ? 'rgba(0, 0, 0, 0)' : semanticColors.chart.grid
+  const background = feedMode ? '#05070b' : semanticColors.chart.background
+  const text = feedMode ? 'rgba(185, 192, 205, 0.65)' : semanticColors.text.chartAxis
   const priceLine = positiveTrend ? semanticColors.chart.bullFallback : semanticColors.chart.bearFallback
   const crosshairLine = feedMode ? 'rgba(0, 0, 0, 0)' : priceLine
 
@@ -122,43 +125,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
         inset: 0;
         pointer-events: none;
         z-index: 20;
+        display: none;
       }
-      #endpoint-dot {
-        position: absolute;
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: ${neonLine};
-        opacity: 0;
-        box-shadow:
-          0 0 10px ${neonGlowStrong},
-          0 0 18px ${neonGlowStrong},
-          0 0 28px ${neonGlowSoft};
-        transform: translate(-9999px, -9999px);
-      }
-      #endpoint-dot::after {
-        content: '';
-        position: absolute;
-        inset: -6px;
-        border-radius: 999px;
-        background: ${neonGlowSoft};
-        filter: blur(6px);
-      }
+      #endpoint-dot,
       #price-pill {
-        position: absolute;
-        padding: 4px 8px;
-        border-radius: 999px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        color: #ffffff;
-        background: rgba(15, 18, 26, 0.86);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
-        opacity: 0;
-        transform: translate(-9999px, -9999px);
-        white-space: nowrap;
+        display: none;
       }
     </style>
     <script>${chartScript}</script>
@@ -173,13 +144,12 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
       (function () {
         var chart = null
         var series = null
-        var areaSeries = null
-        var glowSeriesOuter = null
-        var glowSeriesInner = null
+        var referenceSeries = null
         var latestLinePoint = null
+        var baselineValue = null
         var initialized = false
-        var VISIBLE_WINDOW_SECONDS = 60 * 60
-        var RIGHT_PAD_SECONDS = 60
+        var VISIBLE_WINDOW_SECONDS = 6 * 60 * 60
+        var RIGHT_PAD_SECONDS = 3 * 60
         var FEED_NEON_MODE = ${feedMode ? 'true' : 'false'}
 
         function notify(type, message) {
@@ -203,6 +173,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           var now = Math.floor(Date.now() / 1000)
+          var spacingSec = Math.max(60, Math.floor(VISIBLE_WINDOW_SECONDS / Math.max(1, points.length - 1)))
+          spacingSec = Math.floor(spacingSec / 60) * 60
+          if (!Number.isFinite(spacingSec) || spacingSec < 60) {
+            spacingSec = 60
+          }
           var bars = []
 
           for (var index = 0; index < points.length; index += 1) {
@@ -217,7 +192,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             var low = Math.min(open, close) * 0.9982
 
             bars.push({
-              time: now - (points.length - index) * 60,
+              time: now - (points.length - 1 - index) * spacingSec,
               open: open,
               high: high,
               low: low,
@@ -324,14 +299,15 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           return Math.floor(Date.now() / 60000) * 60
         }
 
-        function densifyLastHourBars(bars) {
+        function densifyVisibleWindowBars(bars) {
           var expanded = expandMinuteBars(bars)
           if (!Array.isArray(expanded) || expanded.length === 0) {
             return expanded
           }
 
           var anchor = currentMinuteSec()
-          var from = anchor - (60 - 1) * 60
+          var visibleMinutes = Math.max(2, Math.floor(VISIBLE_WINDOW_SECONDS / 60))
+          var from = anchor - (visibleMinutes - 1) * 60
           var byTime = {}
 
           for (var i = 0; i < expanded.length; i += 1) {
@@ -384,7 +360,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           updateOverlayPosition()
         }
 
-        function setLastHourWindow(anchorTimeSec) {
+        function setVisibleWindow(anchorTimeSec) {
           if (!chart || !Number.isFinite(Number(anchorTimeSec))) {
             return
           }
@@ -407,7 +383,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           applyBarsData(bars)
-          setLastHourWindow(bars[bars.length - 1].time)
+          setVisibleWindow(bars[bars.length - 1].time)
           updateOverlayPosition()
         }
 
@@ -421,9 +397,9 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             return
           }
 
-          bars = densifyLastHourBars(bars)
+          bars = densifyVisibleWindowBars(bars)
           applyBarsData(bars)
-          setLastHourWindow(currentMinuteSec())
+          setVisibleWindow(currentMinuteSec())
           updateOverlayPosition()
         }
 
@@ -438,7 +414,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           applyBarUpdate(bar)
-          setLastHourWindow(currentMinuteSec())
+          setVisibleWindow(currentMinuteSec())
           updateOverlayPosition()
         }
 
@@ -476,18 +452,29 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           if (linePoints.length === 0) {
             return
           }
-          latestLinePoint = linePoints[linePoints.length - 1]
 
-          if (areaSeries) {
-            areaSeries.setData(linePoints)
+          baselineValue = resolveBaselineValue(linePoints)
+          if (!Number.isFinite(baselineValue) || baselineValue <= 0) {
+            baselineValue = Number(linePoints[0] && linePoints[0].value)
           }
-          if (glowSeriesOuter) {
-            glowSeriesOuter.setData(linePoints)
+          if (!Number.isFinite(baselineValue) || baselineValue <= 0) {
+            return
           }
-          if (glowSeriesInner) {
-            glowSeriesInner.setData(linePoints)
+
+          latestLinePoint = linePoints[linePoints.length - 1]
+          if (typeof series.applyOptions === 'function') {
+            series.applyOptions({
+              baseValue: {
+                type: 'price',
+                price: baselineValue,
+              },
+            })
           }
+
           series.setData(linePoints)
+          if (referenceSeries) {
+            referenceSeries.setData(buildReferencePoints(linePoints, baselineValue))
+          }
         }
 
         function applyBarUpdate(bar) {
@@ -504,16 +491,47 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
 
           var point = { time: time, value: close }
           latestLinePoint = point
-          if (areaSeries) {
-            areaSeries.update(point)
-          }
-          if (glowSeriesOuter) {
-            glowSeriesOuter.update(point)
-          }
-          if (glowSeriesInner) {
-            glowSeriesInner.update(point)
-          }
           series.update(point)
+          if (referenceSeries && Number.isFinite(baselineValue) && baselineValue > 0) {
+            referenceSeries.update({ time: time, value: baselineValue })
+          }
+        }
+
+        function resolveBaselineValue(points) {
+          if (!Array.isArray(points) || points.length === 0) {
+            return null
+          }
+
+          var candidateIndex = Math.max(0, points.length - 2)
+          var candidate = Number(points[candidateIndex] && points[candidateIndex].value)
+          if (Number.isFinite(candidate) && candidate > 0) {
+            return candidate
+          }
+
+          var first = Number(points[0] && points[0].value)
+          if (Number.isFinite(first) && first > 0) {
+            return first
+          }
+
+          return null
+        }
+
+        function buildReferencePoints(points, value) {
+          if (!Array.isArray(points) || points.length === 0 || !Number.isFinite(value) || value <= 0) {
+            return []
+          }
+
+          var output = []
+          for (var i = 0; i < points.length; i += 1) {
+            var point = points[i]
+            var time = Number(point && point.time)
+            if (!Number.isFinite(time)) {
+              continue
+            }
+            output.push({ time: time, value: value })
+          }
+
+          return output
         }
 
         function formatPriceLabel(value) {
@@ -531,64 +549,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
         }
 
         function updateOverlayPosition() {
-          if (!FEED_NEON_MODE || !chart || !series) {
-            return
-          }
-
-          var dotEl = document.getElementById('endpoint-dot')
-          var labelEl = document.getElementById('price-pill')
-          if (!dotEl || !labelEl) {
-            return
-          }
-
-          if (!latestLinePoint) {
-            dotEl.style.opacity = '0'
-            labelEl.style.opacity = '0'
-            return
-          }
-
-          var lastTime = Number(latestLinePoint.time)
-          var lastValue = Number(latestLinePoint.value)
-          if (!Number.isFinite(lastTime) || !Number.isFinite(lastValue)) {
-            dotEl.style.opacity = '0'
-            labelEl.style.opacity = '0'
-            return
-          }
-
-          var x = chart.timeScale().timeToCoordinate(lastTime)
-          var y = series.priceToCoordinate(lastValue)
-          if (!Number.isFinite(x) || !Number.isFinite(y)) {
-            dotEl.style.opacity = '0'
-            labelEl.textContent = formatPriceLabel(lastValue)
-            labelEl.style.opacity = '1'
-            labelEl.style.transform = 'translate(10px, 10px)'
-            return
-          }
-
-          dotEl.style.opacity = '1'
-          dotEl.style.transform = 'translate(' + String(x - 4) + 'px, ' + String(y - 4) + 'px)'
-
-          labelEl.textContent = formatPriceLabel(lastValue)
-          labelEl.style.opacity = '1'
-
-          var labelPad = 10
-          var labelGap = 12
-          var labelWidth = labelEl.offsetWidth || 56
-          var labelHeight = labelEl.offsetHeight || 24
-          var maxX = window.innerWidth - labelWidth - labelPad
-          var targetX = Math.max(labelPad, Math.min(maxX, x + labelGap))
-          var targetY = Math.max(labelPad, Math.min(window.innerHeight - labelHeight - labelPad, y - labelHeight - 6))
-          labelEl.style.transform = 'translate(' + String(targetX) + 'px, ' + String(targetY) + 'px)'
-        }
-
-        function makeLineTypeOptions() {
-          if (!window.LightweightCharts || !window.LightweightCharts.LineType) {
-            return {}
-          }
-          if (typeof window.LightweightCharts.LineType.WithSteps === 'undefined') {
-            return {}
-          }
-          return { lineType: window.LightweightCharts.LineType.WithSteps }
+          return
         }
 
         function createChart() {
@@ -612,7 +573,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
               },
               rightPriceScale: {
                 borderVisible: false,
-                visible: false,
+                visible: ${feedMode ? 'true' : 'false'},
+                scaleMargins: {
+                  top: 0.02,
+                  bottom: 0.02,
+                },
               },
               timeScale: {
                 borderVisible: false,
@@ -625,8 +590,8 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
                 lockVisibleTimeRangeOnResize: true,
               },
               grid: {
-                vertLines: { color: '${grid}' },
-                horzLines: { color: '${grid}' },
+                vertLines: { color: '${verticalGrid}' },
+                horzLines: { color: '${horizontalGrid}' },
               },
               crosshair: {
                 vertLine: {
@@ -643,53 +608,54 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             })
 
             if (FEED_NEON_MODE) {
-              var stepped = makeLineTypeOptions()
-              var commonLine = {
+              var baselineOptions = {
+                baseValue: { type: 'price', price: 1 },
+                topLineColor: '${baselineTopLine}',
+                topFillColor1: '${baselineTopFillStrong}',
+                topFillColor2: '${baselineTopFillSoft}',
+                bottomLineColor: '${baselineBottomLine}',
+                bottomFillColor1: '${baselineBottomFillStrong}',
+                bottomFillColor2: '${baselineBottomFillSoft}',
+                lineWidth: 3,
+                lastValueVisible: true,
+                priceLineVisible: true,
+                crosshairMarkerVisible: false,
+                autoscaleInfoProvider: undefined,
+              }
+
+              if (typeof chart.addBaselineSeries === 'function') {
+                series = chart.addBaselineSeries(baselineOptions)
+              } else if (typeof chart.addSeries === 'function' && window.LightweightCharts.BaselineSeries) {
+                series = chart.addSeries(window.LightweightCharts.BaselineSeries, baselineOptions)
+              } else if (typeof chart.addLineSeries === 'function') {
+                series = chart.addLineSeries({
+                  color: '${positiveTrend ? baselineTopLine : baselineBottomLine}',
+                  lineWidth: 3,
+                  lastValueVisible: true,
+                  priceLineVisible: true,
+                  crosshairMarkerVisible: false,
+                })
+              } else {
+                notify('chart-error', 'No baseline series API found')
+                return
+              }
+
+              var dashed = window.LightweightCharts && window.LightweightCharts.LineStyle
+                ? window.LightweightCharts.LineStyle.Dashed
+                : 2
+              var referenceLineOptions = {
+                color: '${referenceLineColor}',
+                lineWidth: 1,
+                lineStyle: dashed,
                 lastValueVisible: false,
                 priceLineVisible: false,
                 crosshairMarkerVisible: false,
               }
 
-              if (typeof chart.addAreaSeries === 'function') {
-                areaSeries = chart.addAreaSeries(Object.assign({}, commonLine, stepped, {
-                  lineColor: 'rgba(0,0,0,0)',
-                  lineWidth: 1,
-                  topColor: '${neonFillTop}',
-                  bottomColor: '${neonFillBottom}',
-                }))
-              } else if (typeof chart.addSeries === 'function' && window.LightweightCharts.AreaSeries) {
-                areaSeries = chart.addSeries(window.LightweightCharts.AreaSeries, Object.assign({}, commonLine, stepped, {
-                  lineColor: 'rgba(0,0,0,0)',
-                  lineWidth: 1,
-                  topColor: '${neonFillTop}',
-                  bottomColor: '${neonFillBottom}',
-                }))
-              }
-
-              var outerOptions = Object.assign({}, commonLine, stepped, {
-                color: '${neonGlowSoft}',
-                lineWidth: 12,
-              })
-              var innerOptions = Object.assign({}, commonLine, stepped, {
-                color: '${neonGlowStrong}',
-                lineWidth: 6,
-              })
-              var mainOptions = Object.assign({}, commonLine, stepped, {
-                color: '${neonLine}',
-                lineWidth: 2.6,
-              })
-
               if (typeof chart.addLineSeries === 'function') {
-                glowSeriesOuter = chart.addLineSeries(outerOptions)
-                glowSeriesInner = chart.addLineSeries(innerOptions)
-                series = chart.addLineSeries(mainOptions)
+                referenceSeries = chart.addLineSeries(referenceLineOptions)
               } else if (typeof chart.addSeries === 'function' && window.LightweightCharts.LineSeries) {
-                glowSeriesOuter = chart.addSeries(window.LightweightCharts.LineSeries, outerOptions)
-                glowSeriesInner = chart.addSeries(window.LightweightCharts.LineSeries, innerOptions)
-                series = chart.addSeries(window.LightweightCharts.LineSeries, mainOptions)
-              } else {
-                notify('chart-error', 'No line series API found')
-                return
+                referenceSeries = chart.addSeries(window.LightweightCharts.LineSeries, referenceLineOptions)
               }
             } else if (typeof chart.addCandlestickSeries === 'function') {
               series = chart.addCandlestickSeries({

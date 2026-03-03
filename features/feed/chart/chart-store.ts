@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { ChartCandle, ChartHistoryQuality, ChartStreamStatus } from '@/features/feed/chart/types'
 
+const MAX_CANDLES_PER_PAIR = 360
+
 export interface ChartPairState {
   pairAddress: string
   candles: ChartCandle[]
@@ -89,7 +91,7 @@ class FeedChartStore {
     const now = Date.now()
     this.updatePair(pairAddress, (current) => ({
       ...current,
-      candles: sanitized.slice(-240),
+      candles: sanitized.slice(-MAX_CANDLES_PER_PAIR),
       latestCandle: sanitized.length > 0 ? { ...sanitized[sanitized.length - 1] } : null,
       historySource: metadata?.source ?? current.historySource,
       historyQuality: metadata?.historyQuality ?? current.historyQuality,
@@ -123,8 +125,8 @@ class FeedChartStore {
 
       if (isNewCandle || nextCandle.time > last.time) {
         candles.push(nextCandle)
-        if (candles.length > 240) {
-          candles.splice(0, candles.length - 240)
+        if (candles.length > MAX_CANDLES_PER_PAIR) {
+          candles.splice(0, candles.length - MAX_CANDLES_PER_PAIR)
         }
       } else if (nextCandle.time === last.time) {
         candles[candles.length - 1] = nextCandle
