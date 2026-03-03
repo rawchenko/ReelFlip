@@ -57,31 +57,7 @@ export class FeedRankingService {
       }
     }
 
-    const bestBySymbol = new Map<string, (typeof scored)[number]>()
-
-    for (const candidate of bestByMint.values()) {
-      const symbolKey = candidate.item.symbol.trim().toUpperCase()
-      if (symbolKey.length === 0) {
-        continue
-      }
-
-      const existing = bestBySymbol.get(symbolKey)
-      if (!existing) {
-        bestBySymbol.set(symbolKey, candidate)
-        continue
-      }
-
-      if (candidate.score > existing.score) {
-        bestBySymbol.set(symbolKey, candidate)
-        continue
-      }
-
-      if (candidate.score === existing.score && candidate.item.liquidity > existing.item.liquidity) {
-        bestBySymbol.set(symbolKey, candidate)
-      }
-    }
-
-    return Array.from(bestBySymbol.values())
+    return Array.from(bestByMint.values())
       .sort((left, right) => {
         if (right.score !== left.score) {
           return right.score - left.score

@@ -12,7 +12,7 @@ export interface TokenFeedTags {
 
 export interface TokenFeedSparklineMeta {
   window: '6h'
-  interval: '1m'
+  interval: '1m' | '5m'
   source: string
   points: number
   generatedAt: string

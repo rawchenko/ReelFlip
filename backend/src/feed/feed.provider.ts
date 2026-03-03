@@ -11,7 +11,7 @@ export interface TokenFeedTags {
 
 export interface TokenFeedSparklineMeta {
   window: '6h'
-  interval: '1m'
+  interval: '1m' | '5m'
   source: string
   points: number
   generatedAt: string
@@ -105,6 +105,7 @@ export class CompositeFeedProvider {
 interface DexScreenerProviderOptions {
   timeoutMs: number
   searchQuery: string
+  tokenMints?: string
 }
 
 export class DexScreenerFeedProvider implements FeedProvider {
@@ -117,45 +118,54 @@ export class DexScreenerFeedProvider implements FeedProvider {
   ) {}
 
   async fetchFeed(signal: AbortSignal): Promise<TokenFeedItem[]> {
-    const queries = parseDexSearchQueries(this.options.searchQuery)
-    const settled = await Promise.allSettled(queries.map((query) => this.fetchSearchQuery(query, signal)))
-
-    const combined: TokenFeedItem[] = []
-    let successCount = 0
-
-    for (const result of settled) {
-      if (result.status === 'fulfilled') {
-        successCount += 1
-        combined.push(...result.value)
-        continue
-      }
-
-      this.logger.warn({ error: result.reason }, 'DexScreener search query failed')
-    }
-
-    const dedupedByPair = new Map<string, TokenFeedItem>()
-    for (const item of combined) {
-      const pairKey = item.pairAddress ?? `${item.mint}:${item.symbol}:${item.priceUsd}`
-      const existing = dedupedByPair.get(pairKey)
-      if (!existing || item.liquidity > existing.liquidity) {
-        dedupedByPair.set(pairKey, item)
-      }
-    }
-
-    const normalized = Array.from(dedupedByPair.values())
-    if (normalized.length === 0) {
-      throw new Error(
-        successCount > 0
-          ? 'DexScreener returned no usable Solana pairs for configured search queries'
-          : 'DexScreener search requests failed for all configured queries',
-      )
-    }
+    const tokenMints = parseDexTokenMints(this.options.tokenMints)
+    const normalized =
+      tokenMints.length > 0
+        ? await this.fetchConfiguredTokenMints(tokenMints, signal)
+        : await this.fetchConfiguredSearchQueries(signal)
 
     if (!this.enricher) {
       return normalized
     }
 
     return this.enricher.enrich(normalized, signal)
+  }
+
+  private async fetchConfiguredSearchQueries(signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const queries = parseDexSearchQueries(this.options.searchQuery)
+    const settled = await Promise.allSettled(queries.map((query) => this.fetchSearchQuery(query, signal)))
+    const combined = collectFulfilledItems(queries, settled, (context, error) => {
+      this.logger.warn({ error, query: context }, 'DexScreener search query failed')
+    })
+
+    const normalized = dedupeByPairAddress(combined.items)
+    if (normalized.length > 0) {
+      return normalized
+    }
+
+    throw new Error(
+      combined.successCount > 0
+        ? 'DexScreener returned no usable Solana pairs for configured search queries'
+        : 'DexScreener search requests failed for all configured queries',
+    )
+  }
+
+  private async fetchConfiguredTokenMints(tokenMints: string[], signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const settled = await Promise.allSettled(tokenMints.map((mint) => this.fetchTokenMint(mint, signal)))
+    const combined = collectFulfilledItems(tokenMints, settled, (context, error) => {
+      this.logger.warn({ error, mint: context }, 'DexScreener token mint request failed')
+    })
+
+    const normalized = dedupeByPairAddress(combined.items)
+    if (normalized.length > 0) {
+      return normalized
+    }
+
+    throw new Error(
+      combined.successCount > 0
+        ? 'DexScreener returned no usable Solana pairs for configured token mints'
+        : 'DexScreener token mint requests failed for all configured mints',
+    )
   }
 
   private async fetchSearchQuery(query: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
@@ -176,8 +186,36 @@ export class DexScreenerFeedProvider implements FeedProvider {
         throw new Error(`DexScreener request failed with status ${response.status} for query ${query}`)
       }
 
-      const payload = (await response.json()) as { pairs?: unknown }
-      const pairs = Array.isArray(payload.pairs) ? payload.pairs : []
+      const payload = (await response.json()) as unknown
+      const pairs = extractPairs(payload)
+
+      return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
+    } finally {
+      clearTimeout(timeoutId)
+      signal.removeEventListener('abort', abortOnParent)
+    }
+  }
+
+  private async fetchTokenMint(mint: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
+    const abortOnParent = () => controller.abort()
+    signal.addEventListener('abort', abortOnParent, { once: true })
+
+    try {
+      const url = `https://api.dexscreener.com/tokens/v1/solana/${encodeURIComponent(mint)}`
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      })
+
+      if (!response.ok) {
+        throw new Error(`DexScreener request failed with status ${response.status} for mint ${mint}`)
+      }
+
+      const payload = (await response.json()) as unknown
+      const pairs = extractPairs(payload)
 
       return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
     } finally {
@@ -198,6 +236,65 @@ function parseDexSearchQueries(raw: string): string[] {
   }
 
   return Array.from(new Set(parsed))
+}
+
+function parseDexTokenMints(raw?: string): string[] {
+  if (!raw) {
+    return []
+  }
+
+  const parsed = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+
+  return Array.from(new Set(parsed))
+}
+
+function extractPairs(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (isRecord(payload) && Array.isArray(payload.pairs)) {
+    return payload.pairs
+  }
+
+  return []
+}
+
+function dedupeByPairAddress(items: TokenFeedItem[]): TokenFeedItem[] {
+  const dedupedByPair = new Map<string, TokenFeedItem>()
+  for (const item of items) {
+    const pairKey = item.pairAddress ?? `${item.mint}:${item.symbol}:${item.priceUsd}`
+    const existing = dedupedByPair.get(pairKey)
+    if (!existing || item.liquidity > existing.liquidity) {
+      dedupedByPair.set(pairKey, item)
+    }
+  }
+
+  return Array.from(dedupedByPair.values())
+}
+
+function collectFulfilledItems<TContext>(
+  contexts: TContext[],
+  settled: PromiseSettledResult<TokenFeedItem[]>[],
+  onRejected: (context: TContext, error: unknown) => void,
+): { items: TokenFeedItem[]; successCount: number } {
+  const items: TokenFeedItem[] = []
+  let successCount = 0
+
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      successCount += 1
+      items.push(...result.value)
+      return
+    }
+
+    onRejected(contexts[index] as TContext, result.reason)
+  })
+
+  return { items, successCount }
 }
 
 function normalizePair(input: unknown): TokenFeedItem | null {

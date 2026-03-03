@@ -151,6 +151,9 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
         var VISIBLE_WINDOW_SECONDS = 6 * 60 * 60
         var RIGHT_PAD_SECONDS = 3 * 60
         var FEED_NEON_MODE = ${feedMode ? 'true' : 'false'}
+        var liveStepSec = 60
+        var activePricePrecision = null
+        var activePriceMinMove = null
 
         function notify(type, message) {
           if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -165,6 +168,65 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
         window.onunhandledrejection = function (event) {
           var reason = event && event.reason ? String(event.reason) : 'unhandledrejection'
           notify('chart-error', reason)
+        }
+
+        function resolvePricePrecision(value) {
+          if (!Number.isFinite(value) || value <= 0) {
+            return 4
+          }
+
+          var abs = Math.abs(value)
+          if (abs >= 1000) {
+            return 2
+          }
+          if (abs >= 1) {
+            return 4
+          }
+          if (abs >= 0.01) {
+            return 6
+          }
+          return 8
+        }
+
+        function resolvePriceMinMove(precision) {
+          if (!Number.isFinite(precision) || precision < 0) {
+            return 0.0001
+          }
+          return Math.pow(10, -precision)
+        }
+
+        function applySeriesPriceFormat(value) {
+          if (!series || typeof series.applyOptions !== 'function') {
+            return
+          }
+
+          var precision = resolvePricePrecision(value)
+          var minMove = resolvePriceMinMove(precision)
+
+          if (activePricePrecision === precision && activePriceMinMove === minMove) {
+            return
+          }
+
+          activePricePrecision = precision
+          activePriceMinMove = minMove
+
+          series.applyOptions({
+            priceFormat: {
+              type: 'price',
+              precision: precision,
+              minMove: minMove,
+            },
+          })
+
+          if (referenceSeries && typeof referenceSeries.applyOptions === 'function') {
+            referenceSeries.applyOptions({
+              priceFormat: {
+                type: 'price',
+                precision: precision,
+                minMove: minMove,
+              },
+            })
+          }
         }
 
         function toBars(points) {
@@ -248,7 +310,31 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           return output
         }
 
-        function expandMinuteBars(bars) {
+        function inferBarStepSec(bars) {
+          if (!Array.isArray(bars) || bars.length < 2) {
+            return 60
+          }
+
+          var smallestDiff = Number.POSITIVE_INFINITY
+          for (var i = 1; i < bars.length; i += 1) {
+            var previous = Number(bars[i - 1] && bars[i - 1].time)
+            var current = Number(bars[i] && bars[i].time)
+            var diff = current - previous
+
+            if (Number.isFinite(diff) && diff > 0 && diff < smallestDiff) {
+              smallestDiff = diff
+            }
+          }
+
+          if (!Number.isFinite(smallestDiff) || smallestDiff <= 0) {
+            return 60
+          }
+
+          var rounded = Math.round(smallestDiff / 60) * 60
+          return Math.max(60, rounded)
+        }
+
+        function expandBarsByStep(bars, stepSec) {
           if (!Array.isArray(bars) || bars.length === 0) {
             return []
           }
@@ -273,10 +359,10 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             var previousClose = Number(previous.close)
 
             if (Number.isFinite(previousTime) && Number.isFinite(currentTime) && Number.isFinite(previousClose)) {
-              var gapMinutes = Math.floor((currentTime - previousTime) / 60)
-              if (gapMinutes > 1) {
-                for (var step = 1; step < gapMinutes; step += 1) {
-                  var fillTime = previousTime + step * 60
+              var gapSteps = Math.floor((currentTime - previousTime) / stepSec)
+              if (gapSteps > 1) {
+                for (var step = 1; step < gapSteps; step += 1) {
+                  var fillTime = previousTime + step * stepSec
                   output.push({
                     time: fillTime,
                     open: previousClose,
@@ -295,19 +381,21 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           return output
         }
 
-        function currentMinuteSec() {
-          return Math.floor(Date.now() / 60000) * 60
+        function currentWindowAnchorSec(stepSec) {
+          var resolvedStepSec = Number.isFinite(stepSec) && stepSec > 0 ? stepSec : 60
+          return Math.floor(Date.now() / resolvedStepSec) * resolvedStepSec
         }
 
         function densifyVisibleWindowBars(bars) {
-          var expanded = expandMinuteBars(bars)
+          var stepSec = inferBarStepSec(bars)
+          var expanded = expandBarsByStep(bars, stepSec)
           if (!Array.isArray(expanded) || expanded.length === 0) {
             return expanded
           }
 
-          var anchor = currentMinuteSec()
-          var visibleMinutes = Math.max(2, Math.floor(VISIBLE_WINDOW_SECONDS / 60))
-          var from = anchor - (visibleMinutes - 1) * 60
+          var anchor = currentWindowAnchorSec(stepSec)
+          var visibleSteps = Math.max(2, Math.floor(VISIBLE_WINDOW_SECONDS / stepSec))
+          var from = anchor - (visibleSteps - 1) * stepSec
           var byTime = {}
 
           for (var i = 0; i < expanded.length; i += 1) {
@@ -328,7 +416,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           var output = []
-          for (var t = from; t <= anchor; t += 60) {
+          for (var t = from; t <= anchor; t += stepSec) {
             var existing = byTime[String(t)]
             if (existing) {
               output.push(existing)
@@ -348,6 +436,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             })
           }
 
+          liveStepSec = stepSec
           return output
         }
 
@@ -399,7 +488,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
 
           bars = densifyVisibleWindowBars(bars)
           applyBarsData(bars)
-          setVisibleWindow(currentMinuteSec())
+          setVisibleWindow(currentWindowAnchorSec(liveStepSec))
           updateOverlayPosition()
         }
 
@@ -414,7 +503,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           applyBarUpdate(bar)
-          setVisibleWindow(currentMinuteSec())
+          setVisibleWindow(currentWindowAnchorSec(liveStepSec))
           updateOverlayPosition()
         }
 
@@ -453,6 +542,8 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             return
           }
 
+          liveStepSec = inferBarStepSec(bars)
+
           baselineValue = resolveBaselineValue(linePoints)
           if (!Number.isFinite(baselineValue) || baselineValue <= 0) {
             baselineValue = Number(linePoints[0] && linePoints[0].value)
@@ -462,6 +553,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
 
           latestLinePoint = linePoints[linePoints.length - 1]
+          applySeriesPriceFormat(Number(latestLinePoint && latestLinePoint.value) || baselineValue)
           if (typeof series.applyOptions === 'function') {
             series.applyOptions({
               baseValue: {
@@ -491,6 +583,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
 
           var point = { time: time, value: close }
           latestLinePoint = point
+          applySeriesPriceFormat(close)
           series.update(point)
           if (referenceSeries && Number.isFinite(baselineValue) && baselineValue > 0) {
             referenceSeries.update({ time: time, value: baselineValue })
@@ -539,12 +632,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
             return ''
           }
 
-          var abs = Math.abs(value)
-          var maxFractionDigits = abs >= 1000 ? 0 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6
+          var precision = resolvePricePrecision(value)
           try {
-            return '$' + Number(value).toLocaleString('en-US', { maximumFractionDigits: maxFractionDigits })
+            return '$' + Number(value).toLocaleString('en-US', { maximumFractionDigits: precision })
           } catch (_error) {
-            return '$' + String(Math.round(value * 100) / 100)
+            return '$' + Number(value).toFixed(precision)
           }
         }
 
@@ -620,6 +712,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
                 lastValueVisible: true,
                 priceLineVisible: true,
                 crosshairMarkerVisible: false,
+                priceFormat: {
+                  type: 'price',
+                  precision: 4,
+                  minMove: 0.0001,
+                },
                 autoscaleInfoProvider: undefined,
               }
 
@@ -634,6 +731,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
                   lastValueVisible: true,
                   priceLineVisible: true,
                   crosshairMarkerVisible: false,
+                  priceFormat: {
+                    type: 'price',
+                    precision: 4,
+                    minMove: 0.0001,
+                  },
                 })
               } else {
                 notify('chart-error', 'No baseline series API found')
@@ -650,6 +752,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
                 lastValueVisible: false,
                 priceLineVisible: false,
                 crosshairMarkerVisible: false,
+                priceFormat: {
+                  type: 'price',
+                  precision: 4,
+                  minMove: 0.0001,
+                },
               }
 
               if (typeof chart.addLineSeries === 'function') {

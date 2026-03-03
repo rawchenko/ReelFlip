@@ -87,7 +87,7 @@ Response `200`:
       "sparkline": [0.11, 0.113, 0.119, 0.1234],
       "sparklineMeta": {
         "window": "6h",
-        "interval": "1m",
+        "interval": "5m",
         "source": "historical_provider",
         "points": 4,
         "generatedAt": "2026-02-25T19:40:00.000Z"
@@ -126,7 +126,8 @@ Response `200`:
 - `liquidity`: `number`
 - `marketCap`: `number | null`
 - `sparkline`: `number[]`
-- `sparklineMeta`: `{ window: "6h"; interval: "1m"; source: string; points: number; generatedAt: string } | null`
+- `sparklineMeta`: `{ window: "6h"; interval: "1m" | "5m"; source: string; points: number; generatedAt: string } | null`
+  - Feed cards should treat this as a 6h, card-optimized sparkline series (currently emitted as real `5m` points when available).
 - `pairAddress`: `string | null`
 - `tags`: `{ trust: string[]; discovery: ("trending" | "gainer" | "new" | "meme")[] }`
 - `labels`: `("trending" | "gainer" | "new" | "meme")[]` (backward-compat alias of `tags.discovery`)

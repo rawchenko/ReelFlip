@@ -1,3 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+loadLocalEnvFile()
+
 export interface BackendEnv {
   host: string
   port: number
@@ -8,6 +13,7 @@ export interface BackendEnv {
   feedMaxLimit: number
   dexScreenerTimeoutMs: number
   dexScreenerSearchQuery: string
+  dexScreenerTokenMints?: string
   birdeyeApiKey?: string
   birdeyeTimeoutMs: number
   heliusApiKey?: string
@@ -33,6 +39,50 @@ export interface BackendEnv {
   chartHistoryProviderTimeoutMs: number
   chartHistoryBackfillConcurrency: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+}
+
+function loadLocalEnvFile(): void {
+  const candidates = [resolve(process.cwd(), '.env'), resolve(process.cwd(), 'backend/.env')]
+  const envPath = candidates.find((candidate) => existsSync(candidate))
+  if (!envPath) {
+    return
+  }
+
+  const lines = readFileSync(envPath, 'utf8').split(/\r?\n/)
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0 || trimmed.startsWith('#')) {
+      continue
+    }
+
+    const raw = trimmed.startsWith('export ') ? trimmed.slice(7).trim() : trimmed
+    const eqIndex = raw.indexOf('=')
+    if (eqIndex <= 0) {
+      continue
+    }
+
+    const key = raw.slice(0, eqIndex).trim()
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
+      continue
+    }
+    if (process.env[key] !== undefined) {
+      continue
+    }
+
+    const rawValue = raw.slice(eqIndex + 1).trim()
+    process.env[key] = parseEnvValue(rawValue)
+  }
+}
+
+function parseEnvValue(rawValue: string): string {
+  if (
+    (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+    (rawValue.startsWith("'") && rawValue.endsWith("'"))
+  ) {
+    return rawValue.slice(1, -1)
+  }
+
+  return rawValue
 }
 
 const DEFAULTS = {
@@ -130,6 +180,7 @@ export function loadEnv(): BackendEnv {
     feedMaxLimit: parseIntEnv('FEED_MAX_LIMIT', DEFAULTS.feedMaxLimit, 1),
     dexScreenerTimeoutMs: parseIntEnv('DEXSCREENER_TIMEOUT_MS', DEFAULTS.dexScreenerTimeoutMs, 200),
     dexScreenerSearchQuery: process.env.DEXSCREENER_SEARCH_QUERY ?? DEFAULTS.dexScreenerSearchQuery,
+    dexScreenerTokenMints: process.env.DEXSCREENER_TOKEN_MINTS,
     birdeyeApiKey: process.env.BIRDEYE_API_KEY,
     birdeyeTimeoutMs: parseIntEnv('BIRDEYE_TIMEOUT_MS', DEFAULTS.birdeyeTimeoutMs, 200),
     heliusApiKey: process.env.HELIUS_API_KEY,

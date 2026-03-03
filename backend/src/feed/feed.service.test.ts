@@ -167,7 +167,7 @@ test('ranking deduplicates duplicate mints', () => {
   assert.equal(duplicated[0]?.pairAddress, 'pair-b')
 })
 
-test('ranking deduplicates duplicate symbols and prefers active/liquid pair', () => {
+test('ranking keeps distinct mints even when symbols match and ranks by activity/liquidity', () => {
   const ranking = new FeedRankingService()
   const ranked = ranking.rank([
     buildItem({
@@ -202,6 +202,7 @@ test('ranking deduplicates duplicate symbols and prefers active/liquid pair', ()
     }),
   ])
 
-  assert.equal(ranked.length, 1)
+  assert.equal(ranked.length, 2)
   assert.equal(ranked[0]?.pairAddress, 'pair-b')
+  assert.equal(ranked[1]?.pairAddress, 'pair-a')
 })

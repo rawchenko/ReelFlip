@@ -133,6 +133,7 @@ const feedProvider = new CompositeFeedProvider(
       {
         timeoutMs: env.dexScreenerTimeoutMs,
         searchQuery: env.dexScreenerSearchQuery,
+        tokenMints: env.dexScreenerTokenMints,
       },
       app.log,
       feedEnrichmentService,

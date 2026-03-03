@@ -2,7 +2,7 @@ import { FeedLabel, TokenFeedItem } from './feed.provider.js'
 
 const DEFAULT_SEED_SPARKLINE_META = {
   window: '6h' as const,
-  interval: '1m' as const,
+  interval: '5m' as const,
   source: 'seed_static',
   generatedAt: new Date(0).toISOString(),
 }

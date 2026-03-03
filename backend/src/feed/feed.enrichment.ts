@@ -176,14 +176,18 @@ export class FeedEnrichmentService implements FeedEnricher {
       try {
         const batch = await this.chartHistoryReader.getBatchHistory(chunk, this.options.sparklineWindowMinutes, '1m')
         for (const result of batch.results) {
-          const sparkline = downsampleCandlesToSparkline(result.candles, this.options.sparklinePoints)
+          const sparkline = bucketCandlesToSparkline(
+            result.candles,
+            FEED_SPARKLINE_BUCKET_SECONDS,
+            this.options.sparklinePoints,
+          )
           if (sparkline.length === 0) {
             continue
           }
 
           const meta: TokenFeedSparklineMeta = {
             window: '6h',
-            interval: '1m',
+            interval: '5m',
             source: result.source,
             points: sparkline.length,
             generatedAt: batch.generatedAt,
@@ -463,6 +467,8 @@ interface SparklinePayload {
   meta: TokenFeedSparklineMeta
 }
 
+const FEED_SPARKLINE_BUCKET_SECONDS = 5 * 60
+
 function resolveDiscoveryLabels(item: TokenFeedItem): FeedLabel[] {
   const preferred = item.tags.discovery.length > 0 ? item.tags.discovery : item.labels ?? []
   if (preferred.length > 0) {
@@ -499,31 +505,60 @@ function pickIndexesForEnrichment(items: TokenFeedItem[], maxItems: number): num
   return scored.slice(0, Math.max(1, maxItems)).map((entry) => entry.index)
 }
 
-function downsampleCandlesToSparkline(candles: Array<{ close: number }>, targetPoints: number): number[] {
-  const closePoints = candles
-    .map((candle) => candle.close)
-    .filter((value): value is number => Number.isFinite(value) && value > 0)
-
-  if (closePoints.length === 0 || targetPoints <= 1) {
+function bucketCandlesToSparkline(
+  candles: Array<{ time: number; close: number }>,
+  bucketSeconds: number,
+  targetPoints: number,
+): number[] {
+  if (!Number.isFinite(bucketSeconds) || bucketSeconds <= 0 || targetPoints <= 1) {
     return []
+  }
+
+  const sorted = candles
+    .map((candle) => ({
+      time: Number(candle.time),
+      close: Number(candle.close),
+    }))
+    .filter((candle) => Number.isFinite(candle.time) && candle.time > 0 && Number.isFinite(candle.close) && candle.close > 0)
+    .sort((left, right) => left.time - right.time)
+
+  if (sorted.length === 0) {
+    return []
+  }
+
+  const closePoints: number[] = []
+  let activeBucket: number | null = null
+  let activeBucketClose: number | null = null
+
+  for (const candle of sorted) {
+    const bucket = Math.floor(candle.time / bucketSeconds)
+    if (activeBucket === null) {
+      activeBucket = bucket
+      activeBucketClose = candle.close
+      continue
+    }
+
+    if (bucket !== activeBucket) {
+      if (typeof activeBucketClose === 'number' && Number.isFinite(activeBucketClose) && activeBucketClose > 0) {
+        closePoints.push(activeBucketClose)
+      }
+      activeBucket = bucket
+      activeBucketClose = candle.close
+      continue
+    }
+
+    activeBucketClose = candle.close
+  }
+
+  if (typeof activeBucketClose === 'number' && Number.isFinite(activeBucketClose) && activeBucketClose > 0) {
+    closePoints.push(activeBucketClose)
   }
 
   if (closePoints.length <= targetPoints) {
     return closePoints
   }
 
-  const output: number[] = []
-  const step = (closePoints.length - 1) / (targetPoints - 1)
-
-  for (let index = 0; index < targetPoints; index += 1) {
-    const sampledIndex = Math.round(index * step)
-    const sampled = closePoints[sampledIndex]
-    if (typeof sampled === 'number' && Number.isFinite(sampled) && sampled > 0) {
-      output.push(sampled)
-    }
-  }
-
-  return output
+  return closePoints.slice(-targetPoints)
 }
 
 async function mapWithConcurrency<TInput>(

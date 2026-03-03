@@ -124,8 +124,8 @@ test('enrichment uses source precedence and builds two-tier tags', async () => {
     new StaticChartReader({
       'pair-1': [
         { time: 1, open: 1, high: 1, low: 1, close: 1 },
-        { time: 2, open: 1.5, high: 1.5, low: 1.5, close: 1.5 },
-        { time: 3, open: 2, high: 2, low: 2, close: 2 },
+        { time: 301, open: 1.5, high: 1.5, low: 1.5, close: 1.5 },
+        { time: 601, open: 2, high: 2, low: 2, close: 2 },
       ],
     }),
     {
@@ -177,7 +177,7 @@ test('enrichment uses source precedence and builds two-tier tags', async () => {
   assert.deepEqual(item?.sparkline, [1, 1.5, 2])
   assert.deepEqual(item?.sparklineMeta, {
     window: '6h',
-    interval: '1m',
+    interval: '5m',
     source: 'historical_provider',
     points: 3,
     generatedAt: '2026-03-02T12:00:00.000Z',
@@ -233,10 +233,10 @@ test('market cap remains null when unavailable from all providers', async () => 
   assert.equal(item?.sparklineMeta, null)
 })
 
-test('sparkline is downsampled to target points from history candles', async () => {
+test('sparkline buckets 1m history into real 5m points', async () => {
   const candles = Array.from({ length: 360 }, (_, index) => {
     const value = index + 1
-    return { time: value, open: value, high: value, low: value, close: value }
+    return { time: 1 + index * 60, open: value, high: value, low: value, close: value }
   })
 
   const service = new FeedEnrichmentService(
@@ -278,7 +278,59 @@ test('sparkline is downsampled to target points from history candles', async () 
   )
 
   assert.equal(item?.sparkline.length, 72)
-  assert.equal(item?.sparkline[0], 1)
+  assert.equal(item?.sparkline[0], 5)
   assert.equal(item?.sparkline[item.sparkline.length - 1], 360)
   assert.equal(item?.sparklineMeta?.points, 72)
+  assert.equal(item?.sparklineMeta?.interval, '5m')
+})
+
+test('sparkline keeps partial history as real bucket closes without synthetic interpolation', async () => {
+  const candles = Array.from({ length: 195 }, (_, index) => {
+    const value = index + 1
+    return { time: 1 + index * 60, open: value, high: value, low: value, close: value }
+  })
+
+  const service = new FeedEnrichmentService(
+    new StaticMarketClient({}),
+    new StaticMetadataClient({}),
+    new StaticTrustTagsClient({}),
+    new StaticChartReader({
+      'pair-partial': candles,
+    }),
+    {
+      maxItems: 10,
+      concurrency: 2,
+      sparklineWindowMinutes: 360,
+      sparklinePoints: 72,
+    },
+    {
+      warn: () => undefined,
+      info: () => undefined,
+    },
+  )
+
+  const [item] = await service.enrich(
+    [
+      buildItem({
+        mint: 'mint-partial',
+        name: 'Partial',
+        symbol: 'PRTL',
+        priceUsd: 1,
+        priceChange24h: 0,
+        volume24h: 1_000,
+        liquidity: 1_000,
+        marketCap: 1_000,
+        pairAddress: 'pair-partial',
+        category: 'trending',
+        riskTier: 'allow',
+      }),
+    ],
+    new AbortController().signal,
+  )
+
+  assert.equal(item?.sparkline.length, 39)
+  assert.equal(item?.sparkline[0], 5)
+  assert.equal(item?.sparkline[item.sparkline.length - 1], 195)
+  assert.equal(item?.sparklineMeta?.interval, '5m')
+  assert.equal(item?.sparklineMeta?.points, 39)
 })
