@@ -9,16 +9,16 @@ const queryClient = new QueryClient()
 export function AppProviders({ children }: PropsWithChildren) {
   return (
     <QueryClientProvider client={queryClient}>
-      <OnboardingProvider>
-        <NetworkProvider
-          networks={AppConfig.networks}
-          render={({ selectedNetwork }) => (
-            <MobileWalletProvider cluster={selectedNetwork} identity={AppConfig.identity}>
+      <NetworkProvider
+        networks={AppConfig.networks}
+        render={({ selectedNetwork }) => (
+          <MobileWalletProvider cluster={selectedNetwork} identity={AppConfig.identity}>
+            <OnboardingProvider>
               {children}
-            </MobileWalletProvider>
-          )}
-        />
-      </OnboardingProvider>
+            </OnboardingProvider>
+          </MobileWalletProvider>
+        )}
+      />
     </QueryClientProvider>
   )
 }

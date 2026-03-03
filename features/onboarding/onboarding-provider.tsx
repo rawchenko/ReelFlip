@@ -4,8 +4,8 @@ import { PropsWithChildren, createContext, useCallback, useContext, useEffect, u
 const ONBOARDING_STORAGE_KEY = 'reelflip.onboarding.state.v1'
 
 export type OnboardingWalletOption = 'seeker' | 'walletconnect' | 'import-seed-phrase'
-export type OnboardingSlippage = '0.3%' | '0.5%' | '1.0%'
-export type OnboardingBaseCurrency = 'USD' | 'USDC' | 'ETH'
+export type OnboardingSlippage = 'auto' | '1%' | '2%' | 'custom'
+export type OnboardingBaseCurrency = 'USDC' | 'SOL' | 'SKR'
 
 export interface OnboardingPreferences {
   walletOption: OnboardingWalletOption
@@ -31,14 +31,14 @@ export const DEFAULT_ONBOARDING_PROFILE: OnboardingPreferences = {
 }
 
 export const DEFAULT_ONBOARDING_SAFETY: OnboardingSafetyPreferences = {
-  acceptedTermsOfService: true,
-  enableBiometricSigning: true,
+  acceptedTermsOfService: false,
+  enableBiometricSigning: false,
   enablePriceAlerts: false,
 }
 
 export const DEFAULT_ONBOARDING_LAUNCH: OnboardingLaunchPreferences = {
   baseCurrency: 'USDC',
-  defaultSlippage: '0.3%',
+  defaultSlippage: '1%',
 }
 
 interface PersistedOnboardingState {
@@ -77,11 +77,11 @@ function isWalletOption(value: unknown): value is OnboardingWalletOption {
 }
 
 function isSlippageOption(value: unknown): value is OnboardingSlippage {
-  return value === '0.3%' || value === '0.5%' || value === '1.0%'
+  return value === 'auto' || value === '1%' || value === '2%' || value === 'custom'
 }
 
 function isBaseCurrency(value: unknown): value is OnboardingBaseCurrency {
-  return value === 'USD' || value === 'USDC' || value === 'ETH'
+  return value === 'USDC' || value === 'SOL' || value === 'SKR'
 }
 
 function normalizeProfilePreferences(value: unknown): OnboardingPreferences | undefined {
@@ -126,17 +126,33 @@ function normalizeLaunchPreferences(value: unknown): OnboardingLaunchPreferences
     return undefined
   }
 
-  const baseCurrency = (value as { baseCurrency?: unknown }).baseCurrency
-  const defaultSlippage = (value as { defaultSlippage?: unknown }).defaultSlippage
+  const rawBaseCurrency = (value as { baseCurrency?: unknown }).baseCurrency
+  const rawDefaultSlippage = (value as { defaultSlippage?: unknown }).defaultSlippage
 
-  if (!isBaseCurrency(baseCurrency) || !isSlippageOption(defaultSlippage)) {
+  if (isBaseCurrency(rawBaseCurrency) && isSlippageOption(rawDefaultSlippage)) {
+    return {
+      baseCurrency: rawBaseCurrency,
+      defaultSlippage: rawDefaultSlippage,
+    }
+  }
+
+  // Backward-compatibility for legacy onboarding values persisted in v1.
+  const baseCurrency: OnboardingBaseCurrency | undefined =
+    rawBaseCurrency === 'USD' ? 'USDC' : rawBaseCurrency === 'ETH' ? 'SOL' : undefined
+  const defaultSlippage: OnboardingSlippage | undefined =
+    rawDefaultSlippage === '0.3%'
+      ? 'auto'
+      : rawDefaultSlippage === '0.5%'
+        ? '1%'
+        : rawDefaultSlippage === '1.0%'
+          ? '2%'
+          : undefined
+
+  if (!baseCurrency || !defaultSlippage) {
     return undefined
   }
 
-  return {
-    baseCurrency,
-    defaultSlippage,
-  }
+  return { baseCurrency, defaultSlippage }
 }
 
 function normalizeFinishPreferences(value: unknown): OnboardingFinishPreferences | undefined {

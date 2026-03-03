@@ -11,8 +11,15 @@ import {
   useOnboarding,
 } from '@/features/onboarding/onboarding-provider'
 
-const SLIPPAGE_OPTIONS: OnboardingSlippage[] = ['0.3%', '0.5%', '1.0%']
-const BASE_CURRENCY_OPTIONS: OnboardingBaseCurrency[] = ['USD', 'USDC', 'ETH']
+const SLIPPAGE_OPTIONS: OnboardingSlippage[] = ['auto', '1%', '2%', 'custom']
+const SLIPPAGE_LABELS: Record<OnboardingSlippage, string> = {
+  '1%': '1%',
+  '2%': '2%',
+  auto: 'Auto',
+  custom: 'Custom',
+}
+
+const BASE_CURRENCY_OPTIONS: OnboardingBaseCurrency[] = ['USDC', 'SOL', 'SKR']
 
 export default function OnboardingFourScreen() {
   const router = useRouter()
@@ -20,6 +27,7 @@ export default function OnboardingFourScreen() {
     completeOnboardingLaunch,
     hasCompletedOnboarding,
     hasCompletedOnboardingIntro,
+    hasCompletedOnboardingLaunch,
     hasCompletedOnboardingProfile,
     hasCompletedOnboardingSafety,
     hasHydrated,
@@ -33,16 +41,13 @@ export default function OnboardingFourScreen() {
     launchPreferences?.baseCurrency ?? DEFAULT_ONBOARDING_LAUNCH.baseCurrency,
   )
 
-  const persistPreferences = useCallback(
-    async (nextSlippage: OnboardingSlippage, nextBaseCurrency: OnboardingBaseCurrency) => {
-      await completeOnboardingLaunch({
-        baseCurrency: nextBaseCurrency,
-        defaultSlippage: nextSlippage,
-      })
-      router.replace('./onboarding-5')
-    },
-    [completeOnboardingLaunch, router],
-  )
+  const persistPreferences = useCallback(async () => {
+    await completeOnboardingLaunch({
+      baseCurrency,
+      defaultSlippage,
+    })
+    router.replace('./onboarding-5')
+  }, [baseCurrency, completeOnboardingLaunch, defaultSlippage, router])
 
   if (!hasHydrated) {
     return null
@@ -52,126 +57,105 @@ export default function OnboardingFourScreen() {
     return <Redirect href="/(tabs)/feed" />
   }
 
-  if (!hasCompletedOnboardingIntro) {
+  if (!hasCompletedOnboardingIntro || !hasCompletedOnboardingProfile) {
     return <Redirect href="./onboarding" />
-  }
-
-  if (!hasCompletedOnboardingProfile) {
-    return <Redirect href="./onboarding-2" />
   }
 
   if (!hasCompletedOnboardingSafety) {
     return <Redirect href="./onboarding-3" />
   }
 
+  if (hasCompletedOnboardingLaunch) {
+    return <Redirect href="./onboarding-5" />
+  }
+
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.content}>
-        <View>
-          <View style={styles.headerRow}>
-            <Pressable
-              accessibilityLabel="Go back to onboarding step two"
-              accessibilityRole="button"
-              onPress={() => router.replace('./onboarding-3')}
-              style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
-            >
-              <Ionicons color="#FFFFFFCC" name="chevron-back" size={18} />
-            </Pressable>
-            <Text style={styles.stepLabel}>Step 3 of 3</Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View style={styles.progressValueThree} />
-          </View>
-          <View style={styles.copyWrap}>
-            <Text style={styles.title}>Personalize your experience</Text>
-            <Text style={styles.subtitle}>We have set smart defaults, adjust if you would like, or skip for now.</Text>
-          </View>
+        <View style={styles.copyWrap}>
+          <Text style={styles.title}>Trading Defaults</Text>
+          <Text style={styles.subtitle}>Customize your speed for 1-tap buys on Solana.</Text>
         </View>
 
         <View style={styles.settingsWrap}>
-          <View style={styles.settingsCard}>
-            <View style={styles.settingHeaderRow}>
-              <Text style={styles.settingTitle}>Default slippage</Text>
-              <Text style={styles.linkText}>What is this?</Text>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Default Slippage</Text>
+              <Ionicons color="#666666" name="information-circle-outline" size={20} />
             </View>
+
             <View style={styles.segmentRow}>
-              {SLIPPAGE_OPTIONS.map((value) => {
-                const selected = defaultSlippage === value
+              {SLIPPAGE_OPTIONS.map((option) => {
+                const selected = defaultSlippage === option
+                const customOption = option === 'custom'
                 return (
                   <Pressable
-                    key={value}
-                    accessibilityLabel={`Set default slippage to ${value}`}
+                    key={option}
+                    accessibilityLabel={`Set default slippage to ${SLIPPAGE_LABELS[option]}`}
                     accessibilityRole="button"
-                    onPress={() => setDefaultSlippage(value)}
+                    onPress={() => setDefaultSlippage(option)}
                     style={({ pressed }) => [
                       styles.segmentButton,
-                      selected ? styles.segmentButtonActive : styles.segmentButtonInactive,
-                      pressed ? styles.segmentButtonPressed : null,
+                      customOption && !selected ? styles.segmentButtonCustom : styles.segmentButtonDefault,
+                      selected ? styles.segmentButtonSelected : styles.segmentButtonUnselected,
+                      pressed ? styles.pressed : null,
                     ]}
                   >
-                    <Text
-                      style={[styles.segmentText, selected ? styles.segmentTextActive : styles.segmentTextInactive]}
-                    >
-                      {value}
+                    <Text style={[styles.segmentText, selected ? styles.segmentTextSelectedOnLight : styles.segmentTextMuted]}>
+                      {SLIPPAGE_LABELS[option]}
                     </Text>
                   </Pressable>
                 )
               })}
             </View>
-            <Text style={styles.settingHint}>Lower slippage = fewer failed trades. 0.3% works for most tokens.</Text>
           </View>
 
-          <View style={styles.settingsCard}>
-            <Text style={styles.settingTitle}>Base currency</Text>
-            <View style={styles.segmentRow}>
-              {BASE_CURRENCY_OPTIONS.map((value) => {
-                const selected = baseCurrency === value
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Base Currency</Text>
+
+            <View style={styles.currencyList}>
+              {BASE_CURRENCY_OPTIONS.map((option) => {
+                const selected = baseCurrency === option
                 return (
                   <Pressable
-                    key={value}
-                    accessibilityLabel={`Set base currency to ${value}`}
+                    key={option}
+                    accessibilityLabel={`Set base currency to ${option}`}
                     accessibilityRole="button"
-                    onPress={() => setBaseCurrency(value)}
+                    onPress={() => setBaseCurrency(option)}
                     style={({ pressed }) => [
-                      styles.segmentButton,
-                      selected ? styles.segmentButtonActive : styles.segmentButtonInactive,
-                      pressed ? styles.segmentButtonPressed : null,
+                      styles.currencyCard,
+                      selected ? styles.currencyCardSelected : styles.currencyCardUnselected,
+                      pressed ? styles.pressed : null,
                     ]}
                   >
-                    <Text
-                      style={[styles.segmentText, selected ? styles.segmentTextActive : styles.segmentTextInactive]}
-                    >
-                      {value}
-                    </Text>
+                    <View style={styles.currencyLeft}>
+                      <View style={[styles.currencyBadge, selected ? styles.currencyBadgeSelected : styles.currencyBadgeUnselected]}>
+                        <Text style={[styles.currencyBadgeText, selected ? styles.currencyTextSelected : styles.segmentTextMuted]}>
+                          {option === 'USDC' ? '$' : 'S'}
+                        </Text>
+                      </View>
+                      <Text style={[styles.currencyLabel, selected ? styles.currencyTextSelected : styles.segmentTextMuted]}>
+                        {option}
+                      </Text>
+                    </View>
+                    <View style={[styles.radioOuter, selected ? styles.radioOuterSelected : styles.radioOuterUnselected]}>
+                      {selected ? <View style={styles.radioInner} /> : null}
+                    </View>
                   </Pressable>
                 )
               })}
             </View>
-            <Text style={styles.settingHint}>
-              Your default token for swaps. USDC is the most widely used stablecoin.
-            </Text>
           </View>
         </View>
 
         <View style={styles.footer}>
           <Pressable
-            accessibilityLabel="Save onboarding preferences"
+            accessibilityLabel="Continue to finish onboarding"
             accessibilityRole="button"
-            onPress={() => void persistPreferences(defaultSlippage, baseCurrency)}
-            style={({ pressed }) => [styles.primaryButton, pressed ? styles.primaryButtonPressed : null]}
+            onPress={() => void persistPreferences()}
+            style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
           >
-            <Text style={styles.primaryButtonText}>Save Preferences</Text>
-          </Pressable>
-
-          <Pressable
-            accessibilityLabel="Skip and continue"
-            accessibilityRole="button"
-            onPress={() =>
-              void persistPreferences(DEFAULT_ONBOARDING_LAUNCH.defaultSlippage, DEFAULT_ONBOARDING_LAUNCH.baseCurrency)
-            }
-            style={({ pressed }) => [styles.skipButton, pressed ? styles.skipButtonPressed : null]}
-          >
-            <Text style={styles.skipButtonText}>Skip for now</Text>
+            <Text style={styles.primaryButtonText}>Continue</Text>
           </Pressable>
         </View>
       </View>
@@ -180,165 +164,169 @@ export default function OnboardingFourScreen() {
 }
 
 const styles = StyleSheet.create({
-  backButton: {
-    alignItems: 'center',
-    backgroundColor: '#0A0A0A',
-    borderColor: '#FFFFFF1A',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  backButtonPressed: {
-    opacity: 0.75,
-  },
   content: {
     flex: 1,
     paddingBottom: 24,
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 24,
   },
   copyWrap: {
-    gap: 12,
-    paddingTop: 32,
+    gap: 8,
+    marginBottom: 48,
+    marginTop: 40,
   },
-  footer: {
+  currencyBadge: {
     alignItems: 'center',
-    gap: 16,
-    marginTop: 'auto',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
-  headerRow: {
+  currencyBadgeSelected: {
+    backgroundColor: '#333333',
+  },
+  currencyBadgeText: {
+    fontFamily: interFontFamily.medium,
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  currencyBadgeUnselected: {
+    backgroundColor: '#222222',
+  },
+  currencyCard: {
     alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    minHeight: 66,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
-  linkText: {
-    color: '#888888',
+  currencyCardSelected: {
+    backgroundColor: '#1A1A1A',
+    borderColor: '#333333',
+  },
+  currencyCardUnselected: {
+    backgroundColor: '#0A0A0A',
+    borderColor: '#222222',
+  },
+  currencyLabel: {
     fontFamily: interFontFamily.medium,
-    fontSize: 13,
-    lineHeight: 16,
-    textDecorationLine: 'underline',
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  currencyTextSelected: {
+    color: '#FFFFFF',
+  },
+  currencyLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  currencyList: {
+    gap: 12,
+  },
+  footer: {
+    gap: 16,
+    paddingBottom: 24,
+  },
+  pressed: {
+    opacity: 0.8,
   },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 28,
     height: 56,
     justifyContent: 'center',
-    width: '100%',
-  },
-  primaryButtonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.99 }],
   },
   primaryButtonText: {
     color: '#000000',
     fontFamily: interFontFamily.bold,
-    fontSize: 17,
+    fontSize: 18,
     lineHeight: 22,
   },
-  progressTrack: {
-    backgroundColor: '#111111',
-    borderRadius: 2,
-    height: 4,
-    marginTop: 20,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  progressValueThree: {
+  radioInner: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 2,
-    height: 4,
-    width: '100%',
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  radioOuter: {
+    alignItems: 'center',
+    borderRadius: 10,
+    height: 20,
+    justifyContent: 'center',
+    width: 20,
+  },
+  radioOuterSelected: {
+    borderColor: '#FFFFFF',
+    borderWidth: 2,
+  },
+  radioOuterUnselected: {
+    borderColor: '#444444',
+    borderWidth: 2,
   },
   screen: {
     backgroundColor: '#000000',
     flex: 1,
   },
-  segmentButton: {
-    alignItems: 'center',
-    borderRadius: 12,
-    flex: 1,
-    height: 44,
-    justifyContent: 'center',
+  section: {
+    gap: 16,
   },
-  segmentButtonActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  segmentButtonInactive: {
-    backgroundColor: '#FFFFFF0D',
-    borderColor: '#FFFFFF0D',
-    borderWidth: 1,
-  },
-  segmentButtonPressed: {
-    opacity: 0.85,
-  },
-  segmentRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  segmentText: {
-    fontSize: 15,
-    lineHeight: 18,
-  },
-  segmentTextActive: {
-    color: '#000000',
-    fontFamily: interFontFamily.bold,
-  },
-  segmentTextInactive: {
-    color: '#888888',
-    fontFamily: interFontFamily.medium,
-  },
-  settingHeaderRow: {
+  sectionHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  settingHint: {
-    color: '#666666',
-    fontFamily: interFontFamily.medium,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  settingTitle: {
+  sectionTitle: {
     color: '#FFFFFF',
     fontFamily: interFontFamily.bold,
     fontSize: 16,
     lineHeight: 20,
   },
-  settingsCard: {
-    backgroundColor: '#0A0A0A',
-    borderColor: '#FFFFFF14',
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-  },
-  settingsWrap: {
-    gap: 20,
-    marginTop: 32,
-  },
-  skipButton: {
+  segmentButton: {
     alignItems: 'center',
-    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    height: 48,
     justifyContent: 'center',
   },
-  skipButtonPressed: {
-    opacity: 0.7,
+  segmentButtonCustom: {
+    borderStyle: 'dashed',
   },
-  skipButtonText: {
-    color: '#888888',
-    fontFamily: interFontFamily.bold,
-    fontSize: 15,
-    lineHeight: 18,
+  segmentButtonDefault: {
+    borderStyle: 'solid',
   },
-  stepLabel: {
-    color: '#666666',
+  segmentButtonSelected: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+    borderWidth: 2,
+  },
+  segmentButtonUnselected: {
+    backgroundColor: '#111111',
+    borderColor: '#333333',
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  segmentText: {
     fontFamily: interFontFamily.medium,
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  segmentTextMuted: {
+    color: '#888888',
+  },
+  segmentTextSelectedOnLight: {
+    color: '#000000',
+  },
+  settingsWrap: {
+    flex: 1,
+    gap: 32,
   },
   subtitle: {
     color: '#888888',

@@ -1,39 +1,20 @@
 import { Ionicons } from '@expo/vector-icons'
+import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import { Redirect, useRouter } from 'expo-router'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { interFontFamily } from '@/constants/typography'
-import { useOnboarding } from '@/features/onboarding/onboarding-provider'
-
-interface FeatureItem {
-  description: string
-  icon: keyof typeof Ionicons.glyphMap
-  title: string
-}
-
-const FEATURES: FeatureItem[] = [
-  {
-    description: 'Real-time momentum signals',
-    icon: 'star-outline',
-    title: 'Curated token feed',
-  },
-  {
-    description: 'Trade with adjustable slippage',
-    icon: 'swap-horizontal-outline',
-    title: 'One-tap swap',
-  },
-  {
-    description: 'Track every transfer and swap',
-    icon: 'shield-checkmark-outline',
-    title: 'Wallet-native security',
-  },
-]
+import { DEFAULT_ONBOARDING_PROFILE, useOnboarding } from '@/features/onboarding/onboarding-provider'
 
 export default function OnboardingScreen() {
   const router = useRouter()
+  const { account, connect } = useMobileWallet()
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false)
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const {
-    completeOnboardingIntro,
+    completeOnboardingProfile,
     hasCompletedOnboarding,
     hasCompletedOnboardingIntro,
     hasCompletedOnboardingLaunch,
@@ -42,10 +23,37 @@ export default function OnboardingScreen() {
     hasHydrated,
   } = useOnboarding()
 
-  const moveToOnboardingTwo = useCallback(async () => {
-    await completeOnboardingIntro()
-    router.replace('./onboarding-2')
-  }, [completeOnboardingIntro, router])
+  const handleConnectWallet = useCallback(async () => {
+    if (!hasAcceptedTerms || isConnectingWallet) {
+      return
+    }
+
+    setConnectionError(null)
+    setIsConnectingWallet(true)
+
+    try {
+      const connectedAccount = account ?? (await connect())
+      if (!connectedAccount) {
+        setConnectionError('Wallet connection was not completed. Please try again.')
+        return
+      }
+
+      // Persist directly to stage 2 to avoid intermediate self-redirect loops on stage 1.
+      await completeOnboardingProfile(DEFAULT_ONBOARDING_PROFILE)
+      router.replace('./onboarding-2')
+    } catch {
+      setConnectionError('Wallet connection failed. Please try again.')
+    } finally {
+      setIsConnectingWallet(false)
+    }
+  }, [
+    account,
+    completeOnboardingProfile,
+    connect,
+    hasAcceptedTerms,
+    isConnectingWallet,
+    router,
+  ])
 
   if (!hasHydrated) {
     return null
@@ -55,11 +63,7 @@ export default function OnboardingScreen() {
     return <Redirect href="/(tabs)/feed" />
   }
 
-  if (hasCompletedOnboardingIntro) {
-    if (!hasCompletedOnboardingProfile) {
-      return <Redirect href="./onboarding-2" />
-    }
-
+  if (hasCompletedOnboardingIntro && hasCompletedOnboardingProfile) {
     if (!hasCompletedOnboardingSafety) {
       return <Redirect href="./onboarding-3" />
     }
@@ -75,51 +79,58 @@ export default function OnboardingScreen() {
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.content}>
         <View style={styles.heroSection}>
-          <View style={styles.heroBadgeWrap}>
-            <View style={styles.heroBadgeInner}>
-              <Ionicons color="#FFFFFF" name="star" size={30} />
+          <View style={styles.cardStackWrap}>
+            <View style={styles.cardBackOne} />
+            <View style={styles.cardBackTwo} />
+            <View style={styles.cardFront}>
+              <View style={styles.cardFrontHeader}>
+                <View style={styles.avatarDot} />
+                <View style={styles.headerBar} />
+              </View>
+              <View style={styles.cardFooterBar} />
             </View>
-            <View style={styles.heroGlow} />
           </View>
 
           <View style={styles.copyWrap}>
-            <Text style={styles.title}>Seeker.{'\n'}Trade the unseen.</Text>
-            <Text style={styles.subtitle}>The exclusive crypto trading terminal built for absolute speed.</Text>
+            <Text style={styles.title}>Swipe Tokens.</Text>
+            <Text style={styles.title}>Trade Instantly.</Text>
+            <Text style={styles.subtitle}>
+              An infinite feed to discover the best Solana tokens. Buy and sell directly from the card in 1 tap.
+            </Text>
           </View>
         </View>
 
-        <View style={styles.featuresWrap}>
-          {FEATURES.map((feature) => (
-            <View key={feature.title} style={styles.featureCard}>
-              <View style={styles.featureIconWrap}>
-                <Ionicons color="#FFFFFF" name={feature.icon} size={20} />
-              </View>
-              <View style={styles.featureCopyWrap}>
-                <Text style={styles.featureTitle}>{feature.title}</Text>
-                <Text style={styles.featureDescription}>{feature.description}</Text>
-              </View>
+        <View style={styles.footer}>
+          <Pressable
+            accessibilityLabel={hasAcceptedTerms ? 'Accepted terms of service' : 'Accept terms of service'}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: hasAcceptedTerms }}
+            onPress={() => setHasAcceptedTerms((current) => !current)}
+            style={({ pressed }) => [styles.termsRow, pressed ? styles.pressed : null]}
+          >
+            <View style={[styles.checkbox, hasAcceptedTerms ? styles.checkboxChecked : null]}>
+              {hasAcceptedTerms ? <Ionicons color="#FFFFFF" name="checkmark" size={14} /> : null}
             </View>
-          ))}
-        </View>
-
-        <View style={styles.ctaWrap}>
-          <Pressable
-            accessibilityLabel="Get started with onboarding"
-            accessibilityRole="button"
-            onPress={() => void moveToOnboardingTwo()}
-            style={({ pressed }) => [styles.primaryButton, pressed ? styles.primaryButtonPressed : null]}
-          >
-            <Text style={styles.primaryButtonText}>Get Started</Text>
+            <Text style={styles.termsText}>
+              I agree to the <Text style={styles.termsLinkText}>Terms of Service</Text>
+            </Text>
           </Pressable>
 
           <Pressable
-            accessibilityLabel="Continue with existing account"
+            accessibilityLabel="Connect wallet"
             accessibilityRole="button"
-            onPress={() => void moveToOnboardingTwo()}
-            style={({ pressed }) => [styles.secondaryButton, pressed ? styles.secondaryButtonPressed : null]}
+            disabled={!hasAcceptedTerms || isConnectingWallet}
+            onPress={() => void handleConnectWallet()}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              !hasAcceptedTerms || isConnectingWallet ? styles.primaryButtonDisabled : null,
+              pressed && hasAcceptedTerms && !isConnectingWallet ? styles.pressed : null,
+            ]}
           >
-            <Text style={styles.secondaryButtonText}>I already have an account</Text>
+            <Text style={styles.primaryButtonText}>{isConnectingWallet ? 'Connecting...' : 'Connect Wallet'}</Text>
           </Pressable>
+
+          {connectionError ? <Text style={styles.errorText}>{connectionError}</Text> : null}
         </View>
       </View>
     </SafeAreaView>
@@ -127,139 +138,170 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
+  avatarDot: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    height: 24,
+    width: 24,
+  },
+  cardBackOne: {
+    backgroundColor: '#111111',
+    borderColor: '#333333',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 140,
+    opacity: 0.5,
+    position: 'absolute',
+    transform: [{ translateX: 15 }, { translateY: -10 }, { rotate: '10deg' }],
+    width: 100,
+  },
+  cardBackTwo: {
+    backgroundColor: '#1A1A1A',
+    borderColor: '#444444',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 140,
+    opacity: 0.8,
+    position: 'absolute',
+    transform: [{ translateX: -10 }, { translateY: -5 }, { rotate: '-5deg' }],
+    width: 100,
+  },
+  cardFooterBar: {
+    backgroundColor: '#222222',
+    borderRadius: 6,
+    height: 40,
+    width: '100%',
+  },
+  cardFront: {
+    backgroundColor: '#000000',
+    borderColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    boxShadow: '0px 8px 24px #FFFFFF1A',
+    gap: 12,
+    height: 150,
+    justifyContent: 'space-between',
+    padding: 12,
+    width: 110,
+  },
+  cardFrontHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cardStackWrap: {
+    alignItems: 'center',
+    backgroundColor: '#0A0A0A',
+    borderColor: '#444444',
+    borderRadius: 120,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    height: 240,
+    justifyContent: 'center',
+    width: 240,
+  },
+  checkbox: {
+    alignItems: 'center',
+    backgroundColor: '#000000',
+    borderColor: '#555555',
+    borderRadius: 6,
+    borderWidth: 2,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  checkboxChecked: {
+    borderColor: '#FFFFFF',
+  },
   content: {
     flex: 1,
     justifyContent: 'space-between',
-    paddingBottom: 28,
+    paddingBottom: 24,
     paddingHorizontal: 24,
-    paddingTop: 26,
+    paddingTop: 24,
   },
   copyWrap: {
     alignItems: 'center',
-    gap: 16,
-    width: '100%',
+    gap: 8,
   },
-  ctaWrap: {
-    gap: 16,
-  },
-  featureCard: {
-    alignItems: 'center',
-    backgroundColor: '#0A0A0A',
-    borderColor: '#FFFFFF0D',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-  },
-  featureCopyWrap: {
-    flex: 1,
-    gap: 4,
-  },
-  featureDescription: {
-    color: '#777777',
+  errorText: {
+    color: '#D77C7C',
     fontFamily: interFontFamily.medium,
     fontSize: 13,
-    lineHeight: 16,
-  },
-  featureIconWrap: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF0D',
-    borderRadius: 10,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  featureTitle: {
-    color: '#FFFFFF',
-    fontFamily: interFontFamily.bold,
-    fontSize: 15,
     lineHeight: 18,
+    textAlign: 'center',
   },
-  featuresWrap: {
-    gap: 12,
+  footer: {
+    gap: 24,
+    paddingBottom: 24,
   },
-  heroBadgeInner: {
-    alignItems: 'center',
-    backgroundColor: '#0F0F0FCC',
-    borderColor: '#FFFFFF1A',
-    borderRadius: 80,
-    borderWidth: 1,
-    height: 160,
-    justifyContent: 'center',
-    width: 160,
-  },
-  heroBadgeWrap: {
-    alignItems: 'center',
-    height: 200,
-    justifyContent: 'center',
-    position: 'relative',
-    width: 200,
-  },
-  heroGlow: {
-    backgroundColor: '#FFFFFF0D',
-    borderRadius: 60,
-    height: 120,
-    opacity: 0.8,
-    position: 'absolute',
-    width: 120,
+  headerBar: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 3,
+    height: 6,
+    width: 40,
   },
   heroSection: {
     alignItems: 'center',
-    gap: 32,
-    width: '100%',
+    flex: 1,
+    gap: 40,
+    justifyContent: 'center',
+  },
+  pressed: {
+    opacity: 0.8,
   },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 28,
     height: 56,
     justifyContent: 'center',
   },
-  primaryButtonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.99 }],
+  primaryButtonDisabled: {
+    backgroundColor: '#5A5A5A',
   },
   primaryButtonText: {
     color: '#000000',
     fontFamily: interFontFamily.bold,
-    fontSize: 17,
+    fontSize: 18,
     lineHeight: 22,
   },
   screen: {
     backgroundColor: '#000000',
     flex: 1,
   },
-  secondaryButton: {
-    alignItems: 'center',
-    borderRadius: 12,
-    height: 48,
-    justifyContent: 'center',
-  },
-  secondaryButtonPressed: {
-    opacity: 0.7,
-  },
-  secondaryButtonText: {
-    color: '#888888',
-    fontFamily: interFontFamily.bold,
-    fontSize: 15,
-    lineHeight: 18,
-  },
   subtitle: {
     color: '#888888',
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
-    maxWidth: 280,
+    marginTop: 8,
+    maxWidth: 300,
     textAlign: 'center',
+  },
+  termsLinkText: {
+    color: '#FFFFFF',
+    fontFamily: interFontFamily.medium,
+    textDecorationLine: 'underline',
+  },
+  termsRow: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  termsText: {
+    color: '#888888',
+    fontFamily: interFontFamily.medium,
+    fontSize: 14,
+    lineHeight: 18,
   },
   title: {
     color: '#FFFFFF',
     fontFamily: interFontFamily.extraBold,
-    fontSize: 38,
-    letterSpacing: -1,
-    lineHeight: 42,
+    fontSize: 32,
+    letterSpacing: -0.5,
+    lineHeight: 40,
     textAlign: 'center',
   },
 })

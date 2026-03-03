@@ -1,14 +1,10 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Redirect, useRouter } from 'expo-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { interFontFamily } from '@/constants/typography'
-import {
-  DEFAULT_ONBOARDING_LAUNCH,
-  DEFAULT_ONBOARDING_PROFILE,
-  useOnboarding,
-} from '@/features/onboarding/onboarding-provider'
+import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
 export default function OnboardingFiveScreen() {
   const router = useRouter()
@@ -20,26 +16,7 @@ export default function OnboardingFiveScreen() {
     hasCompletedOnboardingProfile,
     hasCompletedOnboardingSafety,
     hasHydrated,
-    launchPreferences,
-    profilePreferences,
   } = useOnboarding()
-
-  const walletSummary = useMemo(() => {
-    const walletOption = profilePreferences?.walletOption ?? DEFAULT_ONBOARDING_PROFILE.walletOption
-
-    if (walletOption === 'walletconnect') {
-      return 'WalletConnect'
-    }
-
-    if (walletOption === 'import-seed-phrase') {
-      return 'Imported wallet'
-    }
-
-    return 'sam.skr'
-  }, [profilePreferences?.walletOption])
-
-  const slippageSummary = launchPreferences?.defaultSlippage ?? DEFAULT_ONBOARDING_LAUNCH.defaultSlippage
-  const currencySummary = launchPreferences?.baseCurrency ?? DEFAULT_ONBOARDING_LAUNCH.baseCurrency
 
   const handleFinish = useCallback(async () => {
     await completeOnboarding({ enteredApp: true })
@@ -54,12 +31,8 @@ export default function OnboardingFiveScreen() {
     return <Redirect href="/(tabs)/feed" />
   }
 
-  if (!hasCompletedOnboardingIntro) {
+  if (!hasCompletedOnboardingIntro || !hasCompletedOnboardingProfile) {
     return <Redirect href="./onboarding" />
-  }
-
-  if (!hasCompletedOnboardingProfile) {
-    return <Redirect href="./onboarding-2" />
   }
 
   if (!hasCompletedOnboardingSafety) {
@@ -73,50 +46,24 @@ export default function OnboardingFiveScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.content}>
-        <View style={styles.heroWrap}>
-          <View style={styles.heroBadge}>
-            <View style={styles.heroBadgeInner}>
-              <Ionicons color="#000000" name="checkmark" size={34} />
-            </View>
+        <View style={styles.heroSection}>
+          <View style={styles.heroIconWrap}>
+            <Ionicons color="#000000" name="checkmark" size={64} />
           </View>
-          <View style={styles.heroSparkleLeft}>
-            <Ionicons color="#FFFFFF66" name="sparkles" size={16} />
-          </View>
-          <View style={styles.heroSparkleRight}>
-            <Ionicons color="#FFFFFF4A" name="sparkles" size={12} />
-          </View>
-
           <View style={styles.copyWrap}>
-            <Text style={styles.title}>You are all set.</Text>
-            <Text style={styles.subtitle}>Your wallet is connected and you are ready to start trading.</Text>
-          </View>
-        </View>
-
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRowWithDivider}>
-            <Text style={styles.summaryKey}>Wallet</Text>
-            <Text style={styles.summaryValue}>{walletSummary}</Text>
-          </View>
-
-          <View style={styles.summaryRowWithDivider}>
-            <Text style={styles.summaryKey}>Default slippage</Text>
-            <Text style={styles.summaryValue}>{slippageSummary}</Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryKey}>Base currency</Text>
-            <Text style={styles.summaryValue}>{currencySummary}</Text>
+            <Text style={styles.title}>{"You're all set"}</Text>
+            <Text style={styles.subtitle}>Your wallet is connected and default preferences are saved.</Text>
           </View>
         </View>
 
         <View style={styles.footer}>
           <Pressable
-            accessibilityLabel="Finish onboarding and enter app"
+            accessibilityLabel="Finish onboarding and open feed"
             accessibilityRole="button"
             onPress={() => void handleFinish()}
-            style={({ pressed }) => [styles.primaryButton, pressed ? styles.primaryButtonPressed : null]}
+            style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
           >
-            <Text style={styles.primaryButtonText}>Enter App</Text>
+            <Text style={styles.primaryButtonText}>Start Scrolling</Text>
           </Pressable>
         </View>
       </View>
@@ -126,73 +73,49 @@ export default function OnboardingFiveScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    alignItems: 'center',
     flex: 1,
+    justifyContent: 'space-between',
     paddingBottom: 24,
     paddingHorizontal: 24,
-    paddingTop: 26,
+    paddingTop: 24,
   },
   copyWrap: {
     alignItems: 'center',
-    gap: 12,
+    gap: 24,
   },
   footer: {
-    marginTop: 'auto',
-    width: '100%',
+    gap: 16,
+    paddingBottom: 24,
   },
-  heroBadge: {
-    alignItems: 'center',
-    backgroundColor: '#0A0A0A',
-    borderColor: '#FFFFFF1A',
-    borderRadius: 60,
-    borderWidth: 1,
-    height: 120,
-    justifyContent: 'center',
-    width: 120,
-  },
-  heroBadgeInner: {
+  heroIconWrap: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 40,
-    height: 64,
+    borderRadius: 70,
+    boxShadow: '0px 0px 60px #FFFFFF33',
+    height: 140,
     justifyContent: 'center',
-    width: 64,
+    width: 140,
   },
-  heroSparkleLeft: {
-    left: 60,
-    opacity: 0.6,
-    position: 'absolute',
-    top: -10,
-  },
-  heroSparkleRight: {
-    opacity: 0.5,
-    position: 'absolute',
-    right: 60,
-    top: 40,
-  },
-  heroWrap: {
+  heroSection: {
     alignItems: 'center',
-    gap: 32,
-    marginTop: 56,
-    position: 'relative',
-    width: '100%',
+    flex: 1,
+    gap: 40,
+    justifyContent: 'center',
+  },
+  pressed: {
+    opacity: 0.8,
   },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 28,
     height: 56,
     justifyContent: 'center',
-    width: '100%',
-  },
-  primaryButtonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.99 }],
   },
   primaryButtonText: {
     color: '#000000',
     fontFamily: interFontFamily.bold,
-    fontSize: 17,
+    fontSize: 18,
     lineHeight: 22,
   },
   screen: {
@@ -204,51 +127,15 @@ const styles = StyleSheet.create({
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
-    maxWidth: 260,
+    maxWidth: 300,
     textAlign: 'center',
-  },
-  summaryCard: {
-    backgroundColor: '#0A0A0A',
-    borderColor: '#FFFFFF14',
-    borderRadius: 20,
-    borderWidth: 1,
-    marginTop: 48,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    width: '100%',
-  },
-  summaryKey: {
-    color: '#777777',
-    fontFamily: interFontFamily.medium,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  summaryRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-  },
-  summaryRowWithDivider: {
-    alignItems: 'center',
-    borderBottomColor: '#FFFFFF0D',
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-  },
-  summaryValue: {
-    color: '#FFFFFF',
-    fontFamily: interFontFamily.bold,
-    fontSize: 14,
-    lineHeight: 18,
   },
   title: {
     color: '#FFFFFF',
     fontFamily: interFontFamily.extraBold,
-    fontSize: 34,
+    fontSize: 32,
     letterSpacing: -0.5,
-    lineHeight: 42,
+    lineHeight: 40,
     textAlign: 'center',
   },
 })
