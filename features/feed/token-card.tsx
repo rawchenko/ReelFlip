@@ -27,11 +27,11 @@ const RUNTIME_ONLY_MIN_1M_CANDLES = 120
 const REALTIME_MAX_STALENESS_SECONDS = 15 * 60
 const REALTIME_MIN_UNIQUE_CLOSES = 3
 const REALTIME_MIN_RELATIVE_RANGE = 0.0001
-const PRODUCTION_SERVER_CANDLE_ONLY = !__DEV__
 const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
 const DEFAULT_IOS_API_URL = 'http://127.0.0.1:3001'
 
 const LABEL_PRIORITY: FeedLabel[] = ['trending', 'meme', 'gainer', 'new']
+type FeedCardChartMode = 'realtime_candles' | 'server_sparkline' | 'loading_skeleton'
 
 function sanitizeSparklinePoints(points?: number[]): number[] {
   if (!Array.isArray(points)) {
@@ -384,21 +384,20 @@ export function TokenCard({
   const realtimeChartsEnabled = process.env.EXPO_PUBLIC_ENABLE_TV_REALTIME_CHART !== 'false'
   const pairChartState = useChartPairState(item.pairAddress)
   const hasPairAddress = Boolean(item.pairAddress)
-  const effectiveRealtimeChartsEnabled = PRODUCTION_SERVER_CANDLE_ONLY ? true : realtimeChartsEnabled
   const useTradingViewChart = useMemo(
     () =>
       Boolean(
         enableTradingView &&
           webChartEnabled &&
-          (PRODUCTION_SERVER_CANDLE_ONLY ? hasPairAddress : hasPairAddress || hasChartPoints) &&
+          (hasPairAddress || hasChartPoints) &&
           !tradingViewUnavailable,
       ),
     [enableTradingView, hasChartPoints, hasPairAddress, tradingViewUnavailable, webChartEnabled],
   )
 
   const useRealtimeWebChart = useMemo(
-    () => Boolean(useTradingViewChart && hasPairAddress && effectiveRealtimeChartsEnabled),
-    [effectiveRealtimeChartsEnabled, hasPairAddress, useTradingViewChart],
+    () => Boolean(useTradingViewChart && hasPairAddress && realtimeChartsEnabled),
+    [hasPairAddress, realtimeChartsEnabled, useTradingViewChart],
   )
 
   const realtimeCandleCount = pairChartState?.candles.length ?? 0
@@ -418,48 +417,43 @@ export function TokenCard({
     () => aggregateCandlesToBuckets(pairChartState?.candles, FEED_CARD_BUCKET_SECONDS, FEED_CARD_MAX_BUCKET_CANDLES),
     [pairChartState?.candles, pairChartState?.lastUpdateTimeMs],
   )
-  const hasRealtimeCandlesForDisplay = aggregatedRealtimeCandles.length >= 2
-
-  const useSparklineFallbackForRealtime = useMemo(
-    () => !PRODUCTION_SERVER_CANDLE_ONLY && useRealtimeWebChart && !hasRealtimeCandlesForDisplay && hasChartPoints,
-    [hasChartPoints, hasRealtimeCandlesForDisplay, useRealtimeWebChart],
+  const hasRealtimeCandlesForDisplay = useMemo(
+    () => Boolean(useRealtimeWebChart && realtimeCandlesEligible && aggregatedRealtimeCandles.length >= 2),
+    [aggregatedRealtimeCandles.length, realtimeCandlesEligible, useRealtimeWebChart],
   )
+  const chartMode = useMemo<FeedCardChartMode>(() => {
+    if (hasRealtimeCandlesForDisplay) {
+      return 'realtime_candles'
+    }
+
+    if (hasChartPoints) {
+      return 'server_sparkline'
+    }
+
+    return 'loading_skeleton'
+  }, [hasChartPoints, hasRealtimeCandlesForDisplay])
 
   const showChartLoadingSkeleton = useMemo(() => {
-    if (tradingViewUnavailable) {
+    if (chartMode !== 'loading_skeleton') {
       return false
     }
 
-    if (!useTradingViewChart) {
+    if (tradingViewUnavailable || !useTradingViewChart) {
       return !hasMiniFallbackPoints
-    }
-
-    if (!useRealtimeWebChart) {
-      return !hasChartPoints
-    }
-
-    if (hasRealtimeCandlesForDisplay) {
-      return false
-    }
-
-    if (!PRODUCTION_SERVER_CANDLE_ONLY && hasChartPoints) {
-      return false
     }
 
     return true
   }, [
-    hasChartPoints,
+    chartMode,
     hasMiniFallbackPoints,
-    hasRealtimeCandlesForDisplay,
     tradingViewUnavailable,
-    useRealtimeWebChart,
     useTradingViewChart,
   ])
   const tvRealtimeCandles = useMemo(
-    () => (hasRealtimeCandlesForDisplay ? aggregatedRealtimeCandles : undefined),
-    [aggregatedRealtimeCandles, hasRealtimeCandlesForDisplay],
+    () => (chartMode === 'realtime_candles' ? aggregatedRealtimeCandles : undefined),
+    [aggregatedRealtimeCandles, chartMode],
   )
-  const streamBadgeState = hasRealtimeCandlesForDisplay
+  const streamBadgeState = chartMode === 'realtime_candles'
     ? (pairChartState?.status ?? 'reconnecting')
     : null
   const imageApiBaseUrl = useMemo(() => resolveImageApiBaseUrl(), [])
@@ -492,15 +486,11 @@ export function TokenCard({
   }, [useRealtimeWebChart])
 
   useEffect(() => {
-    if (!__DEV__ || !useRealtimeWebChart) {
+    if (!__DEV__) {
       return
     }
 
-    const mode = hasRealtimeCandlesForDisplay
-      ? 'realtime_5m'
-      : PRODUCTION_SERVER_CANDLE_ONLY
-        ? 'loading_placeholder'
-        : 'sparkline_fallback'
+    const mode = chartMode
     const logKey = `${item.mint}:${mode}:${realtimeHistoryQuality ?? 'none'}:${realtimeCandleCount >= RUNTIME_ONLY_MIN_1M_CANDLES}`
     if (lastChartModeLogRef.current === logKey) {
       return
@@ -514,10 +504,13 @@ export function TokenCard({
       historyQuality: realtimeHistoryQuality,
       candleCount1m: realtimeCandleCount,
       candleCount5m: aggregatedRealtimeCandles.length,
+      useRealtimeWebChart,
+      hasSparkline: hasChartPoints,
     })
   }, [
     aggregatedRealtimeCandles.length,
-    hasRealtimeCandlesForDisplay,
+    chartMode,
+    hasChartPoints,
     item.mint,
     item.symbol,
     realtimeCandleCount,
@@ -534,11 +527,9 @@ export function TokenCard({
       }
     }
 
-    if (!PRODUCTION_SERVER_CANDLE_ONLY) {
-      const sparklineTrend = deriveTrendFromPoints(sparklinePoints)
-      if (sparklineTrend !== null) {
-        return sparklineTrend
-      }
+    const sparklineTrend = deriveTrendFromPoints(sparklinePoints)
+    if (sparklineTrend !== null) {
+      return sparklineTrend
     }
 
     return isUp24h
@@ -576,9 +567,9 @@ export function TokenCard({
     [availableHeight],
   )
 
-  const webChartPoints = useRealtimeWebChart ? (useSparklineFallbackForRealtime ? sparklinePoints : undefined) : sparklinePoints
-  const webChartCandles = useRealtimeWebChart ? tvRealtimeCandles : undefined
-  const webChartLatestCandle = useRealtimeWebChart
+  const webChartPoints = chartMode === 'server_sparkline' ? sparklinePoints : undefined
+  const webChartCandles = chartMode === 'realtime_candles' ? tvRealtimeCandles : undefined
+  const webChartLatestCandle = chartMode === 'realtime_candles'
     ? (tvRealtimeCandles?.[tvRealtimeCandles.length - 1] ?? null)
     : null
   const descriptionText = item.description || item.name

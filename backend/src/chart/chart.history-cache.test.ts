@@ -79,3 +79,35 @@ test('stores 1s and 1m candles in separate cache entries', async () => {
 
   await cache.close()
 })
+
+test('evicts stale memory entries based on ttlSeconds configuration', async () => {
+  const cache = new ChartHistoryCache({
+    maxCandles: 10,
+    ttlSeconds: 60,
+    logger,
+  })
+
+  const pairAddress = 'pair-cache-ttl'
+  await cache.upsertRuntimeCandle(pairAddress, {
+    timeSec: 100,
+    open: 1,
+    high: 1.1,
+    low: 0.9,
+    close: 1.05,
+  })
+
+  const memory = (cache as unknown as { memory: Map<string, { updatedAtMs: number }> }).memory
+  const key = `chart:1m:${pairAddress}`
+  const entry = memory.get(key)
+  assert.ok(entry)
+  if (entry) {
+    entry.updatedAtMs = Date.now() - 61_000
+    memory.set(key, entry)
+  }
+
+  const read = await cache.readPair(pairAddress)
+  assert.equal(read.storage, 'miss')
+  assert.equal(read.entry, null)
+
+  await cache.close()
+})

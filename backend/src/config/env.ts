@@ -40,6 +40,7 @@ export interface BackendEnv {
   chartBootstrapLimit: number
   chartHistoryBackfillEnabled: boolean
   chartHistoryWarmupTopPairs: number
+  chartHistoryCacheTtlSeconds: number
   chartHistoryProvider: 'public' | 'none'
   chartHistoryProviderTimeoutMs: number
   chartHistoryBackfillConcurrency: number
@@ -122,6 +123,7 @@ const DEFAULTS = {
   chartBootstrapLimit: 60,
   chartHistoryBackfillEnabled: true,
   chartHistoryWarmupTopPairs: 10,
+  chartHistoryCacheTtlSeconds: 43_200,
   chartHistoryProvider: 'public',
   chartHistoryProviderTimeoutMs: 3000,
   chartHistoryBackfillConcurrency: 4,
@@ -228,6 +230,11 @@ export function loadEnv(): BackendEnv {
     chartBootstrapLimit: parseIntEnv('CHART_BOOTSTRAP_LIMIT', DEFAULTS.chartBootstrapLimit, 1),
     chartHistoryBackfillEnabled: parseBoolEnv('CHART_HISTORY_BACKFILL_ENABLED', DEFAULTS.chartHistoryBackfillEnabled),
     chartHistoryWarmupTopPairs: parseIntEnv('CHART_HISTORY_WARMUP_TOP_PAIRS', DEFAULTS.chartHistoryWarmupTopPairs, 0),
+    chartHistoryCacheTtlSeconds: parseIntEnv(
+      'CHART_HISTORY_CACHE_TTL_SECONDS',
+      DEFAULTS.chartHistoryCacheTtlSeconds,
+      1,
+    ),
     chartHistoryProvider: chartHistoryProvider as BackendEnv['chartHistoryProvider'],
     chartHistoryProviderTimeoutMs: parseIntEnv(
       'CHART_HISTORY_PROVIDER_TIMEOUT_MS',

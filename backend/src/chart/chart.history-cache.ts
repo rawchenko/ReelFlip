@@ -27,7 +27,7 @@ interface ChartHistoryCacheOptions {
   }
 }
 
-const DEFAULT_TTL_SECONDS = 2 * 60 * 60
+const DEFAULT_TTL_SECONDS = 12 * 60 * 60
 const KEY_PREFIX = 'chart:'
 
 export class ChartHistoryCache {

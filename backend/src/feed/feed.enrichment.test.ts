@@ -11,6 +11,16 @@ import {
 } from './feed.enrichment.js'
 import { FeedLabel, TokenFeedItem } from './feed.provider.js'
 
+const FIVE_MINUTES_SEC = 5 * 60
+
+function chartAnchorNowSec(): number {
+  return Math.floor(Math.floor(Date.now() / 1000) / FIVE_MINUTES_SEC) * FIVE_MINUTES_SEC
+}
+
+function bucketCloseTimeSec(bucketStartSec: number): number {
+  return bucketStartSec + 240
+}
+
 function buildItem(input: {
   mint: string
   name: string
@@ -111,6 +121,7 @@ class StaticChartReader implements ChartHistoryBatchReader {
 }
 
 test('enrichment uses source precedence and builds two-tier tags', async () => {
+  const anchor = chartAnchorNowSec()
   const service = new FeedEnrichmentService(
     new StaticMarketClient({
       'mint-1': { priceUsd: 2, priceChange24h: 10, marketCap: 999_000 },
@@ -123,9 +134,9 @@ test('enrichment uses source precedence and builds two-tier tags', async () => {
     }),
     new StaticChartReader({
       'pair-1': [
-        { time: 1, open: 1, high: 1, low: 1, close: 1 },
-        { time: 301, open: 1.5, high: 1.5, low: 1.5, close: 1.5 },
-        { time: 601, open: 2, high: 2, low: 2, close: 2 },
+        { time: bucketCloseTimeSec(anchor - 3 * FIVE_MINUTES_SEC), open: 1, high: 1, low: 1, close: 1 },
+        { time: bucketCloseTimeSec(anchor - 2 * FIVE_MINUTES_SEC), open: 1.5, high: 1.5, low: 1.5, close: 1.5 },
+        { time: bucketCloseTimeSec(anchor - 1 * FIVE_MINUTES_SEC), open: 2, high: 2, low: 2, close: 2 },
       ],
     }),
     {
@@ -174,16 +185,16 @@ test('enrichment uses source precedence and builds two-tier tags', async () => {
     metadata: 'helius',
     tags: ['internal_risk', 'jupiter'],
   })
-  assert.deepEqual(item?.sparkline, [1, 1.5, 2])
-  assert.deepEqual(item?.sparklineMeta, {
-    window: '6h',
-    interval: '5m',
-    source: 'historical_provider',
-    points: 3,
-    generatedAt: '2026-03-02T12:00:00.000Z',
-    historyQuality: 'real_backfill',
-    candleCount1m: 3,
-  })
+  assert.equal(item?.sparkline.length, 72)
+  assert.equal(item?.sparkline[0], 1)
+  assert.equal(item?.sparkline[item.sparkline.length - 1], 2)
+  assert.equal(item?.sparklineMeta?.window, '6h')
+  assert.equal(item?.sparklineMeta?.interval, '5m')
+  assert.equal(item?.sparklineMeta?.source, 'historical_provider')
+  assert.equal(item?.sparklineMeta?.points, 72)
+  assert.equal(item?.sparklineMeta?.generatedAt, '2026-03-02T12:00:00.000Z')
+  assert.equal(item?.sparklineMeta?.historyQuality, 'real_backfill')
+  assert.equal(item?.sparklineMeta?.candleCount1m, 3)
 })
 
 test('market cap remains null when unavailable from all providers', async () => {
@@ -236,9 +247,11 @@ test('market cap remains null when unavailable from all providers', async () => 
 })
 
 test('sparkline buckets 1m history into real 5m points', async () => {
-  const candles = Array.from({ length: 360 }, (_, index) => {
+  const anchor = chartAnchorNowSec()
+  const candles = Array.from({ length: 72 }, (_, index) => {
     const value = index + 1
-    return { time: 1 + index * 60, open: value, high: value, low: value, close: value }
+    const bucketStart = anchor - (71 - index) * FIVE_MINUTES_SEC
+    return { time: bucketCloseTimeSec(bucketStart), open: value, high: value, low: value, close: value }
   })
 
   const service = new FeedEnrichmentService(
@@ -280,17 +293,20 @@ test('sparkline buckets 1m history into real 5m points', async () => {
   )
 
   assert.equal(item?.sparkline.length, 72)
-  assert.equal(item?.sparkline[0], 5)
-  assert.equal(item?.sparkline[item.sparkline.length - 1], 360)
+  assert.equal(item?.sparkline[0], 1)
+  assert.equal(item?.sparkline[item.sparkline.length - 1], 72)
   assert.equal(item?.sparklineMeta?.points, 72)
   assert.equal(item?.sparklineMeta?.interval, '5m')
 })
 
-test('sparkline keeps partial history as real bucket closes without synthetic interpolation', async () => {
-  const candles = Array.from({ length: 195 }, (_, index) => {
-    const value = index + 1
-    return { time: 1 + index * 60, open: value, high: value, low: value, close: value }
-  })
+test('sparkline fills sparse bucket gaps and keeps fixed 72-point output', async () => {
+  const anchor = chartAnchorNowSec()
+  const firstBucketStart = anchor - 61 * FIVE_MINUTES_SEC
+  const secondBucketStart = anchor - 28 * FIVE_MINUTES_SEC
+  const candles = [
+    { time: bucketCloseTimeSec(firstBucketStart), open: 10, high: 10, low: 10, close: 10 },
+    { time: bucketCloseTimeSec(secondBucketStart), open: 40, high: 40, low: 40, close: 40 },
+  ]
 
   const service = new FeedEnrichmentService(
     new StaticMarketClient({}),
@@ -330,9 +346,54 @@ test('sparkline keeps partial history as real bucket closes without synthetic in
     new AbortController().signal,
   )
 
-  assert.equal(item?.sparkline.length, 39)
-  assert.equal(item?.sparkline[0], 5)
-  assert.equal(item?.sparkline[item.sparkline.length - 1], 195)
+  assert.equal(item?.sparkline.length, 72)
+  assert.equal(item?.sparkline[0], 10)
+  assert.equal(item?.sparkline[42], 10)
+  assert.equal(item?.sparkline[43], 40)
+  assert.equal(item?.sparkline[item.sparkline.length - 1], 40)
   assert.equal(item?.sparklineMeta?.interval, '5m')
-  assert.equal(item?.sparklineMeta?.points, 39)
+  assert.equal(item?.sparklineMeta?.points, 72)
+})
+
+test('sparkline stays empty when no valid candles exist in the 6h window', async () => {
+  const service = new FeedEnrichmentService(
+    new StaticMarketClient({}),
+    new StaticMetadataClient({}),
+    new StaticTrustTagsClient({}),
+    new StaticChartReader({
+      'pair-empty': [],
+    }),
+    {
+      maxItems: 10,
+      concurrency: 2,
+      sparklineWindowMinutes: 360,
+      sparklinePoints: 72,
+    },
+    {
+      warn: () => undefined,
+      info: () => undefined,
+    },
+  )
+
+  const [item] = await service.enrich(
+    [
+      buildItem({
+        mint: 'mint-empty',
+        name: 'Empty',
+        symbol: 'EMPT',
+        priceUsd: 1,
+        priceChange24h: 0,
+        volume24h: 1_000,
+        liquidity: 1_000,
+        marketCap: 1_000,
+        pairAddress: 'pair-empty',
+        category: 'trending',
+        riskTier: 'allow',
+      }),
+    ],
+    new AbortController().signal,
+  )
+
+  assert.deepEqual(item?.sparkline, [])
+  assert.equal(item?.sparklineMeta?.points, 0)
 })

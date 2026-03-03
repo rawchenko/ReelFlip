@@ -65,7 +65,7 @@ export class FeedEnrichmentService implements FeedEnricher {
     const selectedIndexes = pickIndexesForEnrichment(items, this.options.maxItems)
     const selectedItems = selectedIndexes.map((index) => items[index]).filter((item): item is TokenFeedItem => item !== undefined)
 
-    const sparklineByPair = await this.buildSparklineMap(selectedItems)
+    const { byPair: sparklineByPair } = await this.buildSparklineMap(selectedItems)
     const next = [...items]
 
     let priceFromBirdeye = 0
@@ -151,11 +151,21 @@ export class FeedEnrichmentService implements FeedEnricher {
     return next
   }
 
-  private async buildSparklineMap(items: TokenFeedItem[]): Promise<Map<string, SparklinePayload>> {
+  private async buildSparklineMap(items: TokenFeedItem[]): Promise<{
+    byPair: Map<string, SparklinePayload>
+    stats: SparklineBuildStats
+  }> {
     const output = new Map<string, SparklinePayload>()
+    const stats: SparklineBuildStats = {
+      sparkline_pair_count: 0,
+      sparkline_empty_count: 0,
+      sparkline_points_min: null,
+      sparkline_points_max: null,
+      sparkline_points_avg: 0,
+    }
 
     if (!this.chartHistoryReader || this.options.sparklineWindowMinutes <= 0 || this.options.sparklinePoints <= 1) {
-      return output
+      return { byPair: output, stats }
     }
 
     const pairs = Array.from(
@@ -163,7 +173,7 @@ export class FeedEnrichmentService implements FeedEnricher {
     )
 
     if (pairs.length === 0) {
-      return output
+      return { byPair: output, stats }
     }
 
     const chunkSize = Math.max(1, this.chartHistoryReader.getBatchMaxPairs())
@@ -181,6 +191,20 @@ export class FeedEnrichmentService implements FeedEnricher {
             FEED_SPARKLINE_BUCKET_SECONDS,
             this.options.sparklinePoints,
           )
+          stats.sparkline_pair_count += 1
+          if (sparkline.length === 0) {
+            stats.sparkline_empty_count += 1
+          }
+          stats.sparkline_points_min =
+            stats.sparkline_points_min === null
+              ? sparkline.length
+              : Math.min(stats.sparkline_points_min, sparkline.length)
+          stats.sparkline_points_max =
+            stats.sparkline_points_max === null
+              ? sparkline.length
+              : Math.max(stats.sparkline_points_max, sparkline.length)
+          stats.sparkline_points_avg += sparkline.length
+
           const meta: TokenFeedSparklineMeta = {
             window: '6h',
             interval: '5m',
@@ -203,7 +227,12 @@ export class FeedEnrichmentService implements FeedEnricher {
       }
     }
 
-    return output
+    if (stats.sparkline_pair_count > 0) {
+      stats.sparkline_points_avg = Number((stats.sparkline_points_avg / stats.sparkline_pair_count).toFixed(2))
+    }
+
+    this.logger.debug?.(stats, 'Feed sparkline enrichment stats')
+    return { byPair: output, stats }
   }
 
   private async safeFetchMarket(mint: string, signal: AbortSignal): Promise<BirdeyeMarketSnapshot | null> {
@@ -472,6 +501,14 @@ interface SparklinePayload {
   candleCount1m: number
 }
 
+interface SparklineBuildStats {
+  sparkline_pair_count: number
+  sparkline_empty_count: number
+  sparkline_points_min: number | null
+  sparkline_points_max: number | null
+  sparkline_points_avg: number
+}
+
 const FEED_SPARKLINE_BUCKET_SECONDS = 5 * 60
 
 function resolveDiscoveryLabels(item: TokenFeedItem): FeedLabel[] {
@@ -514,10 +551,23 @@ function bucketCandlesToSparkline(
   candles: Array<{ time: number; close: number }>,
   bucketSeconds: number,
   targetPoints: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): number[] {
-  if (!Number.isFinite(bucketSeconds) || bucketSeconds <= 0 || targetPoints <= 1) {
+  if (
+    !Number.isFinite(bucketSeconds) ||
+    bucketSeconds <= 0 ||
+    !Number.isFinite(targetPoints) ||
+    targetPoints <= 1 ||
+    !Number.isFinite(nowSec) ||
+    nowSec <= 0
+  ) {
     return []
   }
+
+  const normalizedTargetPoints = Math.floor(targetPoints)
+  const normalizedNowSec = Math.floor(nowSec)
+  const anchorSec = Math.floor(normalizedNowSec / bucketSeconds) * bucketSeconds
+  const windowStartSec = anchorSec - (normalizedTargetPoints - 1) * bucketSeconds
 
   const sorted = candles
     .map((candle) => ({
@@ -531,39 +581,42 @@ function bucketCandlesToSparkline(
     return []
   }
 
-  const closePoints: number[] = []
-  let activeBucket: number | null = null
-  let activeBucketClose: number | null = null
+  const closeByBucketIndex = new Map<number, number>()
 
   for (const candle of sorted) {
-    const bucket = Math.floor(candle.time / bucketSeconds)
-    if (activeBucket === null) {
-      activeBucket = bucket
-      activeBucketClose = candle.close
+    const bucketTime = Math.floor(candle.time / bucketSeconds) * bucketSeconds
+    if (bucketTime < windowStartSec || bucketTime > anchorSec) {
       continue
     }
 
-    if (bucket !== activeBucket) {
-      if (typeof activeBucketClose === 'number' && Number.isFinite(activeBucketClose) && activeBucketClose > 0) {
-        closePoints.push(activeBucketClose)
-      }
-      activeBucket = bucket
-      activeBucketClose = candle.close
+    const bucketIndex = Math.floor((bucketTime - windowStartSec) / bucketSeconds)
+    if (bucketIndex < 0 || bucketIndex >= normalizedTargetPoints) {
       continue
     }
-
-    activeBucketClose = candle.close
+    closeByBucketIndex.set(bucketIndex, candle.close)
   }
 
-  if (typeof activeBucketClose === 'number' && Number.isFinite(activeBucketClose) && activeBucketClose > 0) {
-    closePoints.push(activeBucketClose)
+  if (closeByBucketIndex.size === 0) {
+    return []
   }
 
-  if (closePoints.length <= targetPoints) {
-    return closePoints
+  const output = Array.from({ length: normalizedTargetPoints }, (_entry, index) => closeByBucketIndex.get(index) ?? Number.NaN)
+  const firstKnownClose = output.find((value) => Number.isFinite(value) && value > 0)
+  if (!Number.isFinite(firstKnownClose) || (firstKnownClose ?? 0) <= 0) {
+    return []
   }
 
-  return closePoints.slice(-targetPoints)
+  let carryClose = firstKnownClose
+  for (let index = 0; index < output.length; index += 1) {
+    const value = output[index]
+    if (Number.isFinite(value) && value > 0) {
+      carryClose = value
+      continue
+    }
+    output[index] = carryClose
+  }
+
+  return output.map((value) => (Number.isFinite(value) && value > 0 ? value : firstKnownClose))
 }
 
 async function mapWithConcurrency<TInput>(

@@ -47,6 +47,7 @@ await feedCache.initialize()
 
 const chartHistoryCache = new ChartHistoryCache({
   redisUrl: env.redisUrl,
+  ttlSeconds: env.chartHistoryCacheTtlSeconds,
   maxCandles: env.chartHistoryLimit,
   logger: app.log,
 })

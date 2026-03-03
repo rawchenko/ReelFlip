@@ -64,7 +64,7 @@ function toCandles(values: number[], desiredCandles: number): CandlePoint[] {
 
     const base = Math.max(open, close, Number.EPSILON)
     const bodyMoveRatio = Math.abs(close - open) / base
-    const wickRatio = clamp(bodyMoveRatio * 1.5, 0.004, 0.03)
+    const wickRatio = clamp(bodyMoveRatio * 0.8, 0.0015, 0.01)
     const wickBiasUp = 0.7 + (candles.length % 3) * 0.15
     const wickBiasDown = 0.7 + ((candles.length + 1) % 3) * 0.15
 
