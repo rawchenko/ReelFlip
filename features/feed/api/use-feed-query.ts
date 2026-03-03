@@ -5,6 +5,7 @@ import { FeedResponse, fetchFeed } from './feed-client'
 
 interface UseFeedQueryOptions {
   category?: FeedCategory
+  minLifetimeHours?: number
   cursor?: string
   limit?: number
   refetchIntervalMs?: number
@@ -13,22 +14,24 @@ interface UseFeedQueryOptions {
 
 interface UseInfiniteFeedQueryOptions {
   category?: FeedCategory
+  minLifetimeHours?: number
   limit?: number
   enabled?: boolean
 }
 
-export function getFeedInfiniteQueryKey(category?: FeedCategory, limit = 20) {
-  return ['feed-infinite', category ?? 'all', limit] as const
+export function getFeedInfiniteQueryKey(category?: FeedCategory, minLifetimeHours?: number, limit = 20) {
+  return ['feed-infinite', category ?? 'all', minLifetimeHours ?? null, limit] as const
 }
 
 export function useFeedQuery(options: UseFeedQueryOptions = {}) {
-  const { category, cursor, limit = 20, refetchIntervalMs = 5_000, enabled = true } = options
+  const { category, minLifetimeHours, cursor, limit = 20, refetchIntervalMs = 5_000, enabled = true } = options
 
   return useQuery({
-    queryKey: ['feed', category ?? 'all', cursor ?? null, limit],
+    queryKey: ['feed', category ?? 'all', minLifetimeHours ?? null, cursor ?? null, limit],
     queryFn: ({ signal }) =>
       fetchFeed({
         category,
+        minLifetimeHours,
         cursor,
         limit,
         signal,
@@ -43,14 +46,15 @@ export function useFeedQuery(options: UseFeedQueryOptions = {}) {
 }
 
 export function useInfiniteFeedQuery(options: UseInfiniteFeedQueryOptions = {}) {
-  const { category, limit = 20, enabled = true } = options
+  const { category, minLifetimeHours, limit = 20, enabled = true } = options
 
   const query = useInfiniteQuery({
-    queryKey: getFeedInfiniteQueryKey(category, limit),
+    queryKey: getFeedInfiniteQueryKey(category, minLifetimeHours, limit),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ signal, pageParam }) =>
       fetchFeed({
         category,
+        minLifetimeHours,
         cursor: pageParam,
         limit,
         signal,

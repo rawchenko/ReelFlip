@@ -39,6 +39,7 @@ export interface TokenFeedItem {
   sparkline?: number[]
   sparklineMeta?: TokenFeedSparklineMeta | null
   pairAddress?: string | null
+  pairCreatedAtMs?: number | null
   tags?: TokenFeedTags
   category: FeedCategory
   labels?: FeedLabel[]

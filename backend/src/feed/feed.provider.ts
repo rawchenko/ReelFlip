@@ -41,6 +41,7 @@ export interface TokenFeedItem {
   sparkline: number[]
   sparklineMeta: TokenFeedSparklineMeta | null
   pairAddress: string | null
+  pairCreatedAtMs?: number | null
   tags: TokenFeedTags
   labels?: FeedLabel[]
   sources: TokenFeedSources
@@ -131,6 +132,20 @@ interface DexScreenerProviderOptions {
   tokenMints?: string
 }
 
+interface DexDiscoveryEndpoint {
+  path: string
+  label: string
+}
+
+const DEX_DISCOVERY_ENDPOINTS: DexDiscoveryEndpoint[] = [
+  { path: '/token-boosts/top/v1', label: 'boosts_top' },
+  { path: '/token-boosts/latest/v1', label: 'boosts_latest' },
+  { path: '/token-profiles/latest/v1', label: 'token_profiles_latest' },
+  { path: '/community-takeovers/latest/v1', label: 'community_takeovers_latest' },
+]
+
+const DEX_TOKEN_BATCH_SIZE = 30
+
 export class DexScreenerFeedProvider implements FeedProvider {
   readonly name = 'dexscreener'
 
@@ -144,6 +159,7 @@ export class DexScreenerFeedProvider implements FeedProvider {
     const tokenMints = parseDexTokenMints(this.options.tokenMints)
     const discoverySources = await Promise.allSettled([
       this.fetchConfiguredSearchQueries(signal),
+      this.fetchDiscoveryEndpointPairs(signal),
       tokenMints.length > 0 ? this.fetchConfiguredTokenMints(tokenMints, signal) : Promise.resolve<TokenFeedItem[]>([]),
     ])
 
@@ -158,7 +174,15 @@ export class DexScreenerFeedProvider implements FeedProvider {
       this.logger.warn({ error: searchResult.reason }, 'DexScreener dynamic search discovery failed')
     }
 
-    const mintResult = discoverySources[1]
+    const discoveryEndpointResult = discoverySources[1]
+    if (discoveryEndpointResult?.status === 'fulfilled') {
+      combinedItems.push(...discoveryEndpointResult.value)
+      successCount += 1
+    } else if (discoveryEndpointResult) {
+      this.logger.warn({ error: discoveryEndpointResult.reason }, 'DexScreener endpoint discovery failed')
+    }
+
+    const mintResult = discoverySources[2]
     if (mintResult?.status === 'fulfilled') {
       combinedItems.push(...mintResult.value)
       if (tokenMints.length > 0) {
@@ -203,6 +227,83 @@ export class DexScreenerFeedProvider implements FeedProvider {
     )
   }
 
+  private async fetchDiscoveryEndpointPairs(signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const settled = await Promise.allSettled(
+      DEX_DISCOVERY_ENDPOINTS.map((endpoint) => this.fetchDiscoveryEndpointTokenAddresses(endpoint, signal)),
+    )
+    const tokenAddresses: string[] = []
+    let successCount = 0
+
+    settled.forEach((result, index) => {
+      const endpoint = DEX_DISCOVERY_ENDPOINTS[index]
+      if (!endpoint) {
+        return
+      }
+
+      if (result.status === 'fulfilled') {
+        successCount += 1
+        tokenAddresses.push(...result.value)
+        return
+      }
+
+      this.logger.warn({ error: result.reason, endpoint: endpoint.path }, 'DexScreener discovery endpoint failed')
+    })
+
+    const uniqueAddresses = Array.from(new Set(tokenAddresses))
+    if (uniqueAddresses.length > 0) {
+      return this.fetchTokenAddressBatches(uniqueAddresses, signal, 'DexScreener endpoint discovery')
+    }
+
+    throw new Error(
+      successCount > 0
+        ? 'DexScreener discovery endpoints returned no usable Solana token addresses'
+        : 'DexScreener discovery endpoint requests failed for all endpoints',
+    )
+  }
+
+  private async fetchDiscoveryEndpointTokenAddresses(
+    endpoint: DexDiscoveryEndpoint,
+    signal: AbortSignal,
+  ): Promise<string[]> {
+    const payload = await this.fetchDexJson(endpoint.path, signal)
+    return extractSolanaTokenAddresses(payload)
+  }
+
+  private async fetchTokenAddressBatches(
+    tokenAddresses: string[],
+    signal: AbortSignal,
+    context: string,
+  ): Promise<TokenFeedItem[]> {
+    const uniqueTokenAddresses = Array.from(new Set(tokenAddresses)).filter((address) => address.length > 0)
+    const chunks = chunk(uniqueTokenAddresses, DEX_TOKEN_BATCH_SIZE)
+    const settled = await Promise.allSettled(chunks.map((addresses) => this.fetchTokenAddressBatch(addresses, signal)))
+    const combined = collectFulfilledItems(chunks, settled, (addresses, error) => {
+      this.logger.warn({ error, tokenCount: addresses.length }, `${context} token batch request failed`)
+    })
+
+    const normalized = dedupeByPairAddress(combined.items)
+    if (normalized.length > 0) {
+      return normalized
+    }
+
+    throw new Error(
+      combined.successCount > 0
+        ? `${context} returned no usable Solana pairs for resolved token addresses`
+        : `${context} token batch requests failed for all batches`,
+    )
+  }
+
+  private async fetchTokenAddressBatch(tokenAddresses: string[], signal: AbortSignal): Promise<TokenFeedItem[]> {
+    if (tokenAddresses.length === 0) {
+      return []
+    }
+
+    const encodedTokenAddresses = encodeURIComponent(tokenAddresses.join(','))
+    const payload = await this.fetchDexJson(`/tokens/v1/solana/${encodedTokenAddresses}`, signal)
+    const pairs = extractPairs(payload)
+    return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
+  }
+
   private async fetchConfiguredTokenMints(tokenMints: string[], signal: AbortSignal): Promise<TokenFeedItem[]> {
     const settled = await Promise.allSettled(tokenMints.map((mint) => this.fetchTokenMint(mint, signal)))
     const combined = collectFulfilledItems(tokenMints, settled, (context, error) => {
@@ -222,41 +323,27 @@ export class DexScreenerFeedProvider implements FeedProvider {
   }
 
   private async fetchSearchQuery(query: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
-    const abortOnParent = () => controller.abort()
-    signal.addEventListener('abort', abortOnParent, { once: true })
-
-    try {
-      const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { accept: 'application/json' },
-      })
-
-      if (!response.ok) {
-        throw new Error(`DexScreener request failed with status ${response.status} for query ${query}`)
-      }
-
-      const payload = (await response.json()) as unknown
-      const pairs = extractPairs(payload)
-
-      return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
-    } finally {
-      clearTimeout(timeoutId)
-      signal.removeEventListener('abort', abortOnParent)
-    }
+    const payload = await this.fetchDexJson(`/latest/dex/search?q=${encodeURIComponent(query)}`, signal)
+    const pairs = extractPairs(payload)
+    return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
   }
 
   private async fetchTokenMint(mint: string, signal: AbortSignal): Promise<TokenFeedItem[]> {
+    const payload = await this.fetchDexJson(`/tokens/v1/solana/${encodeURIComponent(mint)}`, signal)
+    const pairs = extractPairs(payload)
+
+    return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
+  }
+
+  private async fetchDexJson(path: string, signal: AbortSignal): Promise<unknown> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
     const abortOnParent = () => controller.abort()
     signal.addEventListener('abort', abortOnParent, { once: true })
 
     try {
-      const url = `https://api.dexscreener.com/tokens/v1/solana/${encodeURIComponent(mint)}`
+      const pathWithSlash = path.startsWith('/') ? path : `/${path}`
+      const url = `https://api.dexscreener.com${pathWithSlash}`
       const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal,
@@ -264,13 +351,10 @@ export class DexScreenerFeedProvider implements FeedProvider {
       })
 
       if (!response.ok) {
-        throw new Error(`DexScreener request failed with status ${response.status} for mint ${mint}`)
+        throw new Error(`DexScreener request failed with status ${response.status} for ${pathWithSlash}`)
       }
 
-      const payload = (await response.json()) as unknown
-      const pairs = extractPairs(payload)
-
-      return pairs.map((pair) => normalizePair(pair)).filter((item): item is TokenFeedItem => item !== null)
+      return (await response.json()) as unknown
     } finally {
       clearTimeout(timeoutId)
       signal.removeEventListener('abort', abortOnParent)
@@ -327,6 +411,58 @@ function dedupeByPairAddress(items: TokenFeedItem[]): TokenFeedItem[] {
   }
 
   return Array.from(dedupedByPair.values())
+}
+
+function chunk<TValue>(items: TValue[], size: number): TValue[][] {
+  if (size <= 0 || items.length === 0) {
+    return []
+  }
+
+  const output: TValue[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    output.push(items.slice(index, index + size))
+  }
+
+  return output
+}
+
+function extractSolanaTokenAddresses(payload: unknown): string[] {
+  const output = new Set<string>()
+  const records = extractDiscoveryRecords(payload)
+
+  for (const record of records) {
+    const chainId = stringOrNull(record.chainId)?.toLowerCase()
+    if (chainId && chainId !== 'solana') {
+      continue
+    }
+
+    const tokenAddress = stringOrNull(record.tokenAddress) ?? stringOrNull(record.address)
+    if (tokenAddress) {
+      output.add(tokenAddress)
+    }
+  }
+
+  return Array.from(output)
+}
+
+function extractDiscoveryRecords(payload: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is Record<string, unknown> => isRecord(item))
+  }
+
+  if (isRecord(payload)) {
+    const candidates: unknown[] = []
+    if (Array.isArray(payload.items)) {
+      candidates.push(...payload.items)
+    }
+    if (Array.isArray(payload.data)) {
+      candidates.push(...payload.data)
+    }
+
+    return candidates.filter((item): item is Record<string, unknown> => isRecord(item))
+  }
+
+  return []
 }
 
 function collectFulfilledItems<TContext>(
@@ -410,6 +546,7 @@ function normalizePair(input: unknown): TokenFeedItem | null {
     sparkline: [],
     sparklineMeta: null,
     pairAddress: stringOrNull(input.pairAddress),
+    pairCreatedAtMs: pairCreatedAt,
     tags: {
       trust: initialTrustTags,
       discovery: labels,

@@ -14,10 +14,12 @@ interface FeedRouteDependencies {
 interface FeedQuerystring {
   cursor?: string
   category?: string
+  minLifetimeHours?: string | number
   limit?: string | number
 }
 
 const VALID_CATEGORIES: FeedCategory[] = ['trending', 'gainer', 'new', 'memecoin']
+const MAX_MIN_LIFETIME_HOURS = 24 * 365
 
 export async function registerFeedRoutes(app: FastifyInstance, dependencies: FeedRouteDependencies): Promise<void> {
   app.get<{ Querystring: FeedQuerystring }>('/v1/feed', async (request, reply) => {
@@ -25,11 +27,13 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
 
     try {
       const category = parseCategory(request.query.category)
+      const minLifetimeHours = parseMinLifetimeHours(request.query.minLifetimeHours)
       const limit = parseLimit(request.query.limit, dependencies.feedMaxLimit)
 
       const result = await dependencies.feedService.getPage({
         cursor: request.query.cursor,
         category,
+        minLifetimeHours,
         limit,
       })
 
@@ -50,6 +54,7 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
             result.eligibilityStats?.reasons.chart_quality_not_full ?? 0,
           limit: limit ?? dependencies.feedDefaultLimit,
           category: category ?? 'all',
+          minLifetimeHours: minLifetimeHours ?? null,
           durationMs: Date.now() - startedAt,
         },
         'Feed request completed',
@@ -116,6 +121,29 @@ function parseLimit(limit: string | number | undefined, maxLimit: number): numbe
 
   if (parsed < 1 || parsed > maxLimit) {
     throw new InvalidFeedRequestError(`limit must be between 1 and ${maxLimit}.`)
+  }
+
+  return parsed
+}
+
+function parseMinLifetimeHours(minLifetimeHours: string | number | undefined): number | undefined {
+  if (minLifetimeHours === undefined) {
+    return undefined
+  }
+
+  const parsed =
+    typeof minLifetimeHours === 'number'
+      ? minLifetimeHours
+      : typeof minLifetimeHours === 'string'
+        ? Number.parseInt(minLifetimeHours, 10)
+        : Number.NaN
+
+  if (!Number.isInteger(parsed)) {
+    throw new InvalidFeedRequestError('minLifetimeHours must be an integer.')
+  }
+
+  if (parsed < 0 || parsed > MAX_MIN_LIFETIME_HOURS) {
+    throw new InvalidFeedRequestError(`minLifetimeHours must be between 0 and ${MAX_MIN_LIFETIME_HOURS}.`)
   }
 
   return parsed

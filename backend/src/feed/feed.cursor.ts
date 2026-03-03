@@ -4,6 +4,7 @@ export interface FeedCursorPayload {
   snapshotId: string
   offset: number
   category: FeedCategory | null
+  minLifetimeHours: number | null
   limit: number
 }
 
@@ -60,6 +61,10 @@ function isFeedCursorPayload(input: unknown): input is FeedCursorPayload {
     typeof input.limit === 'number' &&
     Number.isInteger(input.limit) &&
     input.limit > 0 &&
+    (input.minLifetimeHours === null ||
+      (typeof input.minLifetimeHours === 'number' &&
+        Number.isInteger(input.minLifetimeHours) &&
+        input.minLifetimeHours >= 0)) &&
     isValidCategory
   )
 }

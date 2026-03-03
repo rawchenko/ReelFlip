@@ -879,6 +879,16 @@ export function TradingViewMiniChart({
   }, [isReady, normalizedCandles, normalizedPoints])
 
   useEffect(() => {
+    if (!isReady) {
+      return
+    }
+
+    if (normalizedCandles.length === 0 && normalizedPoints.length < 2) {
+      markUnavailable()
+    }
+  }, [isReady, markUnavailable, normalizedCandles.length, normalizedPoints.length])
+
+  useEffect(() => {
     if (!isReady || !normalizedLatestCandle) {
       return
     }

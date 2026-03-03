@@ -24,6 +24,7 @@ export class FeedUnavailableError extends Error {
 export interface FeedQueryInput {
   cursor?: string
   category?: FeedCategory
+  minLifetimeHours?: number
   limit?: number
 }
 
@@ -48,6 +49,7 @@ interface FeedServiceOptions {
   minChartCandles?: number
   requireFullChartHistory?: boolean
   enforceRenderableTokens?: boolean
+  requireLiveSourceForMinLifetime?: boolean
 }
 
 const CATEGORY_TO_DISCOVERY_LABEL: Record<FeedCategory, FeedLabel> = {
@@ -136,6 +138,7 @@ export class FeedService {
   private readonly minChartCandles: number
   private readonly requireFullChartHistory: boolean
   private readonly enforceRenderableTokens: boolean
+  private readonly requireLiveSourceForMinLifetime: boolean
 
   constructor(
     private readonly cache: FeedCache,
@@ -148,48 +151,61 @@ export class FeedService {
     this.minChartCandles = Math.max(0, options.minChartCandles ?? 120)
     this.requireFullChartHistory = options.requireFullChartHistory ?? true
     this.enforceRenderableTokens = options.enforceRenderableTokens ?? false
+    this.requireLiveSourceForMinLifetime = options.requireLiveSourceForMinLifetime ?? false
   }
 
   async getPage(query: FeedQueryInput): Promise<FeedPageResult> {
     const cursorPayload = this.parseCursor(query.cursor)
     const limit = this.resolveLimit(query.limit, cursorPayload)
     const category = this.resolveCategory(query.category, cursorPayload)
+    const minLifetimeHours = this.resolveMinLifetimeHours(query.minLifetimeHours, cursorPayload)
+    const requiresLiveSource =
+      this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0
     if (cursorPayload) {
       const snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
       if (!snapshot) {
         throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
       }
 
-      return this.paginateSnapshot(snapshot, cursorPayload, category, limit, 'HIT')
+      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, 'HIT')
     }
 
     const lookup = await this.cache.readSnapshot()
     const staleSnapshot = this.resolveStaleSnapshot(lookup)
     const freshSnapshot =
       lookup.state === 'fresh' && lookup.entry && this.canUseSnapshot(lookup.entry.snapshot) ? lookup.entry.snapshot : null
+    const staleProviderSnapshot = staleSnapshot?.source === 'providers' ? staleSnapshot : null
 
-    if (freshSnapshot) {
-      return this.paginateSnapshot(freshSnapshot, null, category, limit, 'HIT')
+    if (freshSnapshot && (!requiresLiveSource || freshSnapshot.source === 'providers')) {
+      return this.paginateSnapshot(freshSnapshot, null, category, minLifetimeHours, limit, 'HIT')
     }
 
     try {
       const providerResult = await this.provider.fetchFeed(new AbortController().signal)
 
       if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
-        if (staleSnapshot) {
-          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+        if (staleProviderSnapshot) {
+          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
         }
         throw new FeedUnavailableError()
       }
 
+      if (requiresLiveSource && providerResult.usedSeedFallback) {
+        if (staleProviderSnapshot) {
+          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
+        }
+
+        throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
+      }
+
       if (providerResult.usedSeedFallback && staleSnapshot) {
-        return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+        return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
       }
 
       const eligibilityResult = this.filterRenderableItems(providerResult.items)
       if (this.enforceRenderableTokens && eligibilityResult.items.length === 0) {
         if (staleSnapshot) {
-          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+          return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
         }
         throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
       }
@@ -203,7 +219,7 @@ export class FeedService {
       }
       await this.cache.writeSnapshot(snapshot)
 
-      const page = this.paginateSnapshot(snapshot, null, category, limit, 'MISS')
+      const page = this.paginateSnapshot(snapshot, null, category, minLifetimeHours, limit, 'MISS')
       return {
         ...page,
         eligibilityStats: eligibilityResult.stats,
@@ -214,8 +230,12 @@ export class FeedService {
       }
 
       if (error instanceof FeedProviderUnavailableError) {
-        if (staleSnapshot) {
-          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+        if (requiresLiveSource && staleProviderSnapshot) {
+          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
+        }
+
+        if (!requiresLiveSource && staleSnapshot) {
+          return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
         }
         throw new FeedUnavailableError()
       }
@@ -240,10 +260,20 @@ export class FeedService {
     snapshot: FeedSnapshot,
     cursorPayload: FeedCursorPayload | null,
     category: FeedCategory | null,
+    minLifetimeHours: number | null,
     limit: number,
     cacheStatus: FeedPageResult['cacheStatus'],
   ): FeedPageResult {
-    const filtered = category ? snapshot.items.filter((item) => this.matchesCategory(item, category)) : snapshot.items
+    const generatedAtMs = Date.parse(snapshot.generatedAt)
+    const referenceTimeMs = Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now()
+    const filtered = snapshot.items.filter((item) => {
+      const categoryMatches = category ? this.matchesCategory(item, category) : true
+      if (!categoryMatches) {
+        return false
+      }
+
+      return this.matchesMinimumLifetime(item, minLifetimeHours, referenceTimeMs)
+    })
     const offset = cursorPayload?.offset ?? 0
 
     if (offset > filtered.length) {
@@ -258,6 +288,7 @@ export class FeedService {
             snapshotId: snapshot.id,
             offset: pageEnd,
             category,
+            minLifetimeHours,
             limit,
           })
         : null
@@ -278,6 +309,24 @@ export class FeedService {
 
     const label = CATEGORY_TO_DISCOVERY_LABEL[category]
     return item.labels?.includes(label) ?? false
+  }
+
+  private matchesMinimumLifetime(item: TokenFeedItem, minLifetimeHours: number | null, referenceTimeMs: number): boolean {
+    if (minLifetimeHours === null || minLifetimeHours <= 0) {
+      return true
+    }
+
+    const pairCreatedAtMs = item.pairCreatedAtMs
+    if (typeof pairCreatedAtMs !== 'number' || !Number.isFinite(pairCreatedAtMs) || pairCreatedAtMs <= 0) {
+      return false
+    }
+
+    const ageMs = referenceTimeMs - pairCreatedAtMs
+    if (ageMs < 0) {
+      return false
+    }
+
+    return ageMs >= minLifetimeHours * 60 * 60 * 1000
   }
 
   private filterRenderableItems(items: TokenFeedItem[]): {
@@ -375,5 +424,24 @@ export class FeedService {
     }
 
     return cursorPayload.category
+  }
+
+  private resolveMinLifetimeHours(
+    minLifetimeHours: number | undefined,
+    cursorPayload: FeedCursorPayload | null,
+  ): number | null {
+    if (!cursorPayload) {
+      return minLifetimeHours ?? null
+    }
+
+    if (minLifetimeHours === undefined) {
+      return cursorPayload.minLifetimeHours
+    }
+
+    if ((minLifetimeHours ?? null) !== cursorPayload.minLifetimeHours) {
+      throw new InvalidFeedRequestError('Cursor and minLifetimeHours must match.')
+    }
+
+    return cursorPayload.minLifetimeHours
   }
 }

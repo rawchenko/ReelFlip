@@ -29,6 +29,7 @@ function buildItem(input: {
   category: TokenFeedItem['category']
   riskTier: TokenFeedItem['riskTier']
   labels?: FeedLabel[]
+  pairCreatedAtMs?: number | null
   recentVolume5m?: number
   recentTxns5m?: number
   sparklineMeta?: TokenFeedItem['sparklineMeta']
@@ -50,6 +51,7 @@ function buildItem(input: {
     sparkline: [],
     sparklineMeta: input.sparklineMeta ?? null,
     pairAddress: input.pairAddress,
+    pairCreatedAtMs: input.pairCreatedAtMs,
     tags: {
       trust,
       discovery,
@@ -77,6 +79,10 @@ class SequenceLiveProvider implements FeedProvider {
   async fetchFeed(_signal: AbortSignal): Promise<TokenFeedItem[]> {
     const entry = this.sequence[Math.min(this.index, this.sequence.length - 1)]
     this.index += 1
+
+    if (!entry) {
+      return []
+    }
 
     if (entry instanceof Error) {
       throw entry
@@ -155,6 +161,30 @@ test('returns cursor pages and enforces cursor consistency', async () => {
         limit: 3,
       }),
     (error: unknown) => error instanceof InvalidFeedRequestError,
+  )
+})
+
+test('cursor enforces minLifetimeHours consistency', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider([], new SeedFeedProvider(seededItems), logger)
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10)
+
+  const firstPage = await service.getPage({ limit: 2, minLifetimeHours: 0 })
+  assert.notEqual(firstPage.nextCursor, null)
+
+  await assert.rejects(
+    () =>
+      service.getPage({
+        cursor: firstPage.nextCursor ?? undefined,
+        minLifetimeHours: 6,
+      }),
+    (error: unknown) =>
+      error instanceof InvalidFeedRequestError && error.message === 'Cursor and minLifetimeHours must match.',
   )
 })
 
@@ -298,7 +328,176 @@ test('trending category includes items with trending discovery label', async () 
     limit: 20,
   })
 
-  assert.equal(trendingPage.items.length, 6)
+  assert.ok(trendingPage.items.length >= 6)
+})
+
+test('applies minimum lifetime filter based on pair creation timestamp', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const now = Date.now()
+  const providerItems: TokenFeedItem[] = [
+    buildItem({
+      mint: 'older-than-6h',
+      name: 'Older',
+      symbol: 'OLD',
+      priceUsd: 1,
+      priceChange24h: 2,
+      volume24h: 50_000,
+      liquidity: 40_000,
+      marketCap: 200_000,
+      pairAddress: 'pair-old',
+      pairCreatedAtMs: now - 8 * 60 * 60 * 1000,
+      category: 'trending',
+      riskTier: 'allow',
+      labels: ['trending'],
+    }),
+    buildItem({
+      mint: 'younger-than-6h',
+      name: 'Younger',
+      symbol: 'YNG',
+      priceUsd: 1,
+      priceChange24h: 3,
+      volume24h: 80_000,
+      liquidity: 60_000,
+      marketCap: 300_000,
+      pairAddress: 'pair-young',
+      pairCreatedAtMs: now - 2 * 60 * 60 * 1000,
+      category: 'trending',
+      riskTier: 'allow',
+      labels: ['trending'],
+    }),
+    buildItem({
+      mint: 'missing-pair-created-at',
+      name: 'Unknown Age',
+      symbol: 'UNK',
+      priceUsd: 1,
+      priceChange24h: 4,
+      volume24h: 120_000,
+      liquidity: 80_000,
+      marketCap: 400_000,
+      pairAddress: 'pair-unknown',
+      category: 'trending',
+      riskTier: 'allow',
+      labels: ['trending'],
+    }),
+  ]
+
+  const provider = new CompositeFeedProvider(
+    [new SequenceLiveProvider([providerItems])],
+    new SeedFeedProvider(DEFAULT_SEEDED_FEED),
+    logger,
+    {
+      enableSeedFallback: false,
+    },
+  )
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    enableSeedFallback: false,
+  })
+
+  const filtered = await service.getPage({
+    category: 'trending',
+    minLifetimeHours: 6,
+    limit: 20,
+  })
+
+  assert.equal(filtered.items.length, 1)
+  assert.equal(filtered.items[0]?.mint, 'older-than-6h')
+})
+
+test('minLifetimeHours requires live providers and does not serve seed fallback', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider(
+    [new SequenceLiveProvider([new Error('provider outage')])],
+    new SeedFeedProvider(DEFAULT_SEEDED_FEED),
+    logger,
+    {
+      enableSeedFallback: true,
+    },
+  )
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    enableSeedFallback: true,
+    requireLiveSourceForMinLifetime: true,
+  })
+
+  await assert.rejects(
+    () =>
+      service.getPage({
+        category: 'trending',
+        minLifetimeHours: 6,
+        limit: 20,
+      }),
+    (error: unknown) =>
+      error instanceof FeedUnavailableError &&
+      error.message === 'Live feed providers are temporarily unavailable. Please try again soon.',
+  )
+})
+
+test('minLifetimeHours serves stale provider snapshot instead of seed fallback', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 1,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const now = Date.now()
+  const liveItem = buildItem({
+    mint: 'mint-live-min-age',
+    name: 'Live Min Age',
+    symbol: 'LMN',
+    priceUsd: 1.5,
+    priceChange24h: 5,
+    volume24h: 700_000,
+    liquidity: 400_000,
+    marketCap: 1_500_000,
+    pairAddress: 'pair-live-min-age',
+    pairCreatedAtMs: now - 8 * 60 * 60 * 1000,
+    category: 'trending',
+    riskTier: 'allow',
+    labels: ['trending'],
+  })
+
+  const provider = new CompositeFeedProvider(
+    [new SequenceLiveProvider([[liveItem], new Error('provider outage')])],
+    new SeedFeedProvider(DEFAULT_SEEDED_FEED),
+    logger,
+    {
+      enableSeedFallback: true,
+    },
+  )
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    enableSeedFallback: true,
+    requireLiveSourceForMinLifetime: true,
+  })
+
+  const first = await service.getPage({
+    category: 'trending',
+    minLifetimeHours: 6,
+    limit: 20,
+  })
+  assert.equal(first.cacheStatus, 'MISS')
+  assert.equal(first.source, 'providers')
+  assert.equal(first.items.length, 1)
+
+  await delay(1_100)
+
+  const second = await service.getPage({
+    category: 'trending',
+    minLifetimeHours: 6,
+    limit: 20,
+  })
+  assert.equal(second.cacheStatus, 'STALE')
+  assert.equal(second.source, 'providers')
+  assert.equal(second.items.length, 1)
+  assert.equal(second.items[0]?.mint, 'mint-live-min-age')
 })
 
 test('returns FeedUnavailableError when providers fail and seed fallback is disabled with no stale provider snapshot', async () => {

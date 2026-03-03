@@ -7,6 +7,7 @@ test('encodes and decodes cursor payload', () => {
     snapshotId: 'snapshot-1',
     offset: 20,
     category: 'trending',
+    minLifetimeHours: 6,
     limit: 10,
   })
 
@@ -15,6 +16,7 @@ test('encodes and decodes cursor payload', () => {
     snapshotId: 'snapshot-1',
     offset: 20,
     category: 'trending',
+    minLifetimeHours: 6,
     limit: 10,
   })
 })

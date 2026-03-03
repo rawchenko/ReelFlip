@@ -60,6 +60,7 @@ Purpose: paginated token feed with ranking and optional category filter.
 Query params:
 
 - `category` (optional): `trending | gainer | new | memecoin`
+- `minLifetimeHours` (optional): integer in `[0, 8760]`. When set, only pairs with known creation time and age >= this threshold are returned.
 - `limit` (optional): integer in `[1, FEED_MAX_LIMIT]` (default from `FEED_DEFAULT_LIMIT`; current default is `10`)
 - `cursor` (optional): opaque cursor from previous page
 
@@ -129,6 +130,7 @@ Response `200`:
 - `sparklineMeta`: `{ window: "6h"; interval: "1m" | "5m"; source: string; points: number; generatedAt: string } | null`
   - Feed cards should treat this as a 6h, card-optimized sparkline series (currently emitted as real `5m` points when available).
 - `pairAddress`: `string | null`
+- `pairCreatedAtMs`: `number | null` (Unix epoch milliseconds; may be omitted when unavailable)
 - `tags`: `{ trust: string[]; discovery: ("trending" | "gainer" | "new" | "meme")[] }`
 - `labels`: `("trending" | "gainer" | "new" | "meme")[]` (backward-compat alias of `tags.discovery`)
 - `sources`: `{ price: "birdeye" | "dexscreener" | "seed"; marketCap: "birdeye" | "dexscreener_market_cap" | "dexscreener_fdv" | "seed" | "unavailable"; metadata: "helius" | "dexscreener" | "seed"; tags: string[] }`
@@ -149,9 +151,12 @@ Current `400` messages emitted by backend:
 - `Invalid category. Expected one of: trending, gainer, new, memecoin`
 - `limit must be an integer.`
 - `limit must be between 1 and <max>.`
+- `minLifetimeHours must be an integer.`
+- `minLifetimeHours must be between 0 and 8760.`
 - `Cursor is invalid.`
 - `Cursor and limit must match.`
 - `Cursor and category must match.`
+- `Cursor and minLifetimeHours must match.`
 - `Cursor snapshot is no longer valid. Start from the first page.`
 - `Cursor offset is out of range.`
 

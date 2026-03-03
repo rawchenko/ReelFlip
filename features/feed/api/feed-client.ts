@@ -12,6 +12,7 @@ export interface FeedResponse extends FeedCursorMetadata {
 
 export interface FeedRequestParams {
   category?: FeedCategory
+  minLifetimeHours?: number
   cursor?: string
   limit?: number
   signal?: AbortSignal
@@ -46,6 +47,10 @@ export async function fetchFeed(params: FeedRequestParams): Promise<FeedResponse
 
   if (params.category) {
     searchParams.set('category', params.category)
+  }
+
+  if (typeof params.minLifetimeHours === 'number') {
+    searchParams.set('minLifetimeHours', String(params.minLifetimeHours))
   }
 
   if (params.cursor) {

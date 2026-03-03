@@ -32,6 +32,7 @@ const FEED_TABS: FeedTabConfig[] = [
   { key: 'watchlist', label: 'Watchlist' },
 ]
 const FEED_PAGE_LIMIT = 20
+const TRENDING_MIN_LIFETIME_HOURS = 6
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync().catch(() => {})
@@ -54,13 +55,19 @@ export default function FeedScreen() {
   const isWatchlistTab = uiTab === 'watchlist'
   const infiniteFeedEnabled = process.env.EXPO_PUBLIC_FEED_INFINITE_SCROLL !== 'false'
   const queryCategory = useMemo(() => mapUiTabToCategory(uiTab), [uiTab])
+  const queryMinLifetimeHours = useMemo(
+    () => (uiTab === 'trending' ? TRENDING_MIN_LIFETIME_HOURS : undefined),
+    [uiTab],
+  )
   const infiniteQuery = useInfiniteFeedQuery({
     category: queryCategory,
+    minLifetimeHours: queryMinLifetimeHours,
     enabled: !isWatchlistTab && infiniteFeedEnabled,
     limit: FEED_PAGE_LIMIT,
   })
   const singleQuery = useFeedQuery({
     category: queryCategory,
+    minLifetimeHours: queryMinLifetimeHours,
     enabled: !isWatchlistTab && !infiniteFeedEnabled,
     limit: FEED_PAGE_LIMIT,
   })
@@ -71,10 +78,11 @@ export default function FeedScreen() {
       if (infiniteFeedEnabled) {
         const firstPage = await fetchFeed({
           category: queryCategory,
+          minLifetimeHours: queryMinLifetimeHours,
           limit: FEED_PAGE_LIMIT,
         })
         queryClient.setQueryData<InfiniteData<FeedResponse>>(
-          getFeedInfiniteQueryKey(queryCategory, FEED_PAGE_LIMIT),
+          getFeedInfiniteQueryKey(queryCategory, queryMinLifetimeHours, FEED_PAGE_LIMIT),
           (current) => {
             if (!current || current.pages.length === 0) {
               return {
@@ -95,7 +103,7 @@ export default function FeedScreen() {
     } finally {
       setIsManualRefreshing(false)
     }
-  }, [infiniteFeedEnabled, queryCategory, queryClient, singleQuery])
+  }, [infiniteFeedEnabled, queryCategory, queryClient, queryMinLifetimeHours, singleQuery])
 
   const openSheet = useCallback((type: FeedPlaceholderSheetType, item: TokenFeedItem) => {
     setActiveSheet({ type, item })
