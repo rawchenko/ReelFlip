@@ -15,6 +15,7 @@ import {
   HeliusMetadataClient,
   JupiterTrustTagsClient,
 } from './feed/feed.enrichment.js'
+import { registerImageProxyRoute } from './feed/image-proxy.route.js'
 import { registerFeedRoutes } from './feed/feed.route.js'
 import { CompositeFeedProvider, DexScreenerFeedProvider, SeedFeedProvider } from './feed/feed.provider.js'
 import { DEFAULT_SEEDED_FEED } from './feed/feed.seed.js'
@@ -162,6 +163,7 @@ await registerFeedRoutes(app, {
     chartHistoryService.warmupPairs(pairAddresses)
   },
 })
+await registerImageProxyRoute(app)
 
 await registerChartRoutes(app, {
   chartRegistry,

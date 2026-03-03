@@ -9,7 +9,7 @@ import { FeedCardAction, FeedCategory, FeedLabel, FeedTradeSide, TokenFeedItem }
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 
 interface TokenCardProps {
   item: TokenFeedItem
@@ -27,6 +27,8 @@ const RUNTIME_ONLY_MIN_1M_CANDLES = 120
 const REALTIME_MAX_STALENESS_SECONDS = 15 * 60
 const REALTIME_MIN_UNIQUE_CLOSES = 3
 const REALTIME_MIN_RELATIVE_RANGE = 0.0001
+const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
+const DEFAULT_IOS_API_URL = 'http://127.0.0.1:3001'
 
 const LABEL_PRIORITY: FeedLabel[] = ['trending', 'meme', 'gainer', 'new']
 
@@ -233,6 +235,54 @@ function formatPriceStable(value?: number): string {
   return `$${trimTrailingZeros(value.toFixed(4))}`
 }
 
+function normalizeTokenImageUri(input?: string | null): string | null {
+  if (typeof input !== 'string') {
+    return null
+  }
+
+  const trimmed = input.trim()
+  if (trimmed.length === 0) {
+    return null
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+
+  if (/^ipfs:\/\//i.test(trimmed)) {
+    const rawPath = trimmed.replace(/^ipfs:\/\//i, '').replace(/^ipfs\//i, '').replace(/^\/+/, '')
+    return rawPath.length > 0 ? `https://ipfs.io/ipfs/${rawPath}` : null
+  }
+
+  if (/^ar:\/\//i.test(trimmed)) {
+    const rawPath = trimmed.replace(/^ar:\/\//i, '').replace(/^\/+/, '')
+    return rawPath.length > 0 ? `https://arweave.net/${rawPath}` : null
+  }
+
+  return null
+}
+
+function resolveImageApiBaseUrl(): string {
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL
+  const baseUrl = configured && configured.length > 0 ? configured : Platform.OS === 'android' ? DEFAULT_ANDROID_API_URL : DEFAULT_IOS_API_URL
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+}
+
+function buildTokenImageCandidates(uri: string | null, apiBaseUrl: string): string[] {
+  if (!uri) {
+    return []
+  }
+
+  const candidates = [`${apiBaseUrl}/v1/image/proxy?url=${encodeURIComponent(uri)}`, uri]
+
+  if (/\.webp($|\?)/i.test(uri)) {
+    const webpProxyJpeg = `https://images.weserv.nl/?url=${encodeURIComponent(uri)}&output=jpg`
+    candidates.push(webpProxyJpeg)
+  }
+
+  return Array.from(new Set(candidates))
+}
+
 function triggerHaptic(kind: 'selection' | 'impactLight' = 'selection') {
   const promise = kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   void promise.catch(() => { })
@@ -318,6 +368,7 @@ export function TokenCard({
   const isUp24h = item.priceChange24h >= 0
   const lastChartModeLogRef = useRef<string>('')
   const [tradingViewUnavailable, setTradingViewUnavailable] = useState(false)
+  const [avatarImageAttemptIndex, setAvatarImageAttemptIndex] = useState(0)
   const [realtimeEligibilityTick, setRealtimeEligibilityTick] = useState(0)
 
   const hasChartPoints = Array.isArray(item.sparkline) && item.sparkline.length >= 4
@@ -373,10 +424,22 @@ export function TokenCard({
   const streamBadgeState = realtimeCandlesEligible
     ? (pairChartState?.status ?? 'reconnecting')
     : null
+  const imageApiBaseUrl = useMemo(() => resolveImageApiBaseUrl(), [])
+  const normalizedImageUri = useMemo(() => normalizeTokenImageUri(item.imageUri), [item.imageUri])
+  const avatarImageCandidates = useMemo(
+    () => buildTokenImageCandidates(normalizedImageUri, imageApiBaseUrl),
+    [imageApiBaseUrl, normalizedImageUri],
+  )
+  const activeAvatarImageUri = avatarImageCandidates[avatarImageAttemptIndex] ?? null
+  const showAvatarImage = Boolean(activeAvatarImageUri)
 
   useEffect(() => {
     setTradingViewUnavailable(false)
   }, [item.mint, item.pairAddress])
+
+  useEffect(() => {
+    setAvatarImageAttemptIndex(0)
+  }, [item.mint, normalizedImageUri])
 
   useEffect(() => {
     if (!useRealtimeWebChart) {
@@ -483,6 +546,30 @@ export function TokenCard({
     onTradePress?.(side, item)
   }
 
+  const handleAvatarImageLoad = () => {
+    if (__DEV__) {
+      console.debug('[feed-card] avatar_loaded', {
+        symbol: item.symbol,
+        mint: item.mint,
+        uri: activeAvatarImageUri,
+      })
+    }
+  }
+
+  const handleAvatarImageError = () => {
+    if (__DEV__) {
+      console.debug('[feed-card] avatar_error', {
+        symbol: item.symbol,
+        mint: item.mint,
+        uri: activeAvatarImageUri,
+        attempt: avatarImageAttemptIndex,
+        candidateCount: avatarImageCandidates.length,
+      })
+    }
+
+    setAvatarImageAttemptIndex((index) => index + 1)
+  }
+
   const renderMiniFallback = () => (
     <MiniChart
       points={item.sparkline}
@@ -534,11 +621,13 @@ export function TokenCard({
           },
         ]}
       >
-        {item.imageUri ? (
+        {showAvatarImage ? (
           <Image
-            source={{ uri: item.imageUri }}
+            source={{ uri: activeAvatarImageUri }}
             style={styles.avatarImage}
             resizeMode="cover"
+            onLoad={handleAvatarImageLoad}
+            onError={handleAvatarImageError}
           />
         ) : (
           <Text style={styles.avatarFallbackText}>
