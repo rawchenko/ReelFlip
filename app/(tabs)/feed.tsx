@@ -1,7 +1,8 @@
 import { appStyles } from '@/constants/app-styles'
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
-import { useFeedQuery } from '@/features/feed/api/use-feed-query'
+import { FeedResponse, fetchFeed } from '@/features/feed/api/feed-client'
+import { getFeedInfiniteQueryKey, useFeedQuery, useInfiniteFeedQuery } from '@/features/feed/api/use-feed-query'
 import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import {
   FeedPlaceholderSheet,
@@ -10,13 +11,13 @@ import {
 } from '@/features/feed/feed-placeholder-sheet'
 import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { FeedCategory, FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
+import { InfiniteData, useQueryClient } from '@tanstack/react-query'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import React, { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Button, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-
 
 type FeedUiTab = 'for_you' | 'trending' | 'watchlist'
 
@@ -30,9 +31,10 @@ const FEED_TABS: FeedTabConfig[] = [
   { key: 'trending', label: 'Trending' },
   { key: 'watchlist', label: 'Watchlist' },
 ]
+const FEED_PAGE_LIMIT = 20
 
 function triggerSelectionHaptic() {
-  void Haptics.selectionAsync().catch(() => { })
+  void Haptics.selectionAsync().catch(() => {})
 }
 
 function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
@@ -44,26 +46,56 @@ function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
 }
 
 export default function FeedScreen() {
+  const queryClient = useQueryClient()
   const [uiTab, setUiTab] = useState<FeedUiTab>('for_you')
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [activeSheet, setActiveSheet] = useState<FeedPlaceholderSheetPayload | null>(null)
 
   const isWatchlistTab = uiTab === 'watchlist'
+  const infiniteFeedEnabled = process.env.EXPO_PUBLIC_FEED_INFINITE_SCROLL !== 'false'
   const queryCategory = useMemo(() => mapUiTabToCategory(uiTab), [uiTab])
-  const { data, isLoading, isError, refetch, error } = useFeedQuery({
+  const infiniteQuery = useInfiniteFeedQuery({
     category: queryCategory,
-    enabled: !isWatchlistTab,
-    limit: 20,
+    enabled: !isWatchlistTab && infiniteFeedEnabled,
+    limit: FEED_PAGE_LIMIT,
+  })
+  const singleQuery = useFeedQuery({
+    category: queryCategory,
+    enabled: !isWatchlistTab && !infiniteFeedEnabled,
+    limit: FEED_PAGE_LIMIT,
   })
 
   const handleRefresh = useCallback(async () => {
     setIsManualRefreshing(true)
     try {
-      await refetch()
+      if (infiniteFeedEnabled) {
+        const firstPage = await fetchFeed({
+          category: queryCategory,
+          limit: FEED_PAGE_LIMIT,
+        })
+        queryClient.setQueryData<InfiniteData<FeedResponse>>(
+          getFeedInfiniteQueryKey(queryCategory, FEED_PAGE_LIMIT),
+          (current) => {
+            if (!current || current.pages.length === 0) {
+              return {
+                pages: [firstPage],
+                pageParams: [undefined],
+              }
+            }
+
+            return {
+              ...current,
+              pages: [firstPage, ...current.pages.slice(1)],
+            }
+          },
+        )
+      } else {
+        await singleQuery.refetch()
+      }
     } finally {
       setIsManualRefreshing(false)
     }
-  }, [refetch])
+  }, [infiniteFeedEnabled, queryCategory, queryClient, singleQuery])
 
   const openSheet = useCallback((type: FeedPlaceholderSheetType, item: TokenFeedItem) => {
     setActiveSheet({ type, item })
@@ -81,6 +113,14 @@ export default function FeedScreen() {
     triggerSelectionHaptic()
   }, [])
 
+  const handleLoadMore = useCallback(() => {
+    if (!infiniteFeedEnabled || !infiniteQuery.hasNextPage || infiniteQuery.isFetchingNextPage) {
+      return
+    }
+
+    void infiniteQuery.fetchNextPage()
+  }, [infiniteFeedEnabled, infiniteQuery])
+
   const handleTabPress = useCallback((nextTab: FeedUiTab) => {
     setUiTab((current) => {
       if (current !== nextTab) {
@@ -90,8 +130,12 @@ export default function FeedScreen() {
     })
   }, [])
 
-  const showLoadingState = !isWatchlistTab && isLoading && !data
-  const showErrorState = !isWatchlistTab && isError && !data
+  const items = infiniteFeedEnabled ? infiniteQuery.items : singleQuery.data?.items ?? []
+  const isLoading = infiniteFeedEnabled ? infiniteQuery.isLoading : singleQuery.isLoading
+  const isError = infiniteFeedEnabled ? infiniteQuery.isError : singleQuery.isError
+  const error = infiniteFeedEnabled ? infiniteQuery.error : singleQuery.error
+  const showLoadingState = !isWatchlistTab && isLoading && items.length === 0
+  const showErrorState = !isWatchlistTab && isError && items.length === 0
 
   return (
     <View style={styles.screenRoot}>
@@ -112,15 +156,21 @@ export default function FeedScreen() {
           <View style={appStyles.feedEmptyState}>
             <Text style={appStyles.feedEmptyTitle}>Feed unavailable</Text>
             <Text style={appStyles.feedEmptyText}>{error instanceof Error ? error.message : 'Failed to load feed'}</Text>
-            <Button title="Retry" onPress={() => void refetch()} />
+            <Button
+              title="Retry"
+              onPress={() => void (infiniteFeedEnabled ? infiniteQuery.refetch() : singleQuery.refetch())}
+            />
           </View>
         ) : (
           <VerticalFeed
             key={uiTab}
-            items={data?.items ?? []}
+            items={items}
             topInset={0}
             refreshing={isManualRefreshing}
             onRefresh={() => void handleRefresh()}
+            onEndReached={infiniteFeedEnabled ? handleLoadMore : undefined}
+            hasNextPage={infiniteFeedEnabled ? Boolean(infiniteQuery.hasNextPage) : undefined}
+            isFetchingNextPage={infiniteFeedEnabled ? infiniteQuery.isFetchingNextPage : undefined}
             onActionPress={handleActionPress}
             onTradePress={handleTradePress}
           />

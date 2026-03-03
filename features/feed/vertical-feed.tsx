@@ -4,13 +4,16 @@ import { useFeedChartRealtime } from '@/features/feed/chart/use-feed-chart-realt
 import { TokenCard } from '@/features/feed/token-card'
 import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { FlatList, Text, View, ViewToken, useWindowDimensions } from 'react-native'
+import { ActivityIndicator, FlatList, StyleSheet, Text, View, ViewToken, useWindowDimensions } from 'react-native'
 
 interface VerticalFeedProps {
   items: TokenFeedItem[]
   topInset?: number
   refreshing?: boolean
   onRefresh?: () => void
+  onEndReached?: () => void
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
   onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
 }
@@ -20,6 +23,9 @@ export function VerticalFeed({
   topInset = 96,
   refreshing = false,
   onRefresh,
+  onEndReached,
+  hasNextPage = false,
+  isFetchingNextPage = false,
   onActionPress,
   onTradePress,
 }: VerticalFeedProps) {
@@ -56,6 +62,14 @@ export function VerticalFeed({
     },
     [listHeight],
   )
+  const handleEndReached = useCallback(() => {
+    if (!onEndReached || !hasNextPage || isFetchingNextPage) {
+      return
+    }
+
+    onEndReached()
+  }, [hasNextPage, isFetchingNextPage, onEndReached])
+  const showPaginationFooter = Boolean(onEndReached)
 
   if (items.length === 0) {
     return (
@@ -81,9 +95,30 @@ export function VerticalFeed({
       showsVerticalScrollIndicator={false}
       refreshing={refreshing}
       onRefresh={onRefresh}
+      onEndReached={handleEndReached}
+      onEndReachedThreshold={0.6}
       onViewableItemsChanged={onViewableItemsChanged.current}
       viewabilityConfig={viewabilityConfig.current}
       getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
+      ListFooterComponent={
+        showPaginationFooter
+          ? hasNextPage
+            ? (
+                <View style={styles.footerContainer}>
+                  {isFetchingNextPage ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.footerText}>Loading more...</Text>
+                  )}
+                </View>
+              )
+            : (
+                <View style={styles.footerContainer}>
+                  <Text style={styles.footerText}>You are all caught up</Text>
+                </View>
+              )
+          : null
+      }
       renderItem={({ item, index }) => (
         <View style={[appStyles.feedPage, { height: pageHeight }]}>
           <TokenCard
@@ -99,3 +134,18 @@ export function VerticalFeed({
     />
   )
 }
+
+const styles = StyleSheet.create({
+  footerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 72,
+    paddingBottom: 24,
+    paddingTop: 16,
+  },
+  footerText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+})

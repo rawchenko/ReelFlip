@@ -1,4 +1,4 @@
-import type { ChartBatchHistoryResponse, ChartInterval } from '../chart/chart.types.js'
+import type { ChartBatchHistoryResponse, ChartHistoryQuality, ChartInterval } from '../chart/chart.types.js'
 import type { FeedLabel, TokenFeedItem, TokenFeedSparklineMeta } from './feed.provider.js'
 
 interface Logger {
@@ -181,19 +181,22 @@ export class FeedEnrichmentService implements FeedEnricher {
             FEED_SPARKLINE_BUCKET_SECONDS,
             this.options.sparklinePoints,
           )
-          if (sparkline.length === 0) {
-            continue
-          }
-
           const meta: TokenFeedSparklineMeta = {
             window: '6h',
             interval: '5m',
             source: result.source,
             points: sparkline.length,
             generatedAt: batch.generatedAt,
+            historyQuality: result.historyQuality,
+            candleCount1m: result.candles.length,
           }
 
-          output.set(result.pairAddress, { sparkline, meta })
+          output.set(result.pairAddress, {
+            sparkline,
+            meta,
+            historyQuality: result.historyQuality,
+            candleCount1m: result.candles.length,
+          })
         }
       } catch (error) {
         this.logger.warn({ error, pairCount: chunk.length }, 'Sparkline batch enrichment failed')
@@ -465,6 +468,8 @@ export class JupiterTrustTagsClient implements TokenTrustTagsClient {
 interface SparklinePayload {
   sparkline: number[]
   meta: TokenFeedSparklineMeta
+  historyQuality: ChartHistoryQuality
+  candleCount1m: number
 }
 
 const FEED_SPARKLINE_BUCKET_SECONDS = 5 * 60

@@ -181,6 +181,8 @@ test('enrichment uses source precedence and builds two-tier tags', async () => {
     source: 'historical_provider',
     points: 3,
     generatedAt: '2026-03-02T12:00:00.000Z',
+    historyQuality: 'real_backfill',
+    candleCount1m: 3,
   })
 })
 

@@ -1,3 +1,4 @@
+import type { ChartHistoryQuality } from '../chart/chart.types.js'
 import type { FeedEnricher } from './feed.enrichment.js'
 
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
@@ -15,6 +16,8 @@ export interface TokenFeedSparklineMeta {
   source: string
   points: number
   generatedAt: string
+  historyQuality?: ChartHistoryQuality
+  candleCount1m?: number
 }
 
 export interface TokenFeedSources {
@@ -59,6 +62,17 @@ export interface FeedFetchResult {
   usedSeedFallback: boolean
 }
 
+export class FeedProviderUnavailableError extends Error {
+  constructor(message = 'All live feed providers are unavailable') {
+    super(message)
+    this.name = 'FeedProviderUnavailableError'
+  }
+}
+
+interface CompositeFeedProviderOptions {
+  enableSeedFallback?: boolean
+}
+
 interface Logger {
   warn: (obj: unknown, msg?: string) => void
   info?: (obj: unknown, msg?: string) => void
@@ -75,11 +89,16 @@ export class SeedFeedProvider implements FeedProvider {
 }
 
 export class CompositeFeedProvider {
+  private readonly enableSeedFallback: boolean
+
   constructor(
     private readonly liveProviders: FeedProvider[],
     private readonly seededProvider: FeedProvider,
     private readonly logger: Logger,
-  ) {}
+    options: CompositeFeedProviderOptions = {},
+  ) {
+    this.enableSeedFallback = options.enableSeedFallback ?? true
+  }
 
   async fetchFeed(signal: AbortSignal): Promise<FeedFetchResult> {
     for (const provider of this.liveProviders) {
@@ -91,6 +110,10 @@ export class CompositeFeedProvider {
       } catch (error) {
         this.logger.warn({ error, provider: provider.name }, 'Live provider failed')
       }
+    }
+
+    if (!this.enableSeedFallback) {
+      throw new FeedProviderUnavailableError()
     }
 
     const seededItems = await this.seededProvider.fetchFeed(signal)
@@ -119,10 +142,40 @@ export class DexScreenerFeedProvider implements FeedProvider {
 
   async fetchFeed(signal: AbortSignal): Promise<TokenFeedItem[]> {
     const tokenMints = parseDexTokenMints(this.options.tokenMints)
-    const normalized =
-      tokenMints.length > 0
-        ? await this.fetchConfiguredTokenMints(tokenMints, signal)
-        : await this.fetchConfiguredSearchQueries(signal)
+    const discoverySources = await Promise.allSettled([
+      this.fetchConfiguredSearchQueries(signal),
+      tokenMints.length > 0 ? this.fetchConfiguredTokenMints(tokenMints, signal) : Promise.resolve<TokenFeedItem[]>([]),
+    ])
+
+    const combinedItems: TokenFeedItem[] = []
+    let successCount = 0
+
+    const searchResult = discoverySources[0]
+    if (searchResult?.status === 'fulfilled') {
+      combinedItems.push(...searchResult.value)
+      successCount += 1
+    } else if (searchResult) {
+      this.logger.warn({ error: searchResult.reason }, 'DexScreener dynamic search discovery failed')
+    }
+
+    const mintResult = discoverySources[1]
+    if (mintResult?.status === 'fulfilled') {
+      combinedItems.push(...mintResult.value)
+      if (tokenMints.length > 0) {
+        successCount += 1
+      }
+    } else if (mintResult) {
+      this.logger.warn({ error: mintResult.reason }, 'DexScreener token mint discovery failed')
+    }
+
+    const normalized = dedupeByPairAddress(combinedItems)
+    if (normalized.length === 0) {
+      throw new Error(
+        successCount > 0
+          ? 'DexScreener returned no usable Solana pairs for configured discovery sources'
+          : 'DexScreener discovery requests failed for all configured sources',
+      )
+    }
 
     if (!this.enricher) {
       return normalized

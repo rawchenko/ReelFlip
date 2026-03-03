@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { errorEnvelope } from '../lib/error-envelope.js'
 import { FeedCategory } from './feed.provider.js'
-import { FeedService, InvalidFeedRequestError } from './feed.service.js'
+import { FeedService, FeedUnavailableError, InvalidFeedRequestError } from './feed.service.js'
 import type { TokenFeedItem } from './feed.provider.js'
 
 interface FeedRouteDependencies {
@@ -40,6 +40,14 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
         {
           cacheStatus: result.cacheStatus,
           source: result.source,
+          feed_source_providers_count: result.source === 'providers' ? 1 : 0,
+          feed_source_seed_count: result.source === 'seed' ? 1 : 0,
+          feed_filtered_ineligible_count: result.eligibilityStats?.filteredTotal ?? 0,
+          feed_filtered_ineligible_missing_pair: result.eligibilityStats?.reasons.missing_pair ?? 0,
+          feed_filtered_ineligible_insufficient_chart_history:
+            result.eligibilityStats?.reasons.insufficient_chart_history ?? 0,
+          feed_filtered_ineligible_chart_quality_not_full:
+            result.eligibilityStats?.reasons.chart_quality_not_full ?? 0,
           limit: limit ?? dependencies.feedDefaultLimit,
           category: category ?? 'all',
           durationMs: Date.now() - startedAt,
@@ -59,9 +67,28 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
         return reply.code(error.statusCode).send(errorEnvelope('BAD_REQUEST', error.message))
       }
 
+      if (error instanceof FeedUnavailableError) {
+        request.log.warn(
+          {
+            category: parseCategoryOrAll(request.query.category),
+            durationMs: Date.now() - startedAt,
+            feed_unavailable_count: 1,
+          },
+          'Feed request unavailable',
+        )
+        return reply.code(error.statusCode).send(errorEnvelope('FEED_UNAVAILABLE', error.message))
+      }
+
       throw error
     }
   })
+}
+
+function parseCategoryOrAll(category?: string): FeedCategory | 'all' {
+  if (!category) {
+    return 'all'
+  }
+  return VALID_CATEGORIES.includes(category as FeedCategory) ? (category as FeedCategory) : 'all'
 }
 
 function parseCategory(category?: string): FeedCategory | undefined {

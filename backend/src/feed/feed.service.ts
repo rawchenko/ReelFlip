@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { FeedCache, FeedSnapshot } from './feed.cache.js'
 import { decodeFeedCursor, encodeFeedCursor, FeedCursorError, FeedCursorPayload } from './feed.cursor.js'
-import { CompositeFeedProvider, FeedCategory, TokenFeedItem } from './feed.provider.js'
+import { CompositeFeedProvider, FeedCategory, FeedLabel, FeedProviderUnavailableError, TokenFeedItem } from './feed.provider.js'
 
 export class InvalidFeedRequestError extends Error {
   readonly statusCode = 400
@@ -9,6 +9,15 @@ export class InvalidFeedRequestError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'InvalidFeedRequestError'
+  }
+}
+
+export class FeedUnavailableError extends Error {
+  readonly statusCode = 503
+
+  constructor(message = 'Feed is temporarily unavailable. Please try again soon.') {
+    super(message)
+    this.name = 'FeedUnavailableError'
   }
 }
 
@@ -24,6 +33,28 @@ export interface FeedPageResult {
   generatedAt: string
   cacheStatus: 'HIT' | 'MISS' | 'STALE'
   source: 'providers' | 'seed'
+  eligibilityStats?: FeedEligibilityStats
+}
+
+type FeedEligibilityRejectionReason = 'missing_pair' | 'insufficient_chart_history' | 'chart_quality_not_full'
+
+interface FeedEligibilityStats {
+  filteredTotal: number
+  reasons: Record<FeedEligibilityRejectionReason, number>
+}
+
+interface FeedServiceOptions {
+  enableSeedFallback?: boolean
+  minChartCandles?: number
+  requireFullChartHistory?: boolean
+  enforceRenderableTokens?: boolean
+}
+
+const CATEGORY_TO_DISCOVERY_LABEL: Record<FeedCategory, FeedLabel> = {
+  trending: 'trending',
+  gainer: 'gainer',
+  new: 'new',
+  memecoin: 'meme',
 }
 
 export class FeedRankingService {
@@ -101,50 +132,118 @@ export class FeedRankingService {
 }
 
 export class FeedService {
+  private readonly enableSeedFallback: boolean
+  private readonly minChartCandles: number
+  private readonly requireFullChartHistory: boolean
+  private readonly enforceRenderableTokens: boolean
+
   constructor(
     private readonly cache: FeedCache,
     private readonly provider: CompositeFeedProvider,
     private readonly rankingService: FeedRankingService,
     private readonly defaultLimit: number,
-  ) {}
+    options: FeedServiceOptions = {},
+  ) {
+    this.enableSeedFallback = options.enableSeedFallback ?? true
+    this.minChartCandles = Math.max(0, options.minChartCandles ?? 120)
+    this.requireFullChartHistory = options.requireFullChartHistory ?? true
+    this.enforceRenderableTokens = options.enforceRenderableTokens ?? false
+  }
 
   async getPage(query: FeedQueryInput): Promise<FeedPageResult> {
     const cursorPayload = this.parseCursor(query.cursor)
     const limit = this.resolveLimit(query.limit, cursorPayload)
     const category = this.resolveCategory(query.category, cursorPayload)
+    if (cursorPayload) {
+      const snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
+      if (!snapshot) {
+        throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
+      }
+
+      return this.paginateSnapshot(snapshot, cursorPayload, category, limit, 'HIT')
+    }
 
     const lookup = await this.cache.readSnapshot()
+    const staleSnapshot = this.resolveStaleSnapshot(lookup)
+    const freshSnapshot =
+      lookup.state === 'fresh' && lookup.entry && this.canUseSnapshot(lookup.entry.snapshot) ? lookup.entry.snapshot : null
 
-    let snapshot: FeedSnapshot
-    let cacheStatus: FeedPageResult['cacheStatus']
+    if (freshSnapshot) {
+      return this.paginateSnapshot(freshSnapshot, null, category, limit, 'HIT')
+    }
 
-    if (lookup.state === 'fresh' && lookup.entry) {
-      snapshot = lookup.entry.snapshot
-      cacheStatus = 'HIT'
-    } else {
+    try {
       const providerResult = await this.provider.fetchFeed(new AbortController().signal)
 
-      if (providerResult.usedSeedFallback && lookup.state === 'stale' && lookup.entry) {
-        snapshot = lookup.entry.snapshot
-        cacheStatus = 'STALE'
-      } else {
-        const rankedItems = this.rankingService.rank(providerResult.items)
-        snapshot = {
-          id: randomUUID(),
-          generatedAt: new Date().toISOString(),
-          source: providerResult.source,
-          items: rankedItems,
+      if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
+        if (staleSnapshot) {
+          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
         }
-        await this.cache.writeSnapshot(snapshot)
-        cacheStatus = 'MISS'
+        throw new FeedUnavailableError()
       }
+
+      if (providerResult.usedSeedFallback && staleSnapshot) {
+        return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+      }
+
+      const eligibilityResult = this.filterRenderableItems(providerResult.items)
+      if (this.enforceRenderableTokens && eligibilityResult.items.length === 0) {
+        if (staleSnapshot) {
+          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+        }
+        throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
+      }
+
+      const rankedItems = this.rankingService.rank(eligibilityResult.items)
+      const snapshot: FeedSnapshot = {
+        id: randomUUID(),
+        generatedAt: new Date().toISOString(),
+        source: providerResult.source,
+        items: rankedItems,
+      }
+      await this.cache.writeSnapshot(snapshot)
+
+      const page = this.paginateSnapshot(snapshot, null, category, limit, 'MISS')
+      return {
+        ...page,
+        eligibilityStats: eligibilityResult.stats,
+      }
+    } catch (error) {
+      if (error instanceof FeedUnavailableError) {
+        throw error
+      }
+
+      if (error instanceof FeedProviderUnavailableError) {
+        if (staleSnapshot) {
+          return this.paginateSnapshot(staleSnapshot, null, category, limit, 'STALE')
+        }
+        throw new FeedUnavailableError()
+      }
+
+      throw error
+    }
+  }
+
+  private canUseSnapshot(snapshot: FeedSnapshot): boolean {
+    return this.enableSeedFallback || snapshot.source === 'providers'
+  }
+
+  private resolveStaleSnapshot(lookup: Awaited<ReturnType<FeedCache['readSnapshot']>>): FeedSnapshot | null {
+    if (lookup.state !== 'stale' || !lookup.entry) {
+      return null
     }
 
-    if (cursorPayload && cursorPayload.snapshotId !== snapshot.id) {
-      throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
-    }
+    return this.canUseSnapshot(lookup.entry.snapshot) ? lookup.entry.snapshot : null
+  }
 
-    const filtered = category ? snapshot.items.filter((item) => item.category === category) : snapshot.items
+  private paginateSnapshot(
+    snapshot: FeedSnapshot,
+    cursorPayload: FeedCursorPayload | null,
+    category: FeedCategory | null,
+    limit: number,
+    cacheStatus: FeedPageResult['cacheStatus'],
+  ): FeedPageResult {
+    const filtered = category ? snapshot.items.filter((item) => this.matchesCategory(item, category)) : snapshot.items
     const offset = cursorPayload?.offset ?? 0
 
     if (offset > filtered.length) {
@@ -170,6 +269,65 @@ export class FeedService {
       cacheStatus,
       source: snapshot.source,
     }
+  }
+
+  private matchesCategory(item: TokenFeedItem, category: FeedCategory): boolean {
+    if (item.category === category) {
+      return true
+    }
+
+    const label = CATEGORY_TO_DISCOVERY_LABEL[category]
+    return item.labels?.includes(label) ?? false
+  }
+
+  private filterRenderableItems(items: TokenFeedItem[]): {
+    items: TokenFeedItem[]
+    stats: FeedEligibilityStats
+  } {
+    const stats: FeedEligibilityStats = {
+      filteredTotal: 0,
+      reasons: {
+        missing_pair: 0,
+        insufficient_chart_history: 0,
+        chart_quality_not_full: 0,
+      },
+    }
+
+    if (!this.enforceRenderableTokens) {
+      return { items, stats }
+    }
+
+    const eligible: TokenFeedItem[] = []
+    for (const item of items) {
+      const reason = this.getIneligibilityReason(item)
+      if (!reason) {
+        eligible.push(item)
+        continue
+      }
+
+      stats.filteredTotal += 1
+      stats.reasons[reason] += 1
+    }
+
+    return { items: eligible, stats }
+  }
+
+  private getIneligibilityReason(item: TokenFeedItem): FeedEligibilityRejectionReason | null {
+    const pairAddress = item.pairAddress?.trim()
+    if (!pairAddress) {
+      return 'missing_pair'
+    }
+
+    const candleCount1m = item.sparklineMeta?.candleCount1m ?? 0
+    if (candleCount1m < this.minChartCandles) {
+      return 'insufficient_chart_history'
+    }
+
+    if (this.requireFullChartHistory && item.sparklineMeta?.historyQuality !== 'real_backfill') {
+      return 'chart_quality_not_full'
+    }
+
+    return null
   }
 
   private parseCursor(cursor?: string): FeedCursorPayload | null {

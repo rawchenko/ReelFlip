@@ -9,6 +9,11 @@ export interface BackendEnv {
   redisUrl?: string
   feedCacheTtlSeconds: number
   feedCacheStaleTtlSeconds: number
+  feedCursorTtlSeconds: number
+  feedSnapshotHistoryMax: number
+  feedEnableSeedFallback: boolean
+  feedMinChartCandles: number
+  feedRequireFullChartHistory: boolean
   feedDefaultLimit: number
   feedMaxLimit: number
   dexScreenerTimeoutMs: number
@@ -90,6 +95,10 @@ const DEFAULTS = {
   port: 3001,
   feedCacheTtlSeconds: 5,
   feedCacheStaleTtlSeconds: 30,
+  feedCursorTtlSeconds: 300,
+  feedSnapshotHistoryMax: 500,
+  feedMinChartCandles: 120,
+  feedRequireFullChartHistory: true,
   feedDefaultLimit: 10,
   feedMaxLimit: 20,
   dexScreenerTimeoutMs: 5000,
@@ -169,6 +178,7 @@ export function loadEnv(): BackendEnv {
   if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'none') {
     throw new Error(`Invalid CHART_HISTORY_PROVIDER: ${chartHistoryProvider}`)
   }
+  const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
 
   return {
     host: process.env.HOST ?? DEFAULTS.host,
@@ -176,6 +186,14 @@ export function loadEnv(): BackendEnv {
     redisUrl: process.env.REDIS_URL,
     feedCacheTtlSeconds: parseIntEnv('FEED_CACHE_TTL_SECONDS', DEFAULTS.feedCacheTtlSeconds, 1),
     feedCacheStaleTtlSeconds: parseIntEnv('FEED_CACHE_STALE_TTL_SECONDS', DEFAULTS.feedCacheStaleTtlSeconds, 1),
+    feedCursorTtlSeconds: parseIntEnv('FEED_CURSOR_TTL_SECONDS', DEFAULTS.feedCursorTtlSeconds, 1),
+    feedSnapshotHistoryMax: parseIntEnv('FEED_SNAPSHOT_HISTORY_MAX', DEFAULTS.feedSnapshotHistoryMax, 1),
+    feedEnableSeedFallback: parseBoolEnv('FEED_ENABLE_SEED_FALLBACK', !isProduction),
+    feedMinChartCandles: parseIntEnv('FEED_MIN_CHART_CANDLES', DEFAULTS.feedMinChartCandles, 0),
+    feedRequireFullChartHistory: parseBoolEnv(
+      'FEED_REQUIRE_FULL_CHART_HISTORY',
+      DEFAULTS.feedRequireFullChartHistory,
+    ),
     feedDefaultLimit: parseIntEnv('FEED_DEFAULT_LIMIT', DEFAULTS.feedDefaultLimit, 1),
     feedMaxLimit: parseIntEnv('FEED_MAX_LIMIT', DEFAULTS.feedMaxLimit, 1),
     dexScreenerTimeoutMs: parseIntEnv('DEXSCREENER_TIMEOUT_MS', DEFAULTS.dexScreenerTimeoutMs, 200),

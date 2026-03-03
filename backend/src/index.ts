@@ -38,6 +38,8 @@ const feedCache = new FeedCache({
   redisUrl: env.redisUrl,
   ttlSeconds: env.feedCacheTtlSeconds,
   staleTtlSeconds: env.feedCacheStaleTtlSeconds,
+  cursorTtlSeconds: env.feedCursorTtlSeconds,
+  snapshotHistoryMax: env.feedSnapshotHistoryMax,
   logger: app.log,
 })
 
@@ -142,9 +144,17 @@ const feedProvider = new CompositeFeedProvider(
   ],
   new SeedFeedProvider(DEFAULT_SEEDED_FEED),
   app.log,
+  {
+    enableSeedFallback: env.feedEnableSeedFallback,
+  },
 )
 
-const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit)
+const feedService = new FeedService(feedCache, feedProvider, new FeedRankingService(), env.feedDefaultLimit, {
+  enableSeedFallback: env.feedEnableSeedFallback,
+  minChartCandles: env.feedMinChartCandles,
+  requireFullChartHistory: env.feedRequireFullChartHistory,
+  enforceRenderableTokens: !env.feedEnableSeedFallback,
+})
 
 await app.register(cors, {
   origin: true,
