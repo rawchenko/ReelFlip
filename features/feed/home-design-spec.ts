@@ -24,7 +24,6 @@ export const homeDesignSpec = {
     badgeRadius: 12,
     badgeHorizontalPadding: 8,
     badgeVerticalPadding: 4,
-    chartBottomFadeHeightPct: 0.4,
     chartTopOffset: 66,
     chartPreferredHeight: 390,
     chartMinHeight: 250,

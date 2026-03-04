@@ -856,13 +856,6 @@ export function TokenCard({
           : useTradingViewChart
             ? renderTradingView()
             : renderMiniFallback()}
-
-        <LinearGradient
-          colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.85)']}
-          locations={[0, 0.5, 1]}
-          style={styles.chartBottomFade}
-          pointerEvents="none"
-        />
       </View>
 
       <View
@@ -1029,13 +1022,6 @@ const styles = StyleSheet.create({
     paddingBottom: homeDesignSpec.card.shellBottomPadding,
     paddingTop: homeDesignSpec.card.shellTopPadding,
     position: 'relative',
-  },
-  chartBottomFade: {
-    bottom: 0,
-    height: `${homeDesignSpec.card.chartBottomFadeHeightPct * 100}%`,
-    left: 0,
-    position: 'absolute',
-    right: 0,
   },
   chartViewport: {
     backgroundColor: '#000000',
