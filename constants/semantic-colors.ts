@@ -1,6 +1,6 @@
 export const semanticColors = {
   app: {
-    backgroundCanvas: '#ffffff',
+    backgroundCanvas: '#000000',
     background: '#000000',
     backgroundElevated: '#000000',
     backgroundPanel: '#111111',
