@@ -1,0 +1,36 @@
+export const activityDesignSpec = {
+  colors: {
+    background: '#000000',
+    rowBackground: 'rgba(255, 255, 255, 0.10)',
+    badgeBackground: '#1A1A1A',
+    heading: '#FFFFFF',
+    sectionLabel: 'rgba(255, 255, 255, 0.60)',
+    primaryText: '#FFFFFF',
+    secondaryText: 'rgba(255, 255, 255, 0.60)',
+    receivedAmount: '#4ADE80',
+  },
+  header: {
+    horizontalPadding: 20,
+    topPadding: 56,
+    bottomPadding: 12,
+    titleFontSize: 28,
+    titleLineHeight: 34,
+    titleLetterSpacing: -0.5,
+  },
+  section: {
+    horizontalPadding: 16,
+    labelVerticalGap: 4,
+    rowGap: 8,
+    sectionGap: 12,
+    listBottomPadding: 16,
+  },
+  row: {
+    height: 72,
+    borderRadius: 14,
+    horizontalPadding: 12,
+    contentGap: 12,
+    iconContainerSize: 48,
+    badgeSize: 32,
+    badgeOverlapOffset: 16,
+  },
+} as const

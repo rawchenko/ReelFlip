@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-03-04T15:04:58.862Z",
+  "tool": "rollout_gate_evaluator",
+  "config": {
+    "reportsDir": "/Users/rawchenko/Documents/GitHub/ReelFlip/backend/supabase/verification/reports",
+    "opsObservationsFile": "/Users/rawchenko/Documents/GitHub/ReelFlip/backend/supabase/verification/reports/ops_observations.json"
+  },
+  "evaluation": {
+    "status": "fail",
+    "failedChecks": [
+      "parity report coverage",
+      "performance report coverage",
+      "ops observation coverage"
+    ],
+    "checks": [
+      {
+        "name": "parity report coverage",
+        "pass": false,
+        "details": "2/7 required"
+      },
+      {
+        "name": "performance report coverage",
+        "pass": false,
+        "details": "2/7 required"
+      },
+      {
+        "name": "ops observation coverage",
+        "pass": false,
+        "details": "0/7 required"
+      }
+    ]
+  }
+}
