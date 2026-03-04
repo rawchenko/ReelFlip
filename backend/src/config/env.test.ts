@@ -47,19 +47,35 @@ test('loadEnv rejects invalid CHART_HISTORY_CACHE_TTL_SECONDS', () => {
 })
 
 test('loadEnv uses default token ingest values when env is absent', () => {
-  withEnv({ TOKEN_INGEST_INTERVAL_SECONDS: undefined, TOKEN_CANDLE_RETENTION_DAYS: undefined }, () => {
-    const env = loadEnv()
-    assert.equal(env.tokenIngestIntervalSeconds, 300)
-    assert.equal(env.tokenCandleRetentionDays, 14)
-  })
+  withEnv(
+    {
+      TOKEN_INGEST_INTERVAL_SECONDS: undefined,
+      TOKEN_CANDLE_RETENTION_DAYS: undefined,
+      SUPABASE_PREFER_READ_FIRST: undefined,
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.tokenIngestIntervalSeconds, 300)
+      assert.equal(env.tokenCandleRetentionDays, 14)
+      assert.equal(env.supabasePreferReadFirst, false)
+    },
+  )
 })
 
 test('loadEnv parses supabase toggles', () => {
-  withEnv({ SUPABASE_READ_ENABLED: 'true', SUPABASE_DUAL_WRITE_ENABLED: '1' }, () => {
-    const env = loadEnv()
-    assert.equal(env.supabaseReadEnabled, true)
-    assert.equal(env.supabaseDualWriteEnabled, true)
-  })
+  withEnv(
+    {
+      SUPABASE_READ_ENABLED: 'true',
+      SUPABASE_PREFER_READ_FIRST: 'true',
+      SUPABASE_DUAL_WRITE_ENABLED: '1',
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.supabaseReadEnabled, true)
+      assert.equal(env.supabasePreferReadFirst, true)
+      assert.equal(env.supabaseDualWriteEnabled, true)
+    },
+  )
 })
 
 test('loadEnv uses default alert settings when env is absent', () => {

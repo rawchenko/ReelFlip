@@ -837,6 +837,77 @@ test('read-through loads latest snapshot from repository when cache is empty', a
   assert.equal(page.source, 'providers')
 })
 
+test('preferSupabaseRead loads latest snapshot from repository before fresh cache', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const cachedItem = buildItem({
+    mint: 'cached-a',
+    name: 'Cached',
+    symbol: 'CHD',
+    priceUsd: 1,
+    priceChange24h: 1,
+    volume24h: 1000,
+    liquidity: 4000,
+    marketCap: 8000,
+    pairAddress: 'pair-cached',
+    category: 'trending',
+    riskTier: 'allow',
+  })
+
+  await cache.writeSnapshot({
+    id: 'snapshot-cache',
+    generatedAt: '2026-03-03T00:00:00.000Z',
+    source: 'providers',
+    items: [cachedItem],
+  })
+
+  const provider = new CompositeFeedProvider([], new SeedFeedProvider([]), logger)
+  const persistedItem = buildItem({
+    mint: 'persisted-preferred',
+    name: 'Persisted Preferred',
+    symbol: 'PRF',
+    priceUsd: 2,
+    priceChange24h: 6,
+    volume24h: 3000,
+    liquidity: 9000,
+    marketCap: 15000,
+    pairAddress: 'pair-persisted',
+    category: 'trending',
+    riskTier: 'allow',
+  })
+
+  let readLatestSnapshotCalls = 0
+  const fakeFeedRepository = {
+    isEnabled: () => true,
+    readLatestSnapshot: async () => {
+      readLatestSnapshotCalls += 1
+      return {
+        id: 'snapshot-persisted',
+        generatedAt: '2026-03-04T00:00:00.000Z',
+        source: 'providers' as const,
+        items: [persistedItem],
+      }
+    },
+    readSnapshotById: async () => null,
+    createSnapshot: async () => undefined,
+  }
+
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    readThroughEnabled: true,
+    preferSupabaseRead: true,
+    feedRepository: fakeFeedRepository as unknown as FeedRepository,
+  })
+
+  const page = await service.getPage({ limit: 10 })
+  assert.equal(readLatestSnapshotCalls, 1)
+  assert.equal(page.items[0]?.mint, 'persisted-preferred')
+  assert.equal(page.cacheStatus, 'MISS')
+})
+
 test('write-through persists token and snapshot rows when enabled', async () => {
   const cache = new FeedCache({
     ttlSeconds: 30,

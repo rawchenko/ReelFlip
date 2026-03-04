@@ -1,0 +1,95 @@
+name: backend-migration-verification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-migration-verification.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-migration-verification.yml'
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+      - name: Build backend
+        run: npm --prefix backend run build
+      - name: Test backend
+        run: npm --prefix backend run test
+
+  migration-verification:
+    needs: backend-tests
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+    env:
+      PORT: '3001'
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_READ_ENABLED: 'true'
+      SUPABASE_PREFER_READ_FIRST: 'true'
+      SUPABASE_DUAL_WRITE_ENABLED: 'true'
+      FEED_ENABLE_SEED_FALLBACK: 'true'
+      ALERT_MIN_REQUESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+      - name: Build backend
+        run: npm --prefix backend run build
+      - name: Start backend
+        run: |
+          node backend/dist/index.js > /tmp/reelflip-backend.log 2>&1 &
+          echo $! > /tmp/reelflip-backend.pid
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not become healthy in time"
+          cat /tmp/reelflip-backend.log || true
+          exit 1
+      - name: Run parity verification
+        run: npm --prefix backend run verify:parity
+      - name: Capture p95 baseline
+        run: npm --prefix backend run perf:baseline -- --duration-seconds 15 --warmup-seconds 3 --connections 10
+      - name: Compare p95 against baseline
+        run: npm --prefix backend run perf:check -- --duration-seconds 15 --warmup-seconds 3 --connections 10
+      - name: Evaluate rollout gate
+        continue-on-error: true
+        run: npm --prefix backend run rollout:gate
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-migration-verification-reports
+          path: backend/supabase/verification/reports/*.json
+      - name: Print backend logs on failure
+        if: failure()
+        run: cat /tmp/reelflip-backend.log || true
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/reelflip-backend.pid ]; then
+            kill "$(cat /tmp/reelflip-backend.pid)" || true
+          fi

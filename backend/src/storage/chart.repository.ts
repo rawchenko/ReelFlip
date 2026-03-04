@@ -7,6 +7,10 @@ interface Logger {
   debug?: (obj: unknown, msg?: string) => void
 }
 
+interface ChartRepositoryOptions {
+  onRowsWritten?: (tableOrView: string, rowCount: number) => void
+}
+
 interface CandleSelectRow {
   pair_address: string
   bucket_start: string
@@ -28,6 +32,7 @@ export class ChartRepository {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly logger: Logger,
+    private readonly options: ChartRepositoryOptions = {},
   ) {}
 
   isEnabled(): boolean {
@@ -43,6 +48,7 @@ export class ChartRepository {
       'pair_address',
       'bucket_start',
     ])
+    this.options.onRowsWritten?.('token_candles_1m', candles.length)
   }
 
   async getCandles(pairAddress: string, limit: number): Promise<OhlcCandle[]> {

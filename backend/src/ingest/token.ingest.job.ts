@@ -15,6 +15,7 @@ interface TokenIngestJobMetrics {
   recordIngestSuccess: () => void
   recordIngestFailure: () => void
   recordIngestSkippedOverlap: () => void
+  recordIngestDuration?: (durationMs: number) => void
 }
 
 export interface IngestFailureThresholdEvent {
@@ -148,6 +149,7 @@ export class TokenIngestJob {
         this.alerts.onFailureThreshold?.(thresholdEvent)
       }
     } finally {
+      this.metrics?.recordIngestDuration?.(Date.now() - startedAt)
       this.inFlight = false
     }
   }

@@ -10,6 +10,7 @@ export interface BackendEnv {
   supabaseServiceRoleKey?: string
   supabaseRequestTimeoutMs: number
   supabaseReadEnabled: boolean
+  supabasePreferReadFirst: boolean
   supabaseDualWriteEnabled: boolean
   tokenIngestIntervalSeconds: number
   tokenCandleRetentionDays: number
@@ -110,6 +111,7 @@ const DEFAULTS = {
   port: 3001,
   supabaseRequestTimeoutMs: 10_000,
   supabaseReadEnabled: false,
+  supabasePreferReadFirst: false,
   supabaseDualWriteEnabled: false,
   tokenIngestIntervalSeconds: 300,
   tokenCandleRetentionDays: 14,
@@ -232,6 +234,7 @@ export function loadEnv(): BackendEnv {
       500,
     ),
     supabaseReadEnabled: parseBoolEnv('SUPABASE_READ_ENABLED', DEFAULTS.supabaseReadEnabled),
+    supabasePreferReadFirst: parseBoolEnv('SUPABASE_PREFER_READ_FIRST', DEFAULTS.supabasePreferReadFirst),
     supabaseDualWriteEnabled: parseBoolEnv('SUPABASE_DUAL_WRITE_ENABLED', DEFAULTS.supabaseDualWriteEnabled),
     tokenIngestIntervalSeconds: parseIntEnv(
       'TOKEN_INGEST_INTERVAL_SECONDS',

@@ -12,6 +12,8 @@ export class BackendMetrics {
     failures: 0,
     retries: 0,
     totalDurationMs: 0,
+    totalRowsWritten: 0,
+    rowsWrittenByTable: {} as Record<string, number>,
     lastStatus: 0,
     lastErrorType: null as SupabaseRequestEvent['errorType'] | null,
   }
@@ -23,6 +25,8 @@ export class BackendMetrics {
     lastCompletedAt: null as string | null,
     lastFailedAt: null as string | null,
     consecutiveFailures: 0,
+    totalDurationMs: 0,
+    lastDurationMs: 0,
   }
 
   private readonly feed = {
@@ -52,6 +56,20 @@ export class BackendMetrics {
     }
   }
 
+  recordSupabaseRowsWritten(tableOrView: string, rowCount: number): void {
+    if (rowCount <= 0) {
+      return
+    }
+
+    const normalized = tableOrView.trim()
+    if (normalized.length === 0) {
+      return
+    }
+
+    this.supabase.totalRowsWritten += rowCount
+    this.supabase.rowsWrittenByTable[normalized] = (this.supabase.rowsWrittenByTable[normalized] ?? 0) + rowCount
+  }
+
   recordIngestSuccess(): void {
     this.ingest.success += 1
     this.ingest.consecutiveFailures = 0
@@ -66,6 +84,12 @@ export class BackendMetrics {
 
   recordIngestSkippedOverlap(): void {
     this.ingest.skippedOverlap += 1
+  }
+
+  recordIngestDuration(durationMs: number): void {
+    const normalized = Math.max(0, Math.round(durationMs))
+    this.ingest.totalDurationMs += normalized
+    this.ingest.lastDurationMs = normalized
   }
 
   recordFeedPage(event: FeedPageMetricEvent): void {
@@ -147,6 +171,11 @@ export class BackendMetrics {
   snapshot(): Record<string, unknown> {
     const supabaseAvgDurationMs =
       this.supabase.total > 0 ? Number((this.supabase.totalDurationMs / this.supabase.total).toFixed(2)) : 0
+    const ingestCycles = this.ingest.success + this.ingest.failure
+    const ingestAvgDurationMs =
+      ingestCycles > 0 ? Number((this.ingest.totalDurationMs / ingestCycles).toFixed(2)) : 0
+    const seedRate = this.feed.totalRequests > 0 ? this.feed.sourceSeed / this.feed.totalRequests : 0
+    const staleRate = this.feed.totalRequests > 0 ? this.feed.cacheStale / this.feed.totalRequests : 0
 
     return {
       uptimeMs: Date.now() - this.startedAtMs,
@@ -155,6 +184,8 @@ export class BackendMetrics {
         failedRequests: this.supabase.failures,
         retriedAttempts: this.supabase.retries,
         avgDurationMs: supabaseAvgDurationMs,
+        rowsWrittenTotal: this.supabase.totalRowsWritten,
+        rowsWrittenByTable: { ...this.supabase.rowsWrittenByTable },
         lastStatus: this.supabase.lastStatus,
         lastErrorType: this.supabase.lastErrorType,
       },
@@ -163,6 +194,8 @@ export class BackendMetrics {
         failureCount: this.ingest.failure,
         overlapSkipCount: this.ingest.skippedOverlap,
         consecutiveFailures: this.ingest.consecutiveFailures,
+        avgDurationMs: ingestAvgDurationMs,
+        lastDurationMs: this.ingest.lastDurationMs,
         lastCompletedAt: this.ingest.lastCompletedAt,
         lastFailedAt: this.ingest.lastFailedAt,
       },
@@ -173,6 +206,8 @@ export class BackendMetrics {
         cacheStale: this.feed.cacheStale,
         sourceProviders: this.feed.sourceProviders,
         sourceSeed: this.feed.sourceSeed,
+        seedRate: Number(seedRate.toFixed(6)),
+        staleRate: Number(staleRate.toFixed(6)),
         unavailable: this.feed.unavailable,
       },
     }

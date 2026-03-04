@@ -55,6 +55,7 @@ interface FeedServiceOptions {
   tokenRepository?: TokenRepository
   feedRepository?: FeedRepository
   readThroughEnabled?: boolean
+  preferSupabaseRead?: boolean
   writeThroughEnabled?: boolean
   logger?: {
     warn: (obj: unknown, msg?: string) => void
@@ -155,6 +156,7 @@ export class FeedService {
   private readonly tokenRepository?: TokenRepository
   private readonly feedRepository?: FeedRepository
   private readonly readThroughEnabled: boolean
+  private readonly preferSupabaseRead: boolean
   private readonly writeThroughEnabled: boolean
   private readonly logger?: {
     warn: (obj: unknown, msg?: string) => void
@@ -175,6 +177,7 @@ export class FeedService {
     this.tokenRepository = options.tokenRepository
     this.feedRepository = options.feedRepository
     this.readThroughEnabled = options.readThroughEnabled ?? false
+    this.preferSupabaseRead = options.preferSupabaseRead ?? false
     this.writeThroughEnabled = options.writeThroughEnabled ?? false
     this.logger = options.logger
   }
@@ -187,10 +190,25 @@ export class FeedService {
     const requiresLiveSource =
       this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0
     if (cursorPayload) {
-      let snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
+      let snapshot: FeedSnapshot | null = null
+      let cacheStatus: 'HIT' | 'MISS' = 'HIT'
+
+      if (this.preferSupabaseRead && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
+        snapshot = await this.feedRepository.readSnapshotById(cursorPayload.snapshotId)
+        if (snapshot) {
+          cacheStatus = 'MISS'
+          await this.cache.writeSnapshot(snapshot).catch(() => undefined)
+        }
+      }
+
+      if (!snapshot) {
+        snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
+      }
+
       if (!snapshot && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
         snapshot = await this.feedRepository.readSnapshotById(cursorPayload.snapshotId)
         if (snapshot) {
+          cacheStatus = 'MISS'
           await this.cache.writeSnapshot(snapshot).catch(() => undefined)
         }
       }
@@ -198,7 +216,19 @@ export class FeedService {
         throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
       }
 
-      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, 'HIT')
+      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus)
+    }
+
+    let triedLatestSnapshotInSupabase = false
+    if (this.preferSupabaseRead && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
+      triedLatestSnapshotInSupabase = true
+      const persistedSnapshot = await this.feedRepository.readLatestSnapshot()
+      if (persistedSnapshot && this.canUseSnapshot(persistedSnapshot)) {
+        if (!requiresLiveSource || persistedSnapshot.source === 'providers') {
+          await this.cache.writeSnapshot(persistedSnapshot).catch(() => undefined)
+          return this.paginateSnapshot(persistedSnapshot, null, category, minLifetimeHours, limit, 'MISS')
+        }
+      }
     }
 
     const lookup = await this.cache.readSnapshot()
@@ -211,7 +241,7 @@ export class FeedService {
       return this.paginateSnapshot(freshSnapshot, null, category, minLifetimeHours, limit, 'HIT')
     }
 
-    if (this.readThroughEnabled && this.feedRepository?.isEnabled()) {
+    if (!triedLatestSnapshotInSupabase && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
       const persistedSnapshot = await this.feedRepository.readLatestSnapshot()
       if (persistedSnapshot && this.canUseSnapshot(persistedSnapshot)) {
         if (!requiresLiveSource || persistedSnapshot.source === 'providers') {

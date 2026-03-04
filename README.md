@@ -45,6 +45,7 @@ Backend supports Supabase-backed token/feed/chart persistence in hybrid mode.
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 SUPABASE_READ_ENABLED=true
+SUPABASE_PREFER_READ_FIRST=true
 SUPABASE_DUAL_WRITE_ENABLED=true
 TOKEN_INGEST_INTERVAL_SECONDS=300
 TOKEN_CANDLE_RETENTION_DAYS=14
@@ -64,6 +65,8 @@ TOKEN_CANDLE_RETENTION_DAYS=14
 - `npm run backend:verify:migration`
 7. Generated reports:
 - `backend/supabase/verification/reports/*.json`
+8. CI workflow:
+- `.github/workflows/backend-migration-verification.yml` runs build/tests on backend changes and, when Supabase secrets are configured, executes parity + perf verification and uploads reports.
 
 ### Build Android
 

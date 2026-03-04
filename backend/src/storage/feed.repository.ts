@@ -8,6 +8,10 @@ interface Logger {
   info?: (obj: unknown, msg?: string) => void
 }
 
+interface FeedRepositoryOptions {
+  onRowsWritten?: (tableOrView: string, rowCount: number) => void
+}
+
 type SnapshotCacheStatus = 'HIT' | 'MISS' | 'STALE'
 
 interface FeedSnapshotHeaderRow {
@@ -31,6 +35,7 @@ export class FeedRepository {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly logger: Logger,
+    private readonly options: FeedRepositoryOptions = {},
   ) {}
 
   isEnabled(): boolean {
@@ -57,6 +62,7 @@ export class FeedRepository {
         ],
         'minimal',
       )
+      this.options.onRowsWritten?.('feed_snapshots', 1)
       snapshotInserted = true
 
       if (scoredItems.length === 0) {
@@ -73,6 +79,7 @@ export class FeedRepository {
         })),
         'minimal',
       )
+      this.options.onRowsWritten?.('feed_snapshot_items', scoredItems.length)
     } catch (error) {
       if (snapshotInserted) {
         try {

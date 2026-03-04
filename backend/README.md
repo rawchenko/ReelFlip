@@ -5,6 +5,7 @@ Fastify API backend for feed and chart services.
 ## Supabase Migration Verification
 
 Ensure backend is running and `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are configured.
+Set `SUPABASE_READ_ENABLED=true` and optionally `SUPABASE_PREFER_READ_FIRST=true` to force Supabase-first reads before cache/provider fallback.
 
 Commands:
 
@@ -38,3 +39,12 @@ Optional migration alert webhook environment variables:
 - `ALERT_FEED_SEED_RATE_THRESHOLD`
 - `ALERT_SUPABASE_FAILURE_RATE_THRESHOLD`
 - `ALERT_MIN_REQUESTS`
+
+## Metrics Coverage
+
+`GET /metrics` now includes:
+
+- ingest success/failure counts and duration (`avgDurationMs`, `lastDurationMs`)
+- Supabase request latency/failure counters
+- Supabase row writes by table (`rowsWrittenByTable`)
+- feed fallback rates (`seedRate`, `staleRate`)

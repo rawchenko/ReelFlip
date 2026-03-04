@@ -12,10 +12,15 @@ interface Logger {
   warn: (obj: unknown, msg?: string) => void
 }
 
+interface TokenRepositoryOptions {
+  onRowsWritten?: (tableOrView: string, rowCount: number) => void
+}
+
 export class TokenRepository {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly logger: Logger,
+    private readonly options: TokenRepositoryOptions = {},
   ) {}
 
   isEnabled(): boolean {
@@ -102,14 +107,18 @@ export class TokenRepository {
 
     try {
       await this.supabase.upsertRows('tokens', tokens as unknown as Record<string, unknown>[], ['mint'])
+      this.options.onRowsWritten?.('tokens', tokens.length)
       await this.supabase.upsertRows('token_market_latest', marketRows as unknown as Record<string, unknown>[], ['mint'])
+      this.options.onRowsWritten?.('token_market_latest', marketRows.length)
       await this.supabase.upsertRows('token_labels_latest', labelsRows as unknown as Record<string, unknown>[], ['mint'])
+      this.options.onRowsWritten?.('token_labels_latest', labelsRows.length)
       if (sparklineRows.length > 0) {
         await this.supabase.upsertRows(
           'token_sparklines_latest',
           sparklineRows as unknown as Record<string, unknown>[],
           ['mint'],
         )
+        this.options.onRowsWritten?.('token_sparklines_latest', sparklineRows.length)
       }
 
       this.logger.info?.(

@@ -85,9 +85,21 @@ const supabaseClient = new SupabaseClient({
     }
   },
 })
-const tokenRepository = new TokenRepository(supabaseClient, app.log)
-const feedRepository = new FeedRepository(supabaseClient, app.log)
-const chartRepository = new ChartRepository(supabaseClient, app.log)
+const tokenRepository = new TokenRepository(supabaseClient, app.log, {
+  onRowsWritten: (tableOrView, rowCount) => {
+    metrics.recordSupabaseRowsWritten(tableOrView, rowCount)
+  },
+})
+const feedRepository = new FeedRepository(supabaseClient, app.log, {
+  onRowsWritten: (tableOrView, rowCount) => {
+    metrics.recordSupabaseRowsWritten(tableOrView, rowCount)
+  },
+})
+const chartRepository = new ChartRepository(supabaseClient, app.log, {
+  onRowsWritten: (tableOrView, rowCount) => {
+    metrics.recordSupabaseRowsWritten(tableOrView, rowCount)
+  },
+})
 
 const feedCache = new FeedCache({
   redisUrl: env.redisUrl,
@@ -152,6 +164,7 @@ const chartHistoryService = new ChartHistoryService(
     warmupTopPairs: env.chartHistoryWarmupTopPairs,
     chartRepository,
     readThroughEnabled: env.supabaseReadEnabled,
+    preferSupabaseRead: env.supabasePreferReadFirst,
     writeThroughEnabled: env.supabaseDualWriteEnabled,
   },
   app.log,
@@ -216,6 +229,7 @@ const feedService = new FeedService(feedCache, feedProvider, new FeedRankingServ
   tokenRepository,
   feedRepository,
   readThroughEnabled: env.supabaseReadEnabled,
+  preferSupabaseRead: env.supabasePreferReadFirst,
   writeThroughEnabled: env.supabaseDualWriteEnabled,
   logger: app.log,
 })
@@ -307,6 +321,7 @@ app.get('/health', async () => {
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
     supabaseEnabled: supabaseClient.isEnabled(),
     supabaseReadEnabled: env.supabaseReadEnabled,
+    supabasePreferReadFirst: env.supabasePreferReadFirst,
     supabaseDualWriteEnabled: env.supabaseDualWriteEnabled,
     metrics: metrics.snapshot(),
   }
@@ -355,6 +370,7 @@ app.log.info(
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
     supabaseEnabled: supabaseClient.isEnabled(),
     supabaseReadEnabled: env.supabaseReadEnabled,
+    supabasePreferReadFirst: env.supabasePreferReadFirst,
     supabaseDualWriteEnabled: env.supabaseDualWriteEnabled,
   },
   'Feed backend started',

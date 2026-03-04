@@ -29,6 +29,7 @@ export interface ChartHistoryServiceOptions {
   warmupTopPairs: number
   chartRepository?: ChartRepository
   readThroughEnabled?: boolean
+  preferSupabaseRead?: boolean
   writeThroughEnabled?: boolean
 }
 
@@ -45,6 +46,7 @@ export class ChartHistoryService {
   private readonly backfillInFlight = new Map<string, Promise<void>>()
   private readonly chartRepository?: ChartRepository
   private readonly readThroughEnabled: boolean
+  private readonly preferSupabaseRead: boolean
   private readonly writeThroughEnabled: boolean
 
   constructor(
@@ -56,6 +58,7 @@ export class ChartHistoryService {
   ) {
     this.chartRepository = options.chartRepository
     this.readThroughEnabled = options.readThroughEnabled ?? false
+    this.preferSupabaseRead = options.preferSupabaseRead ?? false
     this.writeThroughEnabled = options.writeThroughEnabled ?? false
   }
 
@@ -164,14 +167,23 @@ export class ChartHistoryService {
     const runtimeSnapshot = this.chartRegistry.getPairSnapshot(pairAddress, this.options.historyLimit, interval)
     const runtimeCandles = runtimeSnapshot.candles.map(fromChartCandleDto)
 
+    const shouldReadThroughFromSupabase =
+      interval === '1m' && this.readThroughEnabled && this.chartRepository?.isEnabled()
+    const supabaseChartRepository = shouldReadThroughFromSupabase ? this.chartRepository : null
+    if (supabaseChartRepository && this.preferSupabaseRead) {
+      const storedCandles = await supabaseChartRepository.getCandles(pairAddress, boundedLimit)
+      if (storedCandles.length > 0) {
+        await this.historyCache.writeHistorical(pairAddress, storedCandles, interval)
+      }
+    }
+
     let cacheRead = await this.historyCache.readPair(pairAddress, interval)
     if (
-      interval === '1m' &&
-      this.readThroughEnabled &&
-      this.chartRepository?.isEnabled() &&
+      supabaseChartRepository &&
+      !this.preferSupabaseRead &&
       (cacheRead.entry?.candles.length ?? 0) < boundedLimit
     ) {
-      const storedCandles = await this.chartRepository.getCandles(pairAddress, boundedLimit)
+      const storedCandles = await supabaseChartRepository.getCandles(pairAddress, boundedLimit)
       if (storedCandles.length > 0) {
         await this.historyCache.writeHistorical(pairAddress, storedCandles, interval)
         cacheRead = await this.historyCache.readPair(pairAddress, interval)
