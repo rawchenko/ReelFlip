@@ -2,6 +2,15 @@
 
 Fastify API backend for feed and chart services.
 
+## Runtime Modes
+
+- `RUNTIME_MODE=dev|prod` (`prod` auto-selected when `NODE_ENV=production`)
+- `CACHE_REQUIRED=true|false` (defaults to `true` in `prod`)
+- `ALLOW_DEGRADED_START=true|false` (default `false`)
+- `REDIS_CONNECT_TIMEOUT_MS` (default `1500`)
+
+When cache is required and Redis is unavailable, startup fails unless degraded start is explicitly allowed.
+
 ## Supabase Migration Verification
 
 Ensure backend is running and `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are configured.
@@ -48,3 +57,7 @@ Optional migration alert webhook environment variables:
 - Supabase request latency/failure counters
 - Supabase row writes by table (`rowsWrittenByTable`)
 - feed fallback rates (`seedRate`, `staleRate`)
+- cache source mix (`cache.feed.redisReads`, `memoryReads`, `repositoryReads`)
+- upstream request health (`upstream.*`)
+- chart stream publish/consume and lag/queue size (`stream.*`)
+- rate-limit hit counter (`rateLimit.hits`)

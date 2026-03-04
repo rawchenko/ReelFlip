@@ -56,6 +56,8 @@ test('GET /v1/feed preserves response contract and headers', async () => {
     nextCursor: 'next-cursor-token',
     generatedAt: '2026-03-03T00:00:00.000Z',
     cacheStatus: 'MISS',
+    stale: false,
+    cacheStorage: 'redis_cache',
     source: 'providers',
   }
   const feedService = {
@@ -66,6 +68,7 @@ test('GET /v1/feed preserves response contract and headers', async () => {
     feedService: feedService as unknown as FeedService,
     feedDefaultLimit: 10,
     feedMaxLimit: 20,
+    rateLimitFeedPerMinute: 120,
     onFeedPageServed: () => {
       callbackCalled = true
     },
@@ -81,7 +84,7 @@ test('GET /v1/feed preserves response contract and headers', async () => {
   assert.equal(response.headers['x-feed-source'], 'providers')
   const body = response.json() as Record<string, unknown>
 
-  assert.deepEqual(Object.keys(body).sort(), ['generatedAt', 'items', 'nextCursor'])
+  assert.deepEqual(Object.keys(body).sort(), ['generatedAt', 'items', 'nextCursor', 'stale'])
   assert.equal(body.nextCursor, 'next-cursor-token')
   assert.equal(body.generatedAt, '2026-03-03T00:00:00.000Z')
 
@@ -107,6 +110,7 @@ test('GET /v1/feed returns FEED_UNAVAILABLE envelope on provider outage', async 
     feedService: feedService as unknown as FeedService,
     feedDefaultLimit: 10,
     feedMaxLimit: 20,
+    rateLimitFeedPerMinute: 120,
     onFeedUnavailable: () => {
       unavailableCalled = true
     },

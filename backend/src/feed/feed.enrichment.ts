@@ -1,4 +1,6 @@
 import type { ChartBatchHistoryResponse, ChartHistoryQuality, ChartInterval } from '../chart/chart.types.js'
+import { CircuitBreaker } from '../lib/circuit-breaker.js'
+import { ResilientHttpClient, UpstreamRequestEvent } from '../lib/http-client.js'
 import type { FeedLabel, TokenFeedItem, TokenFeedSparklineMeta } from './feed.provider.js'
 
 interface Logger {
@@ -266,16 +268,33 @@ export class FeedEnrichmentService implements FeedEnricher {
 interface BirdeyeClientOptions {
   apiKey?: string
   timeoutMs: number
+  onRequestComplete?: (event: UpstreamRequestEvent) => void
 }
 
 export class BirdeyeMarketDataClient implements TokenMarketDataClient {
   private readonly enabled: boolean
+  private readonly httpClient: ResilientHttpClient
 
   constructor(
     private readonly options: BirdeyeClientOptions,
     private readonly logger: Logger,
   ) {
     this.enabled = typeof options.apiKey === 'string' && options.apiKey.trim().length > 0
+    this.httpClient = new ResilientHttpClient({
+      upstream: 'birdeye_market',
+      timeoutMs: options.timeoutMs,
+      maxRetries: 2,
+      retryBaseDelayMs: 200,
+      circuitBreaker: new CircuitBreaker({
+        windowMs: 30_000,
+        minSamples: 10,
+        failureThreshold: 0.5,
+        openDurationMs: 15_000,
+        halfOpenProbeCount: 1,
+      }),
+      logger,
+      onRequestComplete: options.onRequestComplete,
+    })
   }
 
   async fetchTokenMarket(mint: string, signal: AbortSignal): Promise<BirdeyeMarketSnapshot | null> {
@@ -283,18 +302,13 @@ export class BirdeyeMarketDataClient implements TokenMarketDataClient {
       return null
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
-    const abortOnParent = () => controller.abort()
-    signal.addEventListener('abort', abortOnParent, { once: true })
-
     try {
       const url = new URL('https://public-api.birdeye.so/defi/token_overview')
       url.searchParams.set('address', mint)
 
-      const response = await fetch(url, {
+      const response = await this.httpClient.request(url, {
         method: 'GET',
-        signal: controller.signal,
+        signal,
         headers: {
           accept: 'application/json',
           'x-api-key': this.options.apiKey ?? '',
@@ -325,9 +339,6 @@ export class BirdeyeMarketDataClient implements TokenMarketDataClient {
     } catch (error) {
       this.logger.warn({ error, mint }, 'Birdeye fetch failed')
       return null
-    } finally {
-      clearTimeout(timeoutId)
-      signal.removeEventListener('abort', abortOnParent)
     }
   }
 }
@@ -336,16 +347,33 @@ interface HeliusClientOptions {
   apiKey?: string
   timeoutMs: number
   dasUrl: string
+  onRequestComplete?: (event: UpstreamRequestEvent) => void
 }
 
 export class HeliusMetadataClient implements TokenMetadataClient {
   private readonly enabled: boolean
+  private readonly httpClient: ResilientHttpClient
 
   constructor(
     private readonly options: HeliusClientOptions,
     private readonly logger: Logger,
   ) {
     this.enabled = typeof options.apiKey === 'string' && options.apiKey.trim().length > 0
+    this.httpClient = new ResilientHttpClient({
+      upstream: 'helius_metadata',
+      timeoutMs: options.timeoutMs,
+      maxRetries: 2,
+      retryBaseDelayMs: 200,
+      circuitBreaker: new CircuitBreaker({
+        windowMs: 30_000,
+        minSamples: 10,
+        failureThreshold: 0.5,
+        openDurationMs: 15_000,
+        halfOpenProbeCount: 1,
+      }),
+      logger,
+      onRequestComplete: options.onRequestComplete,
+    })
   }
 
   async fetchTokenMetadata(mint: string, signal: AbortSignal): Promise<TokenMetadataSnapshot | null> {
@@ -353,16 +381,11 @@ export class HeliusMetadataClient implements TokenMetadataClient {
       return null
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
-    const abortOnParent = () => controller.abort()
-    signal.addEventListener('abort', abortOnParent, { once: true })
-
     try {
       const endpoint = buildHeliusRpcUrl(this.options.dasUrl, this.options.apiKey)
-      const response = await fetch(endpoint, {
+      const response = await this.httpClient.request(endpoint, {
         method: 'POST',
-        signal: controller.signal,
+        signal,
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
@@ -410,15 +433,14 @@ export class HeliusMetadataClient implements TokenMetadataClient {
     } catch (error) {
       this.logger.warn({ error, mint }, 'Helius metadata fetch failed')
       return null
-    } finally {
-      clearTimeout(timeoutId)
-      signal.removeEventListener('abort', abortOnParent)
     }
   }
 }
 
 interface JupiterTagsClientOptions {
   ttlMs: number
+  timeoutMs?: number
+  onRequestComplete?: (event: UpstreamRequestEvent) => void
 }
 
 const JUPITER_TRUST_TAGS = ['verified', 'lst'] as const
@@ -427,11 +449,28 @@ type JupiterTrustTag = (typeof JUPITER_TRUST_TAGS)[number]
 
 export class JupiterTrustTagsClient implements TokenTrustTagsClient {
   private readonly byTagCache = new Map<JupiterTrustTag, { expiresAtMs: number; mints: Set<string> }>()
+  private readonly httpClient: ResilientHttpClient
 
   constructor(
     private readonly options: JupiterTagsClientOptions,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.httpClient = new ResilientHttpClient({
+      upstream: 'jupiter_tags',
+      timeoutMs: options.timeoutMs ?? 2500,
+      maxRetries: 2,
+      retryBaseDelayMs: 200,
+      circuitBreaker: new CircuitBreaker({
+        windowMs: 30_000,
+        minSamples: 10,
+        failureThreshold: 0.5,
+        openDurationMs: 15_000,
+        halfOpenProbeCount: 1,
+      }),
+      logger,
+      onRequestComplete: options.onRequestComplete,
+    })
+  }
 
   async fetchTrustTags(mint: string, signal: AbortSignal): Promise<string[]> {
     if (this.options.ttlMs <= 0) {
@@ -466,7 +505,7 @@ export class JupiterTrustTagsClient implements TokenTrustTagsClient {
       const url = new URL('https://tokens.jup.ag/tokens')
       url.searchParams.set('tags', tag)
 
-      const response = await fetch(url, {
+      const response = await this.httpClient.request(url, {
         method: 'GET',
         signal,
         headers: {

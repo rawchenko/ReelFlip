@@ -35,6 +35,8 @@ export interface FeedPageResult {
   nextCursor: string | null
   generatedAt: string
   cacheStatus: 'HIT' | 'MISS' | 'STALE'
+  stale: boolean
+  cacheStorage: 'redis_cache' | 'memory_cache' | 'repository' | 'miss'
   source: 'providers' | 'seed'
   eligibilityStats?: FeedEligibilityStats
 }
@@ -57,6 +59,7 @@ interface FeedServiceOptions {
   readThroughEnabled?: boolean
   preferSupabaseRead?: boolean
   writeThroughEnabled?: boolean
+  allowSyncRefreshOnMiss?: boolean
   logger?: {
     warn: (obj: unknown, msg?: string) => void
   }
@@ -158,6 +161,7 @@ export class FeedService {
   private readonly readThroughEnabled: boolean
   private readonly preferSupabaseRead: boolean
   private readonly writeThroughEnabled: boolean
+  private readonly allowSyncRefreshOnMiss: boolean
   private readonly logger?: {
     warn: (obj: unknown, msg?: string) => void
   }
@@ -179,6 +183,7 @@ export class FeedService {
     this.readThroughEnabled = options.readThroughEnabled ?? false
     this.preferSupabaseRead = options.preferSupabaseRead ?? false
     this.writeThroughEnabled = options.writeThroughEnabled ?? false
+    this.allowSyncRefreshOnMiss = options.allowSyncRefreshOnMiss ?? true
     this.logger = options.logger
   }
 
@@ -192,11 +197,13 @@ export class FeedService {
     if (cursorPayload) {
       let snapshot: FeedSnapshot | null = null
       let cacheStatus: 'HIT' | 'MISS' = 'HIT'
+      let cacheStorage: FeedPageResult['cacheStorage'] = this.cache.cacheStorage()
 
       if (this.preferSupabaseRead && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
         snapshot = await this.feedRepository.readSnapshotById(cursorPayload.snapshotId)
         if (snapshot) {
           cacheStatus = 'MISS'
+          cacheStorage = 'repository'
           await this.cache.writeSnapshot(snapshot).catch(() => undefined)
         }
       }
@@ -209,6 +216,7 @@ export class FeedService {
         snapshot = await this.feedRepository.readSnapshotById(cursorPayload.snapshotId)
         if (snapshot) {
           cacheStatus = 'MISS'
+          cacheStorage = 'repository'
           await this.cache.writeSnapshot(snapshot).catch(() => undefined)
         }
       }
@@ -216,7 +224,7 @@ export class FeedService {
         throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
       }
 
-      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus)
+      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus, cacheStorage)
     }
 
     let triedLatestSnapshotInSupabase = false
@@ -226,7 +234,15 @@ export class FeedService {
       if (persistedSnapshot && this.canUseSnapshot(persistedSnapshot)) {
         if (!requiresLiveSource || persistedSnapshot.source === 'providers') {
           await this.cache.writeSnapshot(persistedSnapshot).catch(() => undefined)
-          return this.paginateSnapshot(persistedSnapshot, null, category, minLifetimeHours, limit, 'MISS')
+          return this.paginateSnapshot(
+            persistedSnapshot,
+            null,
+            category,
+            minLifetimeHours,
+            limit,
+            'MISS',
+            'repository',
+          )
         }
       }
     }
@@ -238,7 +254,15 @@ export class FeedService {
     const staleProviderSnapshot = staleSnapshot?.source === 'providers' ? staleSnapshot : null
 
     if (freshSnapshot && (!requiresLiveSource || freshSnapshot.source === 'providers')) {
-      return this.paginateSnapshot(freshSnapshot, null, category, minLifetimeHours, limit, 'HIT')
+      return this.paginateSnapshot(
+        freshSnapshot,
+        null,
+        category,
+        minLifetimeHours,
+        limit,
+        'HIT',
+        lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+      )
     }
 
     if (!triedLatestSnapshotInSupabase && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
@@ -246,66 +270,153 @@ export class FeedService {
       if (persistedSnapshot && this.canUseSnapshot(persistedSnapshot)) {
         if (!requiresLiveSource || persistedSnapshot.source === 'providers') {
           await this.cache.writeSnapshot(persistedSnapshot).catch(() => undefined)
-          return this.paginateSnapshot(persistedSnapshot, null, category, minLifetimeHours, limit, 'MISS')
+          return this.paginateSnapshot(
+            persistedSnapshot,
+            null,
+            category,
+            minLifetimeHours,
+            limit,
+            'MISS',
+            'repository',
+          )
         }
       }
     }
 
-    try {
-      const providerResult = await this.provider.fetchFeed(new AbortController().signal)
+    if (requiresLiveSource && staleProviderSnapshot) {
+      return this.paginateSnapshot(
+        staleProviderSnapshot,
+        null,
+        category,
+        minLifetimeHours,
+        limit,
+        'STALE',
+        lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+      )
+    }
 
-      if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
-        if (staleProviderSnapshot) {
-          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
+    if (!requiresLiveSource && staleSnapshot) {
+      return this.paginateSnapshot(
+        staleSnapshot,
+        null,
+        category,
+        minLifetimeHours,
+        limit,
+        'STALE',
+        lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+      )
+    }
+
+    if (this.allowSyncRefreshOnMiss) {
+      try {
+        const providerResult = await this.provider.fetchFeed(new AbortController().signal)
+
+        if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
+          if (staleProviderSnapshot) {
+            return this.paginateSnapshot(
+              staleProviderSnapshot,
+              null,
+              category,
+              minLifetimeHours,
+              limit,
+              'STALE',
+              lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            )
+          }
+          throw new FeedUnavailableError()
         }
-        throw new FeedUnavailableError()
-      }
 
-      if (requiresLiveSource && providerResult.usedSeedFallback) {
-        if (staleProviderSnapshot) {
-          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
+        if (requiresLiveSource && providerResult.usedSeedFallback) {
+          if (staleProviderSnapshot) {
+            return this.paginateSnapshot(
+              staleProviderSnapshot,
+              null,
+              category,
+              minLifetimeHours,
+              limit,
+              'STALE',
+              lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            )
+          }
+
+          throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
         }
 
-        throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
-      }
-
-      if (providerResult.usedSeedFallback && staleSnapshot) {
-        return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
-      }
-
-      const eligibilityResult = this.filterRenderableItems(providerResult.items)
-      if (this.enforceRenderableTokens && eligibilityResult.items.length === 0) {
-        if (staleSnapshot) {
-          return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
+        if (providerResult.usedSeedFallback && staleSnapshot) {
+          return this.paginateSnapshot(
+            staleSnapshot,
+            null,
+            category,
+            minLifetimeHours,
+            limit,
+            'STALE',
+            lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+          )
         }
-        throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
-      }
 
-      const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
+        const eligibilityResult = this.filterRenderableItems(providerResult.items)
+        if (this.enforceRenderableTokens && eligibilityResult.items.length === 0) {
+          if (staleSnapshot) {
+            return this.paginateSnapshot(
+              staleSnapshot,
+              null,
+              category,
+              minLifetimeHours,
+              limit,
+              'STALE',
+              lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            )
+          }
+          throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
+        }
 
-      const page = this.paginateSnapshot(snapshot, null, category, minLifetimeHours, limit, 'MISS')
-      return {
-        ...page,
-        eligibilityStats: eligibilityResult.stats,
-      }
-    } catch (error) {
-      if (error instanceof FeedUnavailableError) {
+        const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
+        const page = this.paginateSnapshot(snapshot, null, category, minLifetimeHours, limit, 'MISS', this.cache.cacheStorage())
+        return {
+          ...page,
+          eligibilityStats: eligibilityResult.stats,
+        }
+      } catch (error) {
+        if (error instanceof FeedUnavailableError) {
+          throw error
+        }
+
+        if (error instanceof FeedProviderUnavailableError) {
+          if (requiresLiveSource && staleProviderSnapshot) {
+            return this.paginateSnapshot(
+              staleProviderSnapshot,
+              null,
+              category,
+              minLifetimeHours,
+              limit,
+              'STALE',
+              lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            )
+          }
+
+          if (!requiresLiveSource && staleSnapshot) {
+            return this.paginateSnapshot(
+              staleSnapshot,
+              null,
+              category,
+              minLifetimeHours,
+              limit,
+              'STALE',
+              lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            )
+          }
+          throw new FeedUnavailableError()
+        }
+
         throw error
       }
-
-      if (error instanceof FeedProviderUnavailableError) {
-        if (requiresLiveSource && staleProviderSnapshot) {
-          return this.paginateSnapshot(staleProviderSnapshot, null, category, minLifetimeHours, limit, 'STALE')
-        }
-
-        if (!requiresLiveSource && staleSnapshot) {
-          return this.paginateSnapshot(staleSnapshot, null, category, minLifetimeHours, limit, 'STALE')
-        }
-        throw new FeedUnavailableError()
-      }
-
-      throw error
     }
+
+    throw new FeedUnavailableError(
+      requiresLiveSource
+        ? 'Live feed providers are temporarily unavailable. Please try again soon.'
+        : 'Feed is temporarily unavailable. Please try again soon.',
+    )
   }
 
   async refreshSnapshot(): Promise<FeedSnapshot | null> {
@@ -328,8 +439,10 @@ export class FeedService {
     const rankedWithScores = this.rankingService.rankWithScores(items)
     const snapshot: FeedSnapshot = {
       id: randomUUID(),
+      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       source,
+      upstreamStatus: 'ok',
       items: rankedWithScores.map((entry) => entry.item),
     }
 
@@ -389,6 +502,7 @@ export class FeedService {
     minLifetimeHours: number | null,
     limit: number,
     cacheStatus: FeedPageResult['cacheStatus'],
+    cacheStorage: FeedPageResult['cacheStorage'],
   ): FeedPageResult {
     const generatedAtMs = Date.parse(snapshot.generatedAt)
     const referenceTimeMs = Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now()
@@ -424,6 +538,8 @@ export class FeedService {
       nextCursor,
       generatedAt: snapshot.generatedAt,
       cacheStatus,
+      stale: cacheStatus === 'STALE',
+      cacheStorage,
       source: snapshot.source,
     }
   }

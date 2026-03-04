@@ -8,6 +8,7 @@ interface FeedRouteDependencies {
   feedService: FeedService
   feedDefaultLimit: number
   feedMaxLimit: number
+  rateLimitFeedPerMinute: number
   onFeedItemsServed?: (items: TokenFeedItem[]) => void
   onFeedPageServed?: (result: FeedPageResult) => void
   onFeedUnavailable?: () => void
@@ -24,7 +25,17 @@ const VALID_CATEGORIES: FeedCategory[] = ['trending', 'gainer', 'new', 'memecoin
 const MAX_MIN_LIFETIME_HOURS = 24 * 365
 
 export async function registerFeedRoutes(app: FastifyInstance, dependencies: FeedRouteDependencies): Promise<void> {
-  app.get<{ Querystring: FeedQuerystring }>('/v1/feed', async (request, reply) => {
+  app.get<{ Querystring: FeedQuerystring }>(
+    '/v1/feed',
+    {
+      config: {
+        rateLimit: {
+          max: dependencies.rateLimitFeedPerMinute,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
     const startedAt = Date.now()
 
     try {
@@ -69,6 +80,7 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
         items: result.items,
         nextCursor: result.nextCursor,
         generatedAt: result.generatedAt,
+        stale: result.stale,
       }
     } catch (error) {
       if (error instanceof InvalidFeedRequestError) {
@@ -90,7 +102,8 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
 
       throw error
     }
-  })
+    },
+  )
 }
 
 function parseCategoryOrAll(category?: string): FeedCategory | 'all' {

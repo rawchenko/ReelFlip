@@ -1,10 +1,13 @@
-import { Redis } from 'ioredis'
+import { CacheStore } from '../cache/cache.types.js'
+import { MemoryCacheStore } from '../cache/cache.memory.js'
 import { TokenFeedItem } from './feed.provider.js'
 
 export interface FeedSnapshot {
   id: string
+  schemaVersion?: number
   generatedAt: string
   source: 'providers' | 'seed'
+  upstreamStatus?: 'ok' | 'degraded' | 'down'
   items: TokenFeedItem[]
 }
 
@@ -18,10 +21,11 @@ export type FeedCacheLookupState = 'missing' | 'fresh' | 'stale' | 'expired'
 export interface FeedCacheLookupResult {
   state: FeedCacheLookupState
   entry: CachedSnapshotEntry | null
+  storage: 'redis_cache' | 'memory_cache' | 'miss'
 }
 
 interface FeedCacheOptions {
-  redisUrl?: string
+  store?: CacheStore
   ttlSeconds: number
   staleTtlSeconds: number
   cursorTtlSeconds?: number
@@ -32,70 +36,62 @@ interface FeedCacheOptions {
   }
 }
 
-const LATEST_SNAPSHOT_CACHE_KEY = 'feed:snapshot:latest:v2'
-const SNAPSHOT_BY_ID_PREFIX = 'feed:snapshot:by-id:v1:'
+const LATEST_SNAPSHOT_CACHE_KEY = 'feed:snapshot:latest:v3'
+const SNAPSHOT_BY_ID_PREFIX = 'feed:snapshot:by-id:v3:'
 const DEFAULT_CURSOR_TTL_SECONDS = 300
 const DEFAULT_SNAPSHOT_HISTORY_MAX = 500
 
 export class FeedCache {
-  private readonly latestMemoryKey = LATEST_SNAPSHOT_CACHE_KEY
-  private readonly memory = new Map<string, CachedSnapshotEntry>()
+  private readonly store: CacheStore
   private readonly ttlMs: number
   private readonly staleTtlMs: number
   private readonly cursorTtlMs: number
+  private readonly cursorTtlSeconds: number
   private readonly snapshotHistoryMax: number
-  private redisClient: Redis | null = null
+  private readonly snapshotIds: string[] = []
 
   constructor(private readonly options: FeedCacheOptions) {
+    this.store = options.store ?? new MemoryCacheStore()
     this.ttlMs = options.ttlSeconds * 1000
     this.staleTtlMs = Math.max(options.staleTtlSeconds, options.ttlSeconds) * 1000
     this.cursorTtlMs = (options.cursorTtlSeconds ?? DEFAULT_CURSOR_TTL_SECONDS) * 1000
+    this.cursorTtlSeconds = Math.max(1, Math.ceil(this.cursorTtlMs / 1000))
     this.snapshotHistoryMax = Math.max(1, options.snapshotHistoryMax ?? DEFAULT_SNAPSHOT_HISTORY_MAX)
   }
 
   async initialize(): Promise<void> {
-    if (!this.options.redisUrl) {
-      return
-    }
-
-    const redis = new Redis(this.options.redisUrl, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    })
-
-    try {
-      await redis.connect()
-      this.redisClient = redis
-      this.options.logger.info({ redisUrl: this.options.redisUrl }, 'Redis cache connected')
-    } catch (error) {
-      this.options.logger.warn({ error }, 'Redis unavailable, falling back to in-memory cache')
-      await redis.quit().catch(() => undefined)
-      this.redisClient = null
-    }
+    this.options.logger.info({ backend: this.store.backend }, 'Feed cache initialized')
   }
 
   cacheMode(): 'redis' | 'memory-fallback' {
-    return this.redisClient ? 'redis' : 'memory-fallback'
+    return this.store.backend === 'redis' ? 'redis' : 'memory-fallback'
+  }
+
+  cacheStorage(): 'redis_cache' | 'memory_cache' {
+    return this.store.backend === 'redis' ? 'redis_cache' : 'memory_cache'
   }
 
   async readSnapshot(): Promise<FeedCacheLookupResult> {
-    const entry = (await this.readRedisLatestEntry()) ?? this.readMemoryLatestEntry()
+    const raw = await this.store.get(LATEST_SNAPSHOT_CACHE_KEY)
+    if (!raw) {
+      return { state: 'missing', entry: null, storage: 'miss' }
+    }
 
+    const entry = parseCachedSnapshotEntry(raw)
     if (!entry) {
-      return { state: 'missing', entry: null }
+      return { state: 'missing', entry: null, storage: 'miss' }
     }
 
     const ageMs = Date.now() - entry.createdAtMs
     if (ageMs <= this.ttlMs) {
-      return { state: 'fresh', entry }
+      return { state: 'fresh', entry, storage: this.cacheStorage() }
     }
 
     if (ageMs <= this.staleTtlMs) {
-      return { state: 'stale', entry }
+      return { state: 'stale', entry, storage: this.cacheStorage() }
     }
 
-    return { state: 'expired', entry }
+    return { state: 'expired', entry, storage: this.cacheStorage() }
   }
 
   async readSnapshotById(snapshotId: string): Promise<FeedSnapshot | null> {
@@ -103,14 +99,18 @@ export class FeedCache {
       return null
     }
 
-    const byIdKey = this.byIdMemoryKey(snapshotId)
-    const entry = (await this.readRedisSnapshotEntryById(snapshotId)) ?? this.readMemorySnapshotEntryById(snapshotId)
+    const raw = await this.store.get(this.byIdKey(snapshotId))
+    if (!raw) {
+      return null
+    }
+
+    const entry = parseCachedSnapshotEntry(raw)
     if (!entry) {
       return null
     }
 
     if (!this.isEntryWithinCursorTtl(entry)) {
-      this.memory.delete(byIdKey)
+      await this.store.del(this.byIdKey(snapshotId)).catch(() => undefined)
       return null
     }
 
@@ -118,170 +118,105 @@ export class FeedCache {
   }
 
   async writeSnapshot(snapshot: FeedSnapshot): Promise<void> {
+    const schemaVersion =
+      typeof snapshot.schemaVersion === 'number' && Number.isFinite(snapshot.schemaVersion)
+        ? snapshot.schemaVersion
+        : 3
+    const nextSnapshot: FeedSnapshot = {
+      ...snapshot,
+      schemaVersion: schemaVersion > 0 ? schemaVersion : 3,
+      upstreamStatus: snapshot.upstreamStatus ?? 'ok',
+    }
+
     const entry: CachedSnapshotEntry = {
       createdAtMs: Date.now(),
-      snapshot,
+      snapshot: nextSnapshot,
     }
 
-    this.memory.set(this.latestMemoryKey, entry)
-    this.memory.set(this.byIdMemoryKey(snapshot.id), entry)
-    this.pruneMemorySnapshotHistory()
+    await this.store.set(
+      LATEST_SNAPSHOT_CACHE_KEY,
+      JSON.stringify(entry),
+      Math.max(1, Math.ceil(this.staleTtlMs / 1000)),
+    )
+    await this.store.set(this.byIdKey(nextSnapshot.id), JSON.stringify(entry), this.cursorTtlSeconds)
 
-    if (!this.redisClient) {
-      return
-    }
-
-    try {
-      const latestTtlSeconds = Math.ceil(this.staleTtlMs / 1000)
-      const byIdTtlSeconds = Math.ceil(this.cursorTtlMs / 1000)
-      const byIdRedisKey = this.byIdRedisKey(snapshot.id)
-
-      await this.redisClient
-        .multi()
-        .set(LATEST_SNAPSHOT_CACHE_KEY, JSON.stringify(entry), 'EX', latestTtlSeconds)
-        .set(byIdRedisKey, JSON.stringify(entry), 'EX', byIdTtlSeconds)
-        .exec()
-    } catch (error) {
-      this.options.logger.warn({ error }, 'Failed to write snapshot to Redis, keeping in-memory value')
-      await this.disableRedis()
-    }
+    this.snapshotIds.push(nextSnapshot.id)
+    await this.pruneSnapshotHistory()
   }
 
   async close(): Promise<void> {
-    if (!this.redisClient) {
-      return
-    }
-
-    await this.redisClient.quit().catch(() => undefined)
-    this.redisClient = null
+    await this.store.close()
   }
 
-  private readMemoryLatestEntry(): CachedSnapshotEntry | null {
-    return this.memory.get(this.latestMemoryKey) ?? null
-  }
-
-  private readMemorySnapshotEntryById(snapshotId: string): CachedSnapshotEntry | null {
-    return this.memory.get(this.byIdMemoryKey(snapshotId)) ?? null
-  }
-
-  private async readRedisLatestEntry(): Promise<CachedSnapshotEntry | null> {
-    if (!this.redisClient) {
-      return null
-    }
-
-    try {
-      const raw = await this.redisClient.get(LATEST_SNAPSHOT_CACHE_KEY)
-      if (!raw) {
-        return null
-      }
-
-      const parsed = JSON.parse(raw) as CachedSnapshotEntry
-      if (!isCachedSnapshotEntry(parsed)) {
-        return null
-      }
-
-      this.memory.set(this.latestMemoryKey, parsed)
-      this.memory.set(this.byIdMemoryKey(parsed.snapshot.id), parsed)
-      this.pruneMemorySnapshotHistory()
-
-      return parsed
-    } catch (error) {
-      this.options.logger.warn({ error }, 'Failed to read latest snapshot from Redis, falling back to memory')
-      await this.disableRedis()
-      return null
-    }
-  }
-
-  private async readRedisSnapshotEntryById(snapshotId: string): Promise<CachedSnapshotEntry | null> {
-    if (!this.redisClient) {
-      return null
-    }
-
-    try {
-      const raw = await this.redisClient.get(this.byIdRedisKey(snapshotId))
-      if (!raw) {
-        return null
-      }
-
-      const parsed = JSON.parse(raw) as CachedSnapshotEntry
-      if (!isCachedSnapshotEntry(parsed)) {
-        return null
-      }
-
-      this.memory.set(this.byIdMemoryKey(snapshotId), parsed)
-      this.pruneMemorySnapshotHistory()
-
-      return parsed
-    } catch (error) {
-      this.options.logger.warn({ error }, 'Failed to read snapshot by id from Redis, falling back to memory')
-      await this.disableRedis()
-      return null
-    }
-  }
-
-  private pruneMemorySnapshotHistory(): void {
-    const now = Date.now()
-    const byIdEntries = Array.from(this.memory.entries()).filter(([key]) => key.startsWith(SNAPSHOT_BY_ID_PREFIX))
-
-    for (const [key, entry] of byIdEntries) {
-      if (now - entry.createdAtMs > this.cursorTtlMs) {
-        this.memory.delete(key)
-      }
-    }
-
-    const liveEntries = Array.from(this.memory.entries())
-      .filter(([key]) => key.startsWith(SNAPSHOT_BY_ID_PREFIX))
-      .sort((left, right) => right[1].createdAtMs - left[1].createdAtMs)
-
-    for (let index = this.snapshotHistoryMax; index < liveEntries.length; index += 1) {
-      const key = liveEntries[index]?.[0]
-      if (key) {
-        this.memory.delete(key)
-      }
-    }
+  private byIdKey(snapshotId: string): string {
+    return `${SNAPSHOT_BY_ID_PREFIX}${snapshotId}`
   }
 
   private isEntryWithinCursorTtl(entry: CachedSnapshotEntry): boolean {
     return Date.now() - entry.createdAtMs <= this.cursorTtlMs
   }
 
-  private byIdMemoryKey(snapshotId: string): string {
-    return `${SNAPSHOT_BY_ID_PREFIX}${snapshotId}`
-  }
-
-  private byIdRedisKey(snapshotId: string): string {
-    return `${SNAPSHOT_BY_ID_PREFIX}${snapshotId}`
-  }
-
-  private async disableRedis(): Promise<void> {
-    if (!this.redisClient) {
+  private async pruneSnapshotHistory(): Promise<void> {
+    if (this.snapshotIds.length <= this.snapshotHistoryMax) {
       return
     }
 
-    await this.redisClient.quit().catch(() => undefined)
-    this.redisClient = null
+    const overflow = this.snapshotIds.length - this.snapshotHistoryMax
+    const removed = this.snapshotIds.splice(0, overflow)
+    await Promise.all(removed.map((snapshotId) => this.store.del(this.byIdKey(snapshotId)).catch(() => undefined)))
   }
 }
 
-function isCachedSnapshotEntry(input: unknown): input is CachedSnapshotEntry {
-  if (!isRecord(input)) {
-    return false
-  }
+function parseCachedSnapshotEntry(raw: string): CachedSnapshotEntry | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!isRecord(parsed)) {
+      return null
+    }
 
-  return typeof input.createdAtMs === 'number' && Number.isFinite(input.createdAtMs) && isFeedSnapshot(input.snapshot)
+    const snapshot = normalizeSnapshot(parsed.snapshot)
+    const createdAtMs = parsed.createdAtMs
+    if (typeof createdAtMs !== 'number' || !Number.isFinite(createdAtMs) || !snapshot) {
+      return null
+    }
+
+    return {
+      createdAtMs,
+      snapshot,
+    }
+  } catch {
+    return null
+  }
 }
 
-function isFeedSnapshot(input: unknown): input is FeedSnapshot {
+function normalizeSnapshot(input: unknown): FeedSnapshot | null {
   if (!isRecord(input)) {
-    return false
+    return null
   }
 
-  return (
-    typeof input.id === 'string' &&
-    typeof input.generatedAt === 'string' &&
-    (input.source === 'providers' || input.source === 'seed') &&
-    Array.isArray(input.items)
-  )
+  if (
+    typeof input.id !== 'string' ||
+    typeof input.generatedAt !== 'string' ||
+    (input.source !== 'providers' && input.source !== 'seed') ||
+    !Array.isArray(input.items)
+  ) {
+    return null
+  }
+
+  const schemaVersion = typeof input.schemaVersion === 'number' && Number.isFinite(input.schemaVersion) ? input.schemaVersion : 3
+  const upstreamStatus =
+    input.upstreamStatus === 'ok' || input.upstreamStatus === 'degraded' || input.upstreamStatus === 'down'
+      ? input.upstreamStatus
+      : 'ok'
+
+  return {
+    id: input.id,
+    schemaVersion,
+    generatedAt: input.generatedAt,
+    source: input.source,
+    upstreamStatus,
+    items: input.items as TokenFeedItem[],
+  }
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {

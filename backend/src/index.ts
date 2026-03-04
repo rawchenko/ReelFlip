@@ -1,4 +1,5 @@
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import Fastify from 'fastify'
 import { ChartHistoryCache } from './chart/chart.history-cache.js'
 import { ChartHistoryService } from './chart/chart.history-service.js'
@@ -7,7 +8,11 @@ import { NoopHistoricalCandleProvider } from './chart/chart.history-provider.js'
 import { DexScreenerChartProvider } from './chart/chart.provider.dexscreener.js'
 import { ChartRegistry } from './chart/chart.registry.js'
 import { registerChartRoutes } from './chart/chart.route.js'
+import { CachePollLock, ChartStreamService } from './chart/chart.stream.service.js'
 import { loadEnv } from './config/env.js'
+import { MemoryCacheStore } from './cache/cache.memory.js'
+import { RedisCacheStore } from './cache/cache.redis.js'
+import { CacheStore } from './cache/cache.types.js'
 import { FeedCache } from './feed/feed.cache.js'
 import {
   BirdeyeMarketDataClient,
@@ -19,6 +24,7 @@ import { registerImageProxyRoute } from './feed/image-proxy.route.js'
 import { registerFeedRoutes } from './feed/feed.route.js'
 import { CompositeFeedProvider, DexScreenerFeedProvider, SeedFeedProvider } from './feed/feed.provider.js'
 import { DEFAULT_SEEDED_FEED } from './feed/feed.seed.js'
+import { FeedSnapshotRefresher } from './feed/feed.snapshot-refresher.js'
 import { FeedRankingService, FeedService } from './feed/feed.service.js'
 import { TokenIngestJob } from './ingest/token.ingest.job.js'
 import { errorEnvelope } from './lib/error-envelope.js'
@@ -45,11 +51,29 @@ const app = Fastify({
   logger: {
     level: env.logLevel,
   },
+  requestIdHeader: 'x-correlation-id',
 })
 const metrics = new BackendMetrics()
+
+app.addHook('onRequest', async (request, reply) => {
+  const correlationIdHeader = request.headers['x-correlation-id']
+  const correlationId =
+    typeof correlationIdHeader === 'string' && correlationIdHeader.trim().length > 0
+      ? correlationIdHeader.trim()
+      : request.id
+  reply.header('x-correlation-id', correlationId)
+  ;(request as unknown as { log: typeof request.log }).log = request.log.child({ correlationId })
+})
+
+app.addHook('onResponse', async (_request, reply) => {
+  if (reply.statusCode === 429) {
+    metrics.recordRateLimitHit()
+  }
+})
+
 const alertContext = {
   service: 'reelflip-backend',
-  environment: (process.env.NODE_ENV ?? 'development').trim() || 'development',
+  environment: env.runtimeMode,
 }
 const alertNotifier = new WebhookAlertNotifier({
   url: env.alertWebhookUrl,
@@ -85,6 +109,7 @@ const supabaseClient = new SupabaseClient({
     }
   },
 })
+
 const tokenRepository = new TokenRepository(supabaseClient, app.log, {
   onRowsWritten: (tableOrView, rowCount) => {
     metrics.recordSupabaseRowsWritten(tableOrView, rowCount)
@@ -101,8 +126,47 @@ const chartRepository = new ChartRepository(supabaseClient, app.log, {
   },
 })
 
+let redisCacheStore: RedisCacheStore | null = null
+let cacheStore: CacheStore
+let degraded = false
+
+if (env.redisUrl) {
+  const candidate = new RedisCacheStore({
+    redisUrl: env.redisUrl,
+    connectTimeoutMs: env.redisConnectTimeoutMs,
+    logger: app.log,
+  })
+  const connected = await candidate.connect()
+
+  if (connected) {
+    redisCacheStore = candidate
+    cacheStore = candidate
+  } else if (env.cacheRequired && !env.allowDegradedStart) {
+    throw new Error('Redis is required but unavailable. Refusing startup.')
+  } else {
+    degraded = env.runtimeMode === 'prod'
+    cacheStore = new MemoryCacheStore()
+  }
+} else if (env.cacheRequired && !env.allowDegradedStart) {
+  throw new Error('CACHE_REQUIRED=true but REDIS_URL is missing. Refusing startup.')
+} else {
+  degraded = env.runtimeMode === 'prod' && env.cacheRequired
+  cacheStore = new MemoryCacheStore()
+}
+
+await app.register(cors, {
+  origin: true,
+})
+
+await app.register(rateLimit, {
+  global: false,
+  max: 1000,
+  timeWindow: '1 minute',
+  ...(redisCacheStore?.getClient() ? { redis: redisCacheStore.getClient() } : {}),
+})
+
 const feedCache = new FeedCache({
-  redisUrl: env.redisUrl,
+  store: cacheStore,
   ttlSeconds: env.feedCacheTtlSeconds,
   staleTtlSeconds: env.feedCacheStaleTtlSeconds,
   cursorTtlSeconds: env.feedCursorTtlSeconds,
@@ -113,13 +177,17 @@ const feedCache = new FeedCache({
 await feedCache.initialize()
 
 const chartHistoryCache = new ChartHistoryCache({
-  redisUrl: env.redisUrl,
+  store: cacheStore,
   ttlSeconds: env.chartHistoryCacheTtlSeconds,
   maxCandles: env.chartHistoryLimit,
   logger: app.log,
 })
 
 await chartHistoryCache.initialize()
+
+const chartStreamService = new ChartStreamService(redisCacheStore?.getClient() ?? null, {
+  maxLen: env.chartStreamMaxLen,
+})
 
 const chartHistoricalProvider =
   env.chartHistoryProvider === 'public'
@@ -135,6 +203,7 @@ const chartRegistry = new ChartRegistry(
   new DexScreenerChartProvider(
     {
       timeoutMs: env.dexScreenerTimeoutMs,
+      onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
     },
     app.log,
   ),
@@ -149,6 +218,16 @@ const chartRegistry = new ChartRegistry(
   },
   app.log,
   chartHistoryCache,
+  {
+    streamSink: chartStreamService,
+    pollLock: redisCacheStore?.isAvailable() ? new CachePollLock(cacheStore) : undefined,
+    onStreamPublished: (event) => {
+      if (!('pairAddress' in event) || !('interval' in event) || !event.interval) {
+        return
+      }
+      metrics.recordChartStreamPublished(event.pairAddress, event.interval)
+    },
+  },
 )
 
 const chartHistoryService = new ChartHistoryService(
@@ -175,6 +254,7 @@ const feedEnrichmentService = new FeedEnrichmentService(
     {
       apiKey: env.birdeyeApiKey,
       timeoutMs: env.birdeyeTimeoutMs,
+      onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
     },
     app.log,
   ),
@@ -183,12 +263,14 @@ const feedEnrichmentService = new FeedEnrichmentService(
       apiKey: env.heliusApiKey,
       timeoutMs: env.heliusTimeoutMs,
       dasUrl: env.heliusDasUrl,
+      onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
     },
     app.log,
   ),
   new JupiterTrustTagsClient(
     {
       ttlMs: env.jupiterTagsTtlMs,
+      onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
     },
     app.log,
   ),
@@ -209,6 +291,7 @@ const feedProvider = new CompositeFeedProvider(
         timeoutMs: env.dexScreenerTimeoutMs,
         searchQuery: env.dexScreenerSearchQuery,
         tokenMints: env.dexScreenerTokenMints,
+        onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
       },
       app.log,
       feedEnrichmentService,
@@ -231,7 +314,12 @@ const feedService = new FeedService(feedCache, feedProvider, new FeedRankingServ
   readThroughEnabled: env.supabaseReadEnabled,
   preferSupabaseRead: env.supabasePreferReadFirst,
   writeThroughEnabled: env.supabaseDualWriteEnabled,
+  allowSyncRefreshOnMiss: false,
   logger: app.log,
+})
+
+const feedSnapshotRefresher = new FeedSnapshotRefresher(feedService, cacheStore, app.log, {
+  intervalSeconds: env.feedRefreshIntervalSeconds,
 })
 
 const tokenIngestJob = new TokenIngestJob(
@@ -265,14 +353,11 @@ const tokenIngestJob = new TokenIngestJob(
   },
 )
 
-await app.register(cors, {
-  origin: true,
-})
-
 await registerFeedRoutes(app, {
   feedService,
   feedDefaultLimit: env.feedDefaultLimit,
   feedMaxLimit: env.feedMaxLimit,
+  rateLimitFeedPerMinute: env.rateLimitFeedPerMinute,
   onFeedItemsServed: (items) => {
     if (env.chartHistoryWarmupTopPairs <= 0) {
       return
@@ -285,6 +370,7 @@ await registerFeedRoutes(app, {
     metrics.recordFeedPage({
       source: result.source,
       cacheStatus: result.cacheStatus,
+      cacheStorage: result.cacheStorage,
     })
     const alert = metrics.maybeFeedSeedRateAlert(env.alertFeedSeedRateThreshold, env.alertMinRequests)
     if (alert.shouldAlert) {
@@ -307,16 +393,40 @@ await registerFeedRoutes(app, {
     metrics.recordFeedUnavailable()
   },
 })
-await registerImageProxyRoute(app)
+
+await registerImageProxyRoute(app, {
+  rateLimitImageProxyPerMinute: env.rateLimitImageProxyPerMinute,
+})
 
 await registerChartRoutes(app, {
   chartRegistry,
   chartHistoryService,
+  chartStreamService,
+  rateLimitChartHistoryPerMinute: env.rateLimitChartHistoryPerMinute,
+  rateLimitChartStreamPerMinute: env.rateLimitChartStreamPerMinute,
+  onStreamEventConsumed: (event) => {
+    if (!('pairAddress' in event) || !('interval' in event) || !event.interval) {
+      return
+    }
+    const lagMs =
+      typeof event.observedAtMs === 'number' && Number.isFinite(event.observedAtMs)
+        ? Math.max(0, Date.now() - event.observedAtMs)
+        : undefined
+    metrics.recordChartStreamConsumed(event.pairAddress, event.interval, lagMs)
+  },
+  onStreamQueueSample: (pairAddress, interval, queueSize) => {
+    metrics.recordChartStreamQueueSize(pairAddress, interval, queueSize)
+  },
 })
 
 app.get('/health', async () => {
   return {
     status: 'ok',
+    runtimeMode: env.runtimeMode,
+    cacheRequired: env.cacheRequired,
+    degraded,
+    redisConnected: redisCacheStore?.isAvailable() ?? false,
+    streamBackend: chartStreamService.isAvailable() ? 'redis-streams' : 'unavailable',
     cacheMode: feedCache.cacheMode(),
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
     supabaseEnabled: supabaseClient.isEnabled(),
@@ -338,6 +448,7 @@ app.setErrorHandler((error, _request, reply) => {
 })
 
 const closeGracefully = async () => {
+  feedSnapshotRefresher.stop()
   tokenIngestJob.stop()
   await app.close()
   await chartRegistry.close()
@@ -358,6 +469,8 @@ await app.listen({
   port: env.port,
 })
 
+feedSnapshotRefresher.start()
+
 if (env.supabaseDualWriteEnabled && supabaseClient.isEnabled()) {
   tokenIngestJob.start()
 }
@@ -366,6 +479,11 @@ app.log.info(
   {
     host: env.host,
     port: env.port,
+    runtimeMode: env.runtimeMode,
+    cacheRequired: env.cacheRequired,
+    degraded,
+    redisConnected: redisCacheStore?.isAvailable() ?? false,
+    streamBackend: chartStreamService.isAvailable() ? 'redis-streams' : 'unavailable',
     cacheMode: feedCache.cacheMode(),
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
     supabaseEnabled: supabaseClient.isEnabled(),

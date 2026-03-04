@@ -1,4 +1,5 @@
-import { Redis } from 'ioredis'
+import { CacheStore } from '../cache/cache.types.js'
+import { MemoryCacheStore } from '../cache/cache.memory.js'
 import { ChartInterval, OhlcCandle } from './chart.types.js'
 import { normalizeHistoricalCandles } from './chart.history-provider.js'
 
@@ -18,7 +19,7 @@ export interface ChartHistoryCacheReadResult {
 }
 
 interface ChartHistoryCacheOptions {
-  redisUrl?: string
+  store?: CacheStore
   ttlSeconds?: number
   maxCandles: number
   logger: {
@@ -31,68 +32,48 @@ const DEFAULT_TTL_SECONDS = 12 * 60 * 60
 const KEY_PREFIX = 'chart:'
 
 export class ChartHistoryCache {
-  private readonly memory = new Map<string, ChartHistoryCacheEntry>()
+  private readonly store: CacheStore
   private readonly ttlSeconds: number
   private readonly ttlMs: number
-  private redisClient: Redis | null = null
 
   constructor(private readonly options: ChartHistoryCacheOptions) {
-    this.ttlSeconds = Math.max(60, Math.floor(options.ttlSeconds ?? DEFAULT_TTL_SECONDS))
+    this.store = options.store ?? new MemoryCacheStore()
+    this.ttlSeconds = Math.max(1, Math.floor(options.ttlSeconds ?? DEFAULT_TTL_SECONDS))
     this.ttlMs = this.ttlSeconds * 1000
   }
 
   async initialize(): Promise<void> {
-    if (!this.options.redisUrl) {
-      return
-    }
-
-    const redis = new Redis(this.options.redisUrl, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    })
-
-    try {
-      await redis.connect()
-      this.redisClient = redis
-      this.options.logger.info?.({ redisUrl: this.options.redisUrl }, 'Chart history Redis cache connected')
-    } catch (error) {
-      this.options.logger.warn({ error }, 'Chart history Redis unavailable, using in-memory cache')
-      await redis.quit().catch(() => undefined)
-      this.redisClient = null
-    }
+    this.options.logger.info?.({ backend: this.store.backend }, 'Chart history cache initialized')
   }
 
   cacheMode(): 'redis' | 'memory-fallback' {
-    return this.redisClient ? 'redis' : 'memory-fallback'
+    return this.store.backend === 'redis' ? 'redis' : 'memory-fallback'
   }
 
   async close(): Promise<void> {
-    if (!this.redisClient) {
-      return
-    }
-
-    await this.redisClient.quit().catch(() => undefined)
-    this.redisClient = null
+    await this.store.close()
   }
 
   async readPair(pairAddress: string, interval: ChartInterval = '1m'): Promise<ChartHistoryCacheReadResult> {
-    const redisEntry = await this.readRedisEntry(pairAddress, interval)
-    if (redisEntry) {
-      this.memory.set(cacheKey(pairAddress, interval), redisEntry)
-      return { entry: redisEntry, storage: 'redis_cache' }
+    const raw = await this.store.get(cacheKey(pairAddress, interval))
+    if (!raw) {
+      return { entry: null, storage: 'miss' }
     }
 
-    const memoryEntry = this.memory.get(cacheKey(pairAddress, interval)) ?? null
-    if (memoryEntry) {
-      if (Date.now() - memoryEntry.updatedAtMs > this.ttlMs) {
-        this.memory.delete(cacheKey(pairAddress, interval))
-        return { entry: null, storage: 'miss' }
-      }
-      return { entry: cloneEntry(memoryEntry), storage: 'memory_cache' }
+    const parsed = parseEntry(raw, this.options.maxCandles)
+    if (!parsed) {
+      return { entry: null, storage: 'miss' }
     }
 
-    return { entry: null, storage: 'miss' }
+    if (Date.now() - parsed.updatedAtMs > this.ttlMs) {
+      await this.store.del(cacheKey(pairAddress, interval)).catch(() => undefined)
+      return { entry: null, storage: 'miss' }
+    }
+
+    return {
+      entry: parsed,
+      storage: this.store.backend === 'redis' ? 'redis_cache' : 'memory_cache',
+    }
   }
 
   async writeHistorical(
@@ -144,47 +125,16 @@ export class ChartHistoryCache {
   }
 
   private async writeEntry(entry: ChartHistoryCacheEntry, interval: ChartInterval): Promise<void> {
-    const key = cacheKey(entry.pairAddress, interval)
-    this.memory.set(key, cloneEntry(entry))
-
-    if (!this.redisClient) {
-      return
-    }
-
-    try {
-      await this.redisClient.set(key, JSON.stringify(entry), 'EX', this.ttlSeconds)
-    } catch (error) {
-      this.options.logger.warn({ error, pairAddress: entry.pairAddress }, 'Failed to write chart history cache to Redis')
-      await this.disableRedis()
-    }
+    await this.store.set(cacheKey(entry.pairAddress, interval), JSON.stringify(entry), this.ttlSeconds)
   }
+}
 
-  private async readRedisEntry(pairAddress: string, interval: ChartInterval): Promise<ChartHistoryCacheEntry | null> {
-    if (!this.redisClient) {
-      return null
-    }
-
-    try {
-      const raw = await this.redisClient.get(cacheKey(pairAddress, interval))
-      if (!raw) {
-        return null
-      }
-
-      const parsed = JSON.parse(raw) as unknown
-      return isChartHistoryCacheEntry(parsed, this.options.maxCandles) ? parsed : null
-    } catch (error) {
-      this.options.logger.warn({ error, pairAddress }, 'Failed to read chart history cache from Redis')
-      await this.disableRedis()
-      return null
-    }
-  }
-
-  private async disableRedis(): Promise<void> {
-    if (!this.redisClient) {
-      return
-    }
-    await this.redisClient.quit().catch(() => undefined)
-    this.redisClient = null
+function parseEntry(raw: string, maxCandles: number): ChartHistoryCacheEntry | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return isChartHistoryCacheEntry(parsed, maxCandles) ? parsed : null
+  } catch {
+    return null
   }
 }
 

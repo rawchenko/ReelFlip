@@ -4,6 +4,10 @@ import { resolve } from 'node:path'
 loadLocalEnvFile()
 
 export interface BackendEnv {
+  runtimeMode: 'dev' | 'prod'
+  cacheRequired: boolean
+  allowDegradedStart: boolean
+  redisConnectTimeoutMs: number
   host: string
   port: number
   supabaseUrl?: string
@@ -59,6 +63,12 @@ export interface BackendEnv {
   chartHistoryProvider: 'public' | 'none'
   chartHistoryProviderTimeoutMs: number
   chartHistoryBackfillConcurrency: number
+  chartStreamMaxLen: number
+  feedRefreshIntervalSeconds: number
+  rateLimitFeedPerMinute: number
+  rateLimitChartHistoryPerMinute: number
+  rateLimitChartStreamPerMinute: number
+  rateLimitImageProxyPerMinute: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 }
 
@@ -107,6 +117,10 @@ function parseEnvValue(rawValue: string): string {
 }
 
 const DEFAULTS = {
+  runtimeMode: 'dev',
+  cacheRequired: false,
+  allowDegradedStart: false,
+  redisConnectTimeoutMs: 1500,
   host: '0.0.0.0',
   port: 3001,
   supabaseRequestTimeoutMs: 10_000,
@@ -154,6 +168,12 @@ const DEFAULTS = {
   chartHistoryProvider: 'public',
   chartHistoryProviderTimeoutMs: 3000,
   chartHistoryBackfillConcurrency: 4,
+  chartStreamMaxLen: 2000,
+  feedRefreshIntervalSeconds: 5,
+  rateLimitFeedPerMinute: 120,
+  rateLimitChartHistoryPerMinute: 240,
+  rateLimitChartStreamPerMinute: 30,
+  rateLimitImageProxyPerMinute: 60,
   logLevel: 'info',
 } as const
 
@@ -221,9 +241,14 @@ export function loadEnv(): BackendEnv {
   if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'none') {
     throw new Error(`Invalid CHART_HISTORY_PROVIDER: ${chartHistoryProvider}`)
   }
-  const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+  const runtimeMode = parseRuntimeMode()
+  const isProduction = runtimeMode === 'prod'
 
   return {
+    runtimeMode,
+    cacheRequired: parseBoolEnv('CACHE_REQUIRED', isProduction ? true : DEFAULTS.cacheRequired),
+    allowDegradedStart: parseBoolEnv('ALLOW_DEGRADED_START', DEFAULTS.allowDegradedStart),
+    redisConnectTimeoutMs: parseIntEnv('REDIS_CONNECT_TIMEOUT_MS', DEFAULTS.redisConnectTimeoutMs, 100),
     host: process.env.HOST ?? DEFAULTS.host,
     port: parseIntEnv('PORT', DEFAULTS.port, 1),
     supabaseUrl: process.env.SUPABASE_URL,
@@ -332,6 +357,45 @@ export function loadEnv(): BackendEnv {
       DEFAULTS.chartHistoryBackfillConcurrency,
       1,
     ),
+    chartStreamMaxLen: parseIntEnv('CHART_STREAM_MAX_LEN', DEFAULTS.chartStreamMaxLen, 100),
+    feedRefreshIntervalSeconds: parseIntEnv(
+      'FEED_REFRESH_INTERVAL_SECONDS',
+      DEFAULTS.feedRefreshIntervalSeconds,
+      1,
+    ),
+    rateLimitFeedPerMinute: parseIntEnv(
+      'RATE_LIMIT_FEED_PER_MINUTE',
+      DEFAULTS.rateLimitFeedPerMinute,
+      1,
+    ),
+    rateLimitChartHistoryPerMinute: parseIntEnv(
+      'RATE_LIMIT_CHART_HISTORY_PER_MINUTE',
+      DEFAULTS.rateLimitChartHistoryPerMinute,
+      1,
+    ),
+    rateLimitChartStreamPerMinute: parseIntEnv(
+      'RATE_LIMIT_CHART_STREAM_PER_MINUTE',
+      DEFAULTS.rateLimitChartStreamPerMinute,
+      1,
+    ),
+    rateLimitImageProxyPerMinute: parseIntEnv(
+      'RATE_LIMIT_IMAGE_PROXY_PER_MINUTE',
+      DEFAULTS.rateLimitImageProxyPerMinute,
+      1,
+    ),
     logLevel: parseLogLevel(),
   }
+}
+
+function parseRuntimeMode(): BackendEnv['runtimeMode'] {
+  const fromEnv = process.env.RUNTIME_MODE?.trim().toLowerCase()
+  if (fromEnv) {
+    if (fromEnv === 'dev' || fromEnv === 'prod') {
+      return fromEnv
+    }
+    throw new Error(`Invalid RUNTIME_MODE: ${fromEnv}`)
+  }
+
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase()
+  return nodeEnv === 'production' ? 'prod' : DEFAULTS.runtimeMode
 }

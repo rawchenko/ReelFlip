@@ -66,13 +66,20 @@ export type ChartStreamEvent =
       candle: ChartCandleDto
       isNewCandle: boolean
       serverTime: string
+      streamId?: string
+      sequence?: number
+      observedAtMs?: number
     }
   | {
       type: 'status'
       pairAddress: string
+      interval?: ChartInterval
       status: ChartStreamStatus
       reason?: string
       serverTime: string
+      streamId?: string
+      sequence?: number
+      observedAtMs?: number
     }
   | {
       type: 'snapshot'
@@ -81,10 +88,16 @@ export type ChartStreamEvent =
       delayed: boolean
       candles: ChartCandleDto[]
       serverTime: string
+      streamId?: string
+      sequence?: number
+      observedAtMs?: number
     }
   | {
       type: 'heartbeat'
       serverTime: string
+      streamId?: string
+      sequence?: number
+      observedAtMs?: number
     }
 
 export function toChartCandleDto(candle: OhlcCandle): ChartCandleDto {

@@ -8,6 +8,7 @@ import {
   OhlcCandle,
   toChartCandleDto,
 } from './chart.types.js'
+import { ChartPollLock } from './chart.stream.service.js'
 
 interface Logger {
   info?: (obj: unknown, msg?: string) => void
@@ -17,6 +18,16 @@ interface Logger {
 
 interface ChartRegistryHistorySink {
   upsertRuntimeCandle: (pairAddress: string, candle: OhlcCandle, interval: ChartInterval) => Promise<unknown>
+}
+
+interface ChartRegistryStreamSink {
+  publish: (event: ChartStreamEvent) => Promise<ChartStreamEvent>
+}
+
+interface ChartRegistryRuntimeDependencies {
+  streamSink?: ChartRegistryStreamSink
+  pollLock?: ChartPollLock
+  onStreamPublished?: (event: ChartStreamEvent) => void
 }
 
 export interface ChartRegistryOptions {
@@ -69,6 +80,7 @@ export class ChartRegistry {
     private readonly options: ChartRegistryOptions,
     private readonly logger: Logger,
     private readonly historySink?: ChartRegistryHistorySink,
+    private readonly runtimeDependencies: ChartRegistryRuntimeDependencies = {},
   ) {
     this.aggregators = {
       '1m': new ChartAggregator(options.historyLimit, '1m'),
@@ -232,17 +244,23 @@ export class ChartRegistry {
       return
     }
 
+    const lockedPollPairs = await this.acquirePollLocks(pollPairs)
+    if (lockedPollPairs.length === 0) {
+      return
+    }
+
     this.pollInFlight = true
     const startedAtMs = Date.now()
     try {
-      const stats = await this.fetchAndApplySamples(pollPairs, 'poll')
+      const stats = await this.fetchAndApplySamples(lockedPollPairs, 'poll')
       this.refreshStaleStatuses(Date.now())
       this.pollCycleCount += 1
       const durationMs = Date.now() - startedAtMs
       const payload = {
         cycle: this.pollCycleCount,
         durationMs,
-        pollPairCount: pollPairs.length,
+        pollPairCount: lockedPollPairs.length,
+        skippedByLockCount: Math.max(0, pollPairs.length - lockedPollPairs.length),
         sampleCount: stats.sampleCount,
         emittedCandleUpdateCount: stats.emittedCandleUpdateCount,
         missingPairCount: stats.missingPairCount,
@@ -253,10 +271,10 @@ export class ChartRegistry {
         this.logger.debug?.(payload, 'Chart poll cycle observed')
       }
     } catch (error) {
-      for (const pairAddress of pollPairs) {
+      for (const pairAddress of lockedPollPairs) {
         this.updateStatus(pairAddress, 'reconnecting', getErrorMessage(error))
       }
-      this.logger.warn({ error, pairCount: pollPairs.length }, 'Chart poll cycle failed')
+      this.logger.warn({ error, pairCount: lockedPollPairs.length }, 'Chart poll cycle failed')
     } finally {
       this.pollInFlight = false
     }
@@ -293,15 +311,18 @@ export class ChartRegistry {
             this.logger.warn({ error, pairAddress: sample.pairAddress, interval }, 'Chart history write-through failed'),
           )
 
-        this.emitToPairInterval(sample.pairAddress, interval, {
+        const event: ChartStreamEvent = {
           type: 'candle_update',
           pairAddress: sample.pairAddress,
           interval,
           delayed: this.isPairDelayed(sample.pairAddress, sample.observedAtMs),
           candle: toChartCandleDto(update.candle),
           isNewCandle: update.isNewCandle,
+          observedAtMs: sample.observedAtMs,
           serverTime: new Date().toISOString(),
-        })
+        }
+        this.emitToPairInterval(sample.pairAddress, interval, event)
+        void this.publishStreamEvent(event)
         emittedCandleUpdateCount += 1
         this.emittedCandleUpdateCount += 1
       }
@@ -445,6 +466,15 @@ export class ChartRegistry {
     this.emitStatusToPair(pairAddress, {
       type: 'status',
       pairAddress,
+      interval: '1m',
+      status,
+      ...(normalizedReason ? { reason: normalizedReason } : {}),
+      serverTime: new Date().toISOString(),
+    })
+    void this.publishStreamEvent({
+      type: 'status',
+      pairAddress,
+      interval: '1m',
       status,
       ...(normalizedReason ? { reason: normalizedReason } : {}),
       serverTime: new Date().toISOString(),
@@ -499,6 +529,51 @@ export class ChartRegistry {
 
     this.pairState.set(pairAddress, state)
     return state
+  }
+
+  private async publishStreamEvent(event: ChartStreamEvent): Promise<void> {
+    if (!this.runtimeDependencies.streamSink) {
+      return
+    }
+    if (!('pairAddress' in event) || !('interval' in event)) {
+      return
+    }
+
+    try {
+      const published = await this.runtimeDependencies.streamSink.publish(event)
+      this.runtimeDependencies.onStreamPublished?.(published)
+    } catch (error) {
+      this.logger.warn(
+        {
+          error,
+          eventType: event.type,
+          pairAddress: event.pairAddress,
+          interval: event.interval,
+        },
+        'Failed to publish chart event to stream',
+      )
+    }
+  }
+
+  private async acquirePollLocks(pairAddresses: string[]): Promise<string[]> {
+    const pollLock = this.runtimeDependencies.pollLock
+    if (!pollLock) {
+      return pairAddresses
+    }
+
+    const ttlMs = Math.max(1000, this.options.pollIntervalMs * 2)
+    const acquired: string[] = []
+    for (const pairAddress of pairAddresses) {
+      try {
+        const locked = await pollLock.tryAcquire(pairAddress, '1m', ttlMs)
+        if (locked) {
+          acquired.push(pairAddress)
+        }
+      } catch (error) {
+        this.logger.warn({ error, pairAddress }, 'Failed to acquire chart poll lock')
+      }
+    }
+    return acquired
   }
 }
 

@@ -1,4 +1,6 @@
 import { ChartProvider, ChartTickSample } from './chart.types.js'
+import { CircuitBreaker } from '../lib/circuit-breaker.js'
+import { ResilientHttpClient, UpstreamRequestEvent } from '../lib/http-client.js'
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void
@@ -8,15 +10,33 @@ interface Logger {
 
 interface DexScreenerChartProviderOptions {
   timeoutMs: number
+  onRequestComplete?: (event: UpstreamRequestEvent) => void
 }
 
 export class DexScreenerChartProvider implements ChartProvider {
   private fetchBatchCount = 0
+  private readonly httpClient: ResilientHttpClient
 
   constructor(
     private readonly options: DexScreenerChartProviderOptions,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.httpClient = new ResilientHttpClient({
+      upstream: 'dexscreener_chart',
+      timeoutMs: options.timeoutMs,
+      maxRetries: 2,
+      retryBaseDelayMs: 200,
+      circuitBreaker: new CircuitBreaker({
+        windowMs: 30_000,
+        minSamples: 10,
+        failureThreshold: 0.5,
+        openDurationMs: 15_000,
+        halfOpenProbeCount: 1,
+      }),
+      logger,
+      onRequestComplete: options.onRequestComplete,
+    })
+  }
 
   async fetchPairSnapshots(pairAddresses: string[], signal: AbortSignal): Promise<ChartTickSample[]> {
     if (pairAddresses.length === 0) {
@@ -63,41 +83,31 @@ export class DexScreenerChartProvider implements ChartProvider {
   }
 
   private async fetchPairSnapshot(pairAddress: string, parentSignal: AbortSignal): Promise<ChartTickSample | null> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
-    const abortOnParent = () => controller.abort()
-    parentSignal.addEventListener('abort', abortOnParent, { once: true })
+    const url = `https://api.dexscreener.com/latest/dex/pairs/solana/${encodeURIComponent(pairAddress)}`
+    const response = await this.httpClient.request(url, {
+      method: 'GET',
+      signal: parentSignal,
+      headers: { accept: 'application/json' },
+    })
 
-    try {
-      const url = `https://api.dexscreener.com/latest/dex/pairs/solana/${encodeURIComponent(pairAddress)}`
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { accept: 'application/json' },
-      })
+    if (!response.ok) {
+      throw new Error(`DexScreener pair request failed with status ${response.status}`)
+    }
 
-      if (!response.ok) {
-        throw new Error(`DexScreener pair request failed with status ${response.status}`)
-      }
+    const payload = (await response.json()) as { pairs?: unknown }
+    const pairs = Array.isArray(payload.pairs) ? payload.pairs : []
+    const pair = pairs.find((entry) => isMatchingPair(entry, pairAddress)) ?? pairs[0]
+    const priceUsd = readNumber((pair as Record<string, unknown> | undefined)?.priceUsd)
 
-      const payload = (await response.json()) as { pairs?: unknown }
-      const pairs = Array.isArray(payload.pairs) ? payload.pairs : []
-      const pair = pairs.find((entry) => isMatchingPair(entry, pairAddress)) ?? pairs[0]
-      const priceUsd = readNumber((pair as Record<string, unknown> | undefined)?.priceUsd)
+    if (!pair || priceUsd === null || priceUsd <= 0) {
+      return null
+    }
 
-      if (!pair || priceUsd === null || priceUsd <= 0) {
-        return null
-      }
-
-      return {
-        pairAddress,
-        observedAtMs: Date.now(),
-        priceUsd,
-        volume24h: readNestedNumber(pair, ['volume', 'h24']) ?? undefined,
-      }
-    } finally {
-      clearTimeout(timeoutId)
-      parentSignal.removeEventListener('abort', abortOnParent)
+    return {
+      pairAddress,
+      observedAtMs: Date.now(),
+      priceUsd,
+      volume24h: readNestedNumber(pair, ['volume', 'h24']) ?? undefined,
     }
   }
 }

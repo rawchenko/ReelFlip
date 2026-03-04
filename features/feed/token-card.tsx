@@ -27,11 +27,15 @@ const RUNTIME_ONLY_MIN_1M_CANDLES = 120
 const REALTIME_MAX_STALENESS_SECONDS = 15 * 60
 const REALTIME_MIN_UNIQUE_CLOSES = 3
 const REALTIME_MIN_RELATIVE_RANGE = 0.0001
+const PRICE_TWEEN_MS = 150
+const PRICE_REALTIME_MIN_INTERVAL_MS = 200
+const PRICE_EPSILON = 0.0000001
 const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
 const DEFAULT_IOS_API_URL = 'http://127.0.0.1:3001'
 
 const LABEL_PRIORITY: FeedLabel[] = ['trending', 'meme', 'gainer', 'new']
 type FeedCardChartMode = 'realtime_candles' | 'server_sparkline' | 'loading_skeleton'
+type FeedCardPriceSource = 'feed' | 'realtime'
 
 function sanitizeSparklinePoints(points?: number[]): number[] {
   if (!Array.isArray(points)) {
@@ -240,6 +244,14 @@ function formatPriceStable(value?: number): string {
   return `$${trimTrailingZeros(value.toFixed(4))}`
 }
 
+function sanitizePositivePrice(value?: number | null): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null
+  }
+
+  return value
+}
+
 function normalizeTokenImageUri(input?: string | null): string | null {
   if (typeof input !== 'string') {
     return null
@@ -255,7 +267,10 @@ function normalizeTokenImageUri(input?: string | null): string | null {
   }
 
   if (/^ipfs:\/\//i.test(trimmed)) {
-    const rawPath = trimmed.replace(/^ipfs:\/\//i, '').replace(/^ipfs\//i, '').replace(/^\/+/, '')
+    const rawPath = trimmed
+      .replace(/^ipfs:\/\//i, '')
+      .replace(/^ipfs\//i, '')
+      .replace(/^\/+/, '')
     return rawPath.length > 0 ? `https://ipfs.io/ipfs/${rawPath}` : null
   }
 
@@ -269,7 +284,12 @@ function normalizeTokenImageUri(input?: string | null): string | null {
 
 function resolveImageApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL
-  const baseUrl = configured && configured.length > 0 ? configured : Platform.OS === 'android' ? DEFAULT_ANDROID_API_URL : DEFAULT_IOS_API_URL
+  const baseUrl =
+    configured && configured.length > 0
+      ? configured
+      : Platform.OS === 'android'
+        ? DEFAULT_ANDROID_API_URL
+        : DEFAULT_IOS_API_URL
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
 }
 
@@ -289,8 +309,9 @@ function buildTokenImageCandidates(uri: string | null, apiBaseUrl: string): stri
 }
 
 function triggerHaptic(kind: 'selection' | 'impactLight' = 'selection') {
-  const promise = kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  void promise.catch(() => { })
+  const promise =
+    kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  void promise.catch(() => {})
 }
 
 function mapCategoryToLabel(category: FeedCategory): FeedLabel {
@@ -320,7 +341,8 @@ function formatLabel(label: FeedLabel): string {
 function getDisplayLabels(item: Pick<TokenFeedItem, 'tags' | 'labels' | 'category'>): FeedLabel[] {
   const normalized = new Set<FeedLabel>()
 
-  const preferred = Array.isArray(item.tags?.discovery) && item.tags.discovery.length > 0 ? item.tags.discovery : item.labels
+  const preferred =
+    Array.isArray(item.tags?.discovery) && item.tags.discovery.length > 0 ? item.tags.discovery : item.labels
 
   if (Array.isArray(preferred)) {
     for (const label of preferred) {
@@ -372,9 +394,20 @@ export function TokenCard({
   const { width } = useWindowDimensions()
   const isUp24h = item.priceChange24h >= 0
   const lastChartModeLogRef = useRef<string>('')
+  const lastPriceSourceLogRef = useRef<FeedCardPriceSource | null>(null)
   const [tradingViewUnavailable, setTradingViewUnavailable] = useState(false)
   const [avatarImageAttemptIndex, setAvatarImageAttemptIndex] = useState(0)
   const [realtimeEligibilityTick, setRealtimeEligibilityTick] = useState(0)
+  const [displayPriceUsd, setDisplayPriceUsd] = useState<number | undefined>(
+    sanitizePositivePrice(item.priceUsd) ?? undefined,
+  )
+  const displayPriceRef = useRef<number | undefined>(sanitizePositivePrice(item.priceUsd) ?? undefined)
+  const targetPriceRef = useRef<number | null>(sanitizePositivePrice(item.priceUsd))
+  const animationFrameRef = useRef<number | null>(null)
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastRealtimeCommitAtRef = useRef<number>(0)
+  const pendingRealtimePriceRef = useRef<number | null>(null)
+  const lastPriceSourceRef = useRef<FeedCardPriceSource>('feed')
   const sparklinePoints = useMemo(() => sanitizeSparklinePoints(item.sparkline), [item.sparkline])
 
   const hasChartPoints = sparklinePoints.length >= 2
@@ -386,12 +419,7 @@ export function TokenCard({
   const hasPairAddress = Boolean(item.pairAddress)
   const useTradingViewChart = useMemo(
     () =>
-      Boolean(
-        enableTradingView &&
-          webChartEnabled &&
-          (hasPairAddress || hasChartPoints) &&
-          !tradingViewUnavailable,
-      ),
+      Boolean(enableTradingView && webChartEnabled && (hasPairAddress || hasChartPoints) && !tradingViewUnavailable),
     [enableTradingView, hasChartPoints, hasPairAddress, tradingViewUnavailable, webChartEnabled],
   )
 
@@ -443,19 +471,34 @@ export function TokenCard({
     }
 
     return true
-  }, [
-    chartMode,
-    hasMiniFallbackPoints,
-    tradingViewUnavailable,
-    useTradingViewChart,
-  ])
+  }, [chartMode, hasMiniFallbackPoints, tradingViewUnavailable, useTradingViewChart])
   const tvRealtimeCandles = useMemo(
     () => (chartMode === 'realtime_candles' ? aggregatedRealtimeCandles : undefined),
     [aggregatedRealtimeCandles, chartMode],
   )
-  const streamBadgeState = chartMode === 'realtime_candles'
-    ? (pairChartState?.status ?? 'reconnecting')
-    : null
+  const realtimeCloseUsd = useMemo(() => {
+    const realtimeLastClose = tvRealtimeCandles?.[tvRealtimeCandles.length - 1]?.close
+    if (typeof realtimeLastClose === 'number' && Number.isFinite(realtimeLastClose) && realtimeLastClose > 0) {
+      return realtimeLastClose
+    }
+
+    const latestPairClose = pairChartState?.latestCandle?.close
+    if (typeof latestPairClose === 'number' && Number.isFinite(latestPairClose) && latestPairClose > 0) {
+      return latestPairClose
+    }
+
+    return null
+  }, [pairChartState?.latestCandle?.close, tvRealtimeCandles])
+  const feedSnapshotPriceUsd = useMemo(() => sanitizePositivePrice(item.priceUsd), [item.priceUsd])
+  const targetPriceSource = useMemo<FeedCardPriceSource>(
+    () => (chartMode === 'realtime_candles' && realtimeCloseUsd !== null ? 'realtime' : 'feed'),
+    [chartMode, realtimeCloseUsd],
+  )
+  const targetPriceUsd = useMemo(
+    () => (targetPriceSource === 'realtime' ? realtimeCloseUsd : feedSnapshotPriceUsd),
+    [feedSnapshotPriceUsd, realtimeCloseUsd, targetPriceSource],
+  )
+  const streamBadgeState = chartMode === 'realtime_candles' ? (pairChartState?.status ?? 'reconnecting') : null
   const imageApiBaseUrl = useMemo(() => resolveImageApiBaseUrl(), [])
   const normalizedImageUri = useMemo(() => normalizeTokenImageUri(item.imageUri), [item.imageUri])
   const avatarImageCandidates = useMemo(
@@ -472,6 +515,151 @@ export function TokenCard({
   useEffect(() => {
     setAvatarImageAttemptIndex(0)
   }, [item.mint, normalizedImageUri])
+
+  useEffect(() => {
+    displayPriceRef.current = displayPriceUsd
+  }, [displayPriceUsd])
+
+  useEffect(() => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+
+    if (throttleTimerRef.current) {
+      clearTimeout(throttleTimerRef.current)
+      throttleTimerRef.current = null
+    }
+
+    const initialPrice = sanitizePositivePrice(item.priceUsd) ?? undefined
+    displayPriceRef.current = initialPrice
+    targetPriceRef.current = initialPrice ?? null
+    pendingRealtimePriceRef.current = null
+    lastRealtimeCommitAtRef.current = 0
+    lastPriceSourceRef.current = 'feed'
+    lastPriceSourceLogRef.current = null
+    setDisplayPriceUsd(initialPrice)
+  }, [item.mint, item.pairAddress, item.priceUsd])
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current)
+        throttleTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const animatePriceTo = (nextPrice: number) => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+
+      const startValue = sanitizePositivePrice(displayPriceRef.current) ?? nextPrice
+      if (Math.abs(startValue - nextPrice) <= PRICE_EPSILON) {
+        displayPriceRef.current = nextPrice
+        setDisplayPriceUsd(nextPrice)
+        return
+      }
+
+      const startedAtMs = Date.now()
+      const tick = () => {
+        const elapsedMs = Date.now() - startedAtMs
+        const progress = Math.min(1, elapsedMs / PRICE_TWEEN_MS)
+        const interpolated = startValue + (nextPrice - startValue) * progress
+        displayPriceRef.current = interpolated
+        setDisplayPriceUsd(interpolated)
+
+        if (progress >= 1) {
+          animationFrameRef.current = null
+          displayPriceRef.current = nextPrice
+          setDisplayPriceUsd(nextPrice)
+          return
+        }
+
+        animationFrameRef.current = requestAnimationFrame(tick)
+      }
+
+      animationFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    const commitPriceTarget = (nextPrice: number, source: FeedCardPriceSource, forceImmediate = false) => {
+      const normalizedPrice = sanitizePositivePrice(nextPrice)
+      if (normalizedPrice === null) {
+        return
+      }
+
+      const sourceChanged = lastPriceSourceRef.current !== source
+      const sameTarget =
+        targetPriceRef.current !== null && Math.abs(targetPriceRef.current - normalizedPrice) <= PRICE_EPSILON
+      if (sameTarget && !sourceChanged) {
+        return
+      }
+
+      targetPriceRef.current = normalizedPrice
+      lastPriceSourceRef.current = source
+
+      const runCommit = (value: number) => {
+        animatePriceTo(value)
+        if (source === 'realtime') {
+          lastRealtimeCommitAtRef.current = Date.now()
+        }
+      }
+
+      if (source !== 'realtime' || sourceChanged || forceImmediate) {
+        if (throttleTimerRef.current) {
+          clearTimeout(throttleTimerRef.current)
+          throttleTimerRef.current = null
+        }
+        pendingRealtimePriceRef.current = null
+        runCommit(normalizedPrice)
+        return
+      }
+
+      const nowMs = Date.now()
+      const elapsedMs = nowMs - lastRealtimeCommitAtRef.current
+      if (elapsedMs >= PRICE_REALTIME_MIN_INTERVAL_MS) {
+        if (throttleTimerRef.current) {
+          clearTimeout(throttleTimerRef.current)
+          throttleTimerRef.current = null
+        }
+        pendingRealtimePriceRef.current = null
+        runCommit(normalizedPrice)
+        return
+      }
+
+      pendingRealtimePriceRef.current = normalizedPrice
+      if (throttleTimerRef.current) {
+        return
+      }
+
+      const waitMs = PRICE_REALTIME_MIN_INTERVAL_MS - elapsedMs
+      throttleTimerRef.current = setTimeout(() => {
+        throttleTimerRef.current = null
+        const pendingPrice = pendingRealtimePriceRef.current
+        pendingRealtimePriceRef.current = null
+        if (pendingPrice === null) {
+          return
+        }
+
+        runCommit(pendingPrice)
+      }, waitMs)
+    }
+
+    if (targetPriceUsd === null) {
+      return
+    }
+
+    const sourceChanged = lastPriceSourceRef.current !== targetPriceSource
+    commitPriceTarget(targetPriceUsd, targetPriceSource, sourceChanged)
+  }, [targetPriceSource, targetPriceUsd])
 
   useEffect(() => {
     if (!useRealtimeWebChart) {
@@ -491,11 +679,17 @@ export function TokenCard({
     }
 
     const mode = chartMode
-    const logKey = `${item.mint}:${mode}:${realtimeHistoryQuality ?? 'none'}:${realtimeCandleCount >= RUNTIME_ONLY_MIN_1M_CANDLES}`
+    const logKey = `${item.mint}:${mode}:${realtimeHistoryQuality ?? 'none'}:${realtimeCandleCount >= RUNTIME_ONLY_MIN_1M_CANDLES}:${targetPriceSource}`
     if (lastChartModeLogRef.current === logKey) {
       return
     }
     lastChartModeLogRef.current = logKey
+    const previousPriceSource = lastPriceSourceLogRef.current
+    const modeTransition =
+      previousPriceSource && previousPriceSource !== targetPriceSource
+        ? `${previousPriceSource}->${targetPriceSource}`
+        : null
+    lastPriceSourceLogRef.current = targetPriceSource
 
     console.debug('[feed-card] chart mode', {
       symbol: item.symbol,
@@ -506,15 +700,22 @@ export function TokenCard({
       candleCount5m: aggregatedRealtimeCandles.length,
       useRealtimeWebChart,
       hasSparkline: hasChartPoints,
+      priceSource: targetPriceSource,
+      targetPriceUsd: targetPriceUsd ?? null,
+      displayPriceUsd: displayPriceUsd ?? null,
+      modeTransition,
     })
   }, [
     aggregatedRealtimeCandles.length,
     chartMode,
+    displayPriceUsd,
     hasChartPoints,
     item.mint,
     item.symbol,
     realtimeCandleCount,
     realtimeHistoryQuality,
+    targetPriceSource,
+    targetPriceUsd,
     useRealtimeWebChart,
   ])
 
@@ -537,10 +738,10 @@ export function TokenCard({
 
   const metricsValues = useMemo(
     () => ({
-      price: formatPriceStable(item.priceUsd),
+      price: formatPriceStable(displayPriceUsd ?? item.priceUsd),
       marketCap: formatCompactCurrencyStable(item.marketCap),
     }),
-    [item.marketCap, item.priceUsd],
+    [displayPriceUsd, item.marketCap, item.priceUsd],
   )
 
   const priceChange24hFormatted = useMemo(() => {
@@ -569,9 +770,8 @@ export function TokenCard({
 
   const webChartPoints = chartMode === 'server_sparkline' ? sparklinePoints : undefined
   const webChartCandles = chartMode === 'realtime_candles' ? tvRealtimeCandles : undefined
-  const webChartLatestCandle = chartMode === 'realtime_candles'
-    ? (tvRealtimeCandles?.[tvRealtimeCandles.length - 1] ?? null)
-    : null
+  const webChartLatestCandle =
+    chartMode === 'realtime_candles' ? (tvRealtimeCandles?.[tvRealtimeCandles.length - 1] ?? null) : null
   const descriptionText = item.description || item.name
   const displayLabels = getDisplayLabels(item)
   const trustTags = getTrustTags(item)
@@ -605,7 +805,7 @@ export function TokenCard({
     setAvatarImageAttemptIndex((index) => index + 1)
   }
 
-  const renderMiniFallback = () => (
+  const renderMiniFallback = () =>
     hasMiniFallbackPoints ? (
       <MiniChart
         points={sparklinePoints}
@@ -620,7 +820,6 @@ export function TokenCard({
     ) : (
       renderChartLoadingSkeleton()
     )
-  )
 
   const renderChartLoadingSkeleton = () => (
     <View style={styles.chartLoadingSkeleton}>
@@ -652,7 +851,11 @@ export function TokenCard({
   return (
     <View style={styles.card}>
       <View style={[styles.chartViewport, { height: chartViewportHeight, top: chartViewportTop }]}>
-        {showChartLoadingSkeleton ? renderChartLoadingSkeleton() : useTradingViewChart ? renderTradingView() : renderMiniFallback()}
+        {showChartLoadingSkeleton
+          ? renderChartLoadingSkeleton()
+          : useTradingViewChart
+            ? renderTradingView()
+            : renderMiniFallback()}
 
         <LinearGradient
           colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.85)']}
@@ -683,9 +886,7 @@ export function TokenCard({
             onError={handleAvatarImageError}
           />
         ) : (
-          <Text style={styles.avatarFallbackText}>
-            {item.symbol.slice(0, 1).toUpperCase()}
-          </Text>
+          <Text style={styles.avatarFallbackText}>{item.symbol.slice(0, 1).toUpperCase()}</Text>
         )}
       </View>
 

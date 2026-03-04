@@ -121,3 +121,33 @@ test('loadEnv parses alert settings', () => {
     },
   )
 })
+
+test('loadEnv derives runtimeMode from NODE_ENV when RUNTIME_MODE is absent', () => {
+  withEnv({ RUNTIME_MODE: undefined, NODE_ENV: 'production' }, () => {
+    const env = loadEnv()
+    assert.equal(env.runtimeMode, 'prod')
+    assert.equal(env.cacheRequired, true)
+  })
+})
+
+test('loadEnv accepts explicit runtime/cache controls', () => {
+  withEnv(
+    {
+      RUNTIME_MODE: 'dev',
+      CACHE_REQUIRED: 'true',
+      ALLOW_DEGRADED_START: 'true',
+      REDIS_CONNECT_TIMEOUT_MS: '2500',
+      FEED_REFRESH_INTERVAL_SECONDS: '7',
+      CHART_STREAM_MAX_LEN: '2222',
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.runtimeMode, 'dev')
+      assert.equal(env.cacheRequired, true)
+      assert.equal(env.allowDegradedStart, true)
+      assert.equal(env.redisConnectTimeoutMs, 2500)
+      assert.equal(env.feedRefreshIntervalSeconds, 7)
+      assert.equal(env.chartStreamMaxLen, 2222)
+    },
+  )
+})

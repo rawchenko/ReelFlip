@@ -2,6 +2,7 @@ import websocket from '@fastify/websocket'
 import { FastifyInstance } from 'fastify'
 import { ChartHistoryService } from './chart.history-service.js'
 import { ChartRegistry } from './chart.registry.js'
+import { ChartStreamService } from './chart.stream.service.js'
 import { registerChartWebSocketTransport } from './chart.transport.ws.js'
 import { ChartInterval, ChartStreamEvent } from './chart.types.js'
 import { errorEnvelope } from '../lib/error-envelope.js'
@@ -9,6 +10,11 @@ import { errorEnvelope } from '../lib/error-envelope.js'
 interface ChartRouteDependencies {
   chartRegistry: ChartRegistry
   chartHistoryService: ChartHistoryService
+  chartStreamService: ChartStreamService
+  rateLimitChartHistoryPerMinute: number
+  rateLimitChartStreamPerMinute: number
+  onStreamEventConsumed?: (event: ChartStreamEvent) => void
+  onStreamQueueSample?: (pairAddress: string, interval: ChartInterval, queueSize: number) => void
 }
 
 interface ChartHistoryParams {
@@ -40,25 +46,36 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
   await app.register(websocket)
   registerChartWebSocketTransport(app, dependencies)
 
-  app.get<{ Params: ChartHistoryParams; Querystring: ChartHistoryQuery }>('/v1/chart/:pairAddress', async (request, reply) => {
-    if (!dependencies.chartRegistry.isEnabled()) {
-      return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
-    }
-
-    try {
-      const pairAddress = parsePairAddress(request.params.pairAddress)
-      const interval = parseInterval(request.query.interval)
-      const limit = parseLimit(request.query.limit)
-      return await dependencies.chartHistoryService.getPairHistory(pairAddress, limit, interval)
-    } catch (error) {
-      if (error instanceof ChartRouteError) {
-        return reply.code(400).send(errorEnvelope('BAD_REQUEST', error.message))
+  app.get<{ Params: ChartHistoryParams; Querystring: ChartHistoryQuery }>(
+    '/v1/chart/:pairAddress',
+    {
+      config: {
+        rateLimit: {
+          max: dependencies.rateLimitChartHistoryPerMinute,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!dependencies.chartRegistry.isEnabled()) {
+        return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
       }
 
-      request.log.warn({ error, pairAddress: request.params.pairAddress }, 'Chart history request failed')
-      return reply.code(502).send(errorEnvelope('UPSTREAM_ERROR', 'Unable to fetch chart history'))
-    }
-  })
+      try {
+        const pairAddress = parsePairAddress(request.params.pairAddress)
+        const interval = parseInterval(request.query.interval)
+        const limit = parseLimit(request.query.limit)
+        return await dependencies.chartHistoryService.getPairHistory(pairAddress, limit, interval)
+      } catch (error) {
+        if (error instanceof ChartRouteError) {
+          return reply.code(400).send(errorEnvelope('BAD_REQUEST', error.message))
+        }
+
+        request.log.warn({ error, pairAddress: request.params.pairAddress }, 'Chart history request failed')
+        return reply.code(502).send(errorEnvelope('UPSTREAM_ERROR', 'Unable to fetch chart history'))
+      }
+    },
+  )
 
   app.post<{ Body: ChartBatchBody }>('/v1/chart/batch', async (request, reply) => {
     if (!dependencies.chartRegistry.isEnabled()) {
@@ -76,73 +93,129 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
     }
   })
 
-  app.get<{ Querystring: ChartStreamQuery }>('/v1/chart/stream', async (request, reply) => {
-    if (!dependencies.chartRegistry.isEnabled()) {
-      return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
-    }
-
-    try {
-      const interval = parseInterval(request.query.interval)
-      const pairs = parsePairs(request.query.pairs, dependencies.chartRegistry.getOptions().maxPairsPerStream)
-
-      reply.hijack()
-      const response = reply.raw
-
-      response.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      })
-
-      const writeEvent = (eventName: string, event: ChartStreamEvent) => {
-        response.write(formatSseEvent(eventName, event))
+  app.get<{ Querystring: ChartStreamQuery }>(
+    '/v1/chart/stream',
+    {
+      config: {
+        rateLimit: {
+          max: dependencies.rateLimitChartStreamPerMinute,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!dependencies.chartRegistry.isEnabled()) {
+        return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart service is disabled'))
       }
 
-      response.write(': connected\n\n')
-
-      for (const pairAddress of pairs) {
-        try {
-          await dependencies.chartRegistry.ensurePairSeeded(pairAddress)
-        } catch (error) {
-          request.log.warn({ error, pairAddress }, 'Failed to seed pair for SSE bootstrap')
-        }
-
-        const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, 360, interval)
-        if (snapshotEvent) {
-          writeEvent('snapshot', snapshotEvent)
-        }
-
-        writeEvent('status', dependencies.chartRegistry.buildStatusEvent(pairAddress))
+      if (!dependencies.chartStreamService.isAvailable()) {
+        return reply.code(503).send(errorEnvelope('UNAVAILABLE', 'Chart stream backend is unavailable'))
       }
 
-      const unsubscribe = dependencies.chartRegistry.subscribe(pairs, interval, (event) => {
-        writeEvent(mapEventTypeToSseName(event.type), event)
-      })
+      try {
+        const interval = parseInterval(request.query.interval)
+        const pairs = parsePairs(request.query.pairs, dependencies.chartRegistry.getOptions().maxPairsPerStream)
+        const requestedLastId = parseLastEventId(request.headers['last-event-id'])
 
-      const heartbeatTimer = setInterval(() => {
-        writeEvent('heartbeat', {
-          type: 'heartbeat',
-          serverTime: new Date().toISOString(),
+        reply.hijack()
+        const response = reply.raw
+
+        response.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
         })
-      }, HEARTBEAT_MS)
-      heartbeatTimer.unref?.()
 
-      const cleanup = () => {
-        clearInterval(heartbeatTimer)
-        unsubscribe()
-        request.raw.removeListener('close', cleanup)
-        request.raw.removeListener('end', cleanup)
+        response.write(': connected\n\n')
+
+        for (const pairAddress of pairs) {
+          const history = await dependencies.chartHistoryService.getPairHistory(pairAddress, 360, interval)
+          const snapshotEvent: ChartStreamEvent = {
+            type: 'snapshot',
+            pairAddress,
+            interval,
+            delayed: history.delayed,
+            candles: history.candles,
+            serverTime: new Date().toISOString(),
+          }
+          response.write(formatSseEvent('snapshot', snapshotEvent))
+          response.write(
+            formatSseEvent('status', {
+              type: 'status',
+              pairAddress,
+              interval,
+              status: history.delayed ? 'delayed' : history.candles.length > 0 ? 'live' : 'reconnecting',
+              serverTime: new Date().toISOString(),
+            }),
+          )
+        }
+
+        const lastIds = new Map<string, string>()
+        for (const pairAddress of pairs) {
+          lastIds.set(pairAddress, requestedLastId ?? '$')
+        }
+
+        let closed = false
+        const heartbeatTimer = setInterval(() => {
+          if (closed) {
+            return
+          }
+          response.write(
+            formatSseEvent('heartbeat', {
+              type: 'heartbeat',
+              serverTime: new Date().toISOString(),
+            }),
+          )
+        }, HEARTBEAT_MS)
+        heartbeatTimer.unref?.()
+
+        const cleanup = () => {
+          closed = true
+          clearInterval(heartbeatTimer)
+          request.raw.removeListener('close', cleanup)
+          request.raw.removeListener('end', cleanup)
+        }
+
+        request.raw.once('close', cleanup)
+        request.raw.once('end', cleanup)
+
+        while (!closed) {
+          const subscriptions = pairs.map((pairAddress) => ({
+            pairAddress,
+            interval,
+            lastId: lastIds.get(pairAddress) ?? '$',
+          }))
+
+          const events = await dependencies.chartStreamService.read(subscriptions, true)
+          if (closed || events.length === 0) {
+            continue
+          }
+
+          for (const event of events) {
+            if (!('pairAddress' in event)) {
+              continue
+            }
+            const sseName = mapEventTypeToSseName(event.type)
+            response.write(formatSseEvent(sseName, event))
+            dependencies.onStreamEventConsumed?.(event)
+            if (event.streamId) {
+              const queueSize = await dependencies.chartStreamService.getQueueLength(event.pairAddress, interval)
+              dependencies.onStreamQueueSample?.(event.pairAddress, interval, queueSize)
+            }
+            if (event.streamId) {
+              lastIds.set(event.pairAddress, event.streamId)
+            }
+          }
+        }
+
+        return
+      } catch (error) {
+        const message = error instanceof ChartRouteError ? error.message : 'Invalid chart stream request'
+        return reply.code(400).send(errorEnvelope('BAD_REQUEST', message))
       }
-
-      request.raw.once('close', cleanup)
-      request.raw.once('end', cleanup)
-      return
-    } catch (error) {
-      const message = error instanceof ChartRouteError ? error.message : 'Invalid chart stream request'
-      return reply.code(400).send(errorEnvelope('BAD_REQUEST', message))
-    }
-  })
+    },
+  )
 }
 
 class ChartRouteError extends Error {
@@ -256,6 +329,15 @@ function parseBatchLimit(raw: unknown, fallback: number): number {
   return value
 }
 
+function parseLastEventId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 function mapEventTypeToSseName(type: ChartStreamEvent['type']): string {
   switch (type) {
     case 'candle_update':
@@ -272,7 +354,13 @@ function mapEventTypeToSseName(type: ChartStreamEvent['type']): string {
 }
 
 function formatSseEvent(eventName: string, payload: ChartStreamEvent): string {
-  return `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`
+  const lines: string[] = []
+  if (payload.streamId) {
+    lines.push(`id: ${payload.streamId}`)
+  }
+  lines.push(`event: ${eventName}`)
+  lines.push(`data: ${JSON.stringify(payload)}`)
+  return `${lines.join('\n')}\n\n`
 }
 
 function asOptionalString(value: unknown): string | undefined {

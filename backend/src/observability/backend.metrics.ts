@@ -1,8 +1,28 @@
+import { UpstreamRequestEvent } from '../lib/http-client.js'
 import { SupabaseRequestEvent } from '../storage/supabase.client.js'
 
 export interface FeedPageMetricEvent {
   source: 'providers' | 'seed'
   cacheStatus: 'HIT' | 'MISS' | 'STALE'
+  cacheStorage?: 'redis_cache' | 'memory_cache' | 'repository' | 'miss'
+}
+
+interface UpstreamCounters {
+  total: number
+  failed: number
+  circuitOpen: number
+  totalDurationMs: number
+  lastStatus: number
+  lastErrorType: string | null
+}
+
+interface StreamCounters {
+  published: number
+  consumed: number
+  lagSamples: number
+  lagTotalMs: number
+  queueSamples: number
+  queueTotal: number
 }
 
 export class BackendMetrics {
@@ -34,10 +54,35 @@ export class BackendMetrics {
     cacheHit: 0,
     cacheMiss: 0,
     cacheStale: 0,
+    cacheStorageRedis: 0,
+    cacheStorageMemory: 0,
+    cacheStorageRepository: 0,
     sourceProviders: 0,
     sourceSeed: 0,
     unavailable: 0,
   }
+
+  private readonly upstream = new Map<string, UpstreamCounters>()
+
+  private readonly stream = {
+    byInterval: {
+      '1s': { published: 0, consumed: 0 },
+      '1m': { published: 0, consumed: 0 },
+    },
+    totals: {
+      published: 0,
+      consumed: 0,
+      lagSamples: 0,
+      lagTotalMs: 0,
+      queueSamples: 0,
+      queueTotal: 0,
+    } as StreamCounters,
+  }
+
+  private readonly rateLimit = {
+    hits: 0,
+  }
+
   private lastSeedSourceAlertAtMs: number | null = null
   private lastSupabaseFailureAlertAtMs: number | null = null
 
@@ -102,6 +147,14 @@ export class BackendMetrics {
       this.feed.cacheStale += 1
     }
 
+    if (event.cacheStorage === 'redis_cache') {
+      this.feed.cacheStorageRedis += 1
+    } else if (event.cacheStorage === 'memory_cache') {
+      this.feed.cacheStorageMemory += 1
+    } else if (event.cacheStorage === 'repository') {
+      this.feed.cacheStorageRepository += 1
+    }
+
     if (event.source === 'providers') {
       this.feed.sourceProviders += 1
     } else {
@@ -111,6 +164,48 @@ export class BackendMetrics {
 
   recordFeedUnavailable(): void {
     this.feed.unavailable += 1
+  }
+
+  recordUpstreamRequest(event: UpstreamRequestEvent): void {
+    const counters = this.ensureUpstream(event.upstream)
+    counters.total += 1
+    counters.totalDurationMs += Math.max(0, event.durationMs)
+    counters.lastStatus = event.status
+    counters.lastErrorType = event.errorType ?? null
+
+    if (!event.success) {
+      counters.failed += 1
+    }
+    if (event.errorType === 'circuit_open') {
+      counters.circuitOpen += 1
+    }
+  }
+
+  recordChartStreamPublished(_pairAddress: string, interval: '1s' | '1m'): void {
+    this.stream.byInterval[interval].published += 1
+    this.stream.totals.published += 1
+  }
+
+  recordChartStreamConsumed(_pairAddress: string, interval: '1s' | '1m', lagMs?: number): void {
+    this.stream.byInterval[interval].consumed += 1
+    this.stream.totals.consumed += 1
+
+    if (typeof lagMs === 'number' && Number.isFinite(lagMs) && lagMs >= 0) {
+      this.stream.totals.lagSamples += 1
+      this.stream.totals.lagTotalMs += lagMs
+    }
+  }
+
+  recordChartStreamQueueSize(_pairAddress: string, _interval: '1s' | '1m', queueSize: number): void {
+    if (!Number.isFinite(queueSize) || queueSize < 0) {
+      return
+    }
+    this.stream.totals.queueSamples += 1
+    this.stream.totals.queueTotal += queueSize
+  }
+
+  recordRateLimitHit(): void {
+    this.rateLimit.hits += 1
   }
 
   maybeFeedSeedRateAlert(
@@ -176,6 +271,26 @@ export class BackendMetrics {
       ingestCycles > 0 ? Number((this.ingest.totalDurationMs / ingestCycles).toFixed(2)) : 0
     const seedRate = this.feed.totalRequests > 0 ? this.feed.sourceSeed / this.feed.totalRequests : 0
     const staleRate = this.feed.totalRequests > 0 ? this.feed.cacheStale / this.feed.totalRequests : 0
+    const avgStreamLagMs =
+      this.stream.totals.lagSamples > 0
+        ? Number((this.stream.totals.lagTotalMs / this.stream.totals.lagSamples).toFixed(2))
+        : 0
+    const avgStreamQueueSize =
+      this.stream.totals.queueSamples > 0
+        ? Number((this.stream.totals.queueTotal / this.stream.totals.queueSamples).toFixed(2))
+        : 0
+
+    const upstream: Record<string, unknown> = {}
+    for (const [name, counters] of this.upstream.entries()) {
+      upstream[name] = {
+        totalRequests: counters.total,
+        failedRequests: counters.failed,
+        circuitOpen: counters.circuitOpen,
+        avgDurationMs: counters.total > 0 ? Number((counters.totalDurationMs / counters.total).toFixed(2)) : 0,
+        lastStatus: counters.lastStatus,
+        lastErrorType: counters.lastErrorType,
+      }
+    }
 
     return {
       uptimeMs: Date.now() - this.startedAtMs,
@@ -210,6 +325,47 @@ export class BackendMetrics {
         staleRate: Number(staleRate.toFixed(6)),
         unavailable: this.feed.unavailable,
       },
+      cache: {
+        feed: {
+          redisReads: this.feed.cacheStorageRedis,
+          memoryReads: this.feed.cacheStorageMemory,
+          repositoryReads: this.feed.cacheStorageRepository,
+        },
+      },
+      upstream,
+      stream: {
+        interval1s: {
+          published: this.stream.byInterval['1s'].published,
+          consumed: this.stream.byInterval['1s'].consumed,
+        },
+        interval1m: {
+          published: this.stream.byInterval['1m'].published,
+          consumed: this.stream.byInterval['1m'].consumed,
+        },
+        avgLagMs: avgStreamLagMs,
+        avgQueueSize: avgStreamQueueSize,
+      },
+      rateLimit: {
+        hits: this.rateLimit.hits,
+      },
     }
+  }
+
+  private ensureUpstream(name: string): UpstreamCounters {
+    const existing = this.upstream.get(name)
+    if (existing) {
+      return existing
+    }
+
+    const next: UpstreamCounters = {
+      total: 0,
+      failed: 0,
+      circuitOpen: 0,
+      totalDurationMs: 0,
+      lastStatus: 0,
+      lastErrorType: null,
+    }
+    this.upstream.set(name, next)
+    return next
   }
 }

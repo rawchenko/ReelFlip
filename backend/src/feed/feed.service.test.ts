@@ -987,3 +987,23 @@ test('empty data window returns deterministic empty page without crashing', asyn
   assert.equal(second.items.length, 0)
   assert.equal(second.nextCursor, null)
 })
+
+test('when sync refresh is disabled, cache miss does not trigger provider fetch in request path', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider([], new SeedFeedProvider(seededItems), logger)
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    allowSyncRefreshOnMiss: false,
+  })
+
+  await assert.rejects(() => service.getPage({ limit: 2 }), (error: unknown) => error instanceof FeedUnavailableError)
+
+  await service.refreshSnapshot()
+  const page = await service.getPage({ limit: 2 })
+  assert.equal(page.cacheStatus, 'HIT')
+  assert.equal(page.items.length, 2)
+})

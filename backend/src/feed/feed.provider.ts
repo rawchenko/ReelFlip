@@ -1,4 +1,6 @@
 import type { ChartHistoryQuality } from '../chart/chart.types.js'
+import { CircuitBreaker } from '../lib/circuit-breaker.js'
+import { ResilientHttpClient, UpstreamRequestEvent } from '../lib/http-client.js'
 import type { FeedEnricher } from './feed.enrichment.js'
 
 export type FeedCategory = 'trending' | 'gainer' | 'new' | 'memecoin'
@@ -130,6 +132,7 @@ interface DexScreenerProviderOptions {
   timeoutMs: number
   searchQuery: string
   tokenMints?: string
+  onRequestComplete?: (event: UpstreamRequestEvent) => void
 }
 
 interface DexDiscoveryEndpoint {
@@ -148,12 +151,29 @@ const DEX_TOKEN_BATCH_SIZE = 30
 
 export class DexScreenerFeedProvider implements FeedProvider {
   readonly name = 'dexscreener'
+  private readonly httpClient: ResilientHttpClient
 
   constructor(
     private readonly options: DexScreenerProviderOptions,
     private readonly logger: Logger,
     private readonly enricher?: FeedEnricher,
-  ) {}
+  ) {
+    this.httpClient = new ResilientHttpClient({
+      upstream: 'dexscreener_feed',
+      timeoutMs: options.timeoutMs,
+      maxRetries: 2,
+      retryBaseDelayMs: 200,
+      circuitBreaker: new CircuitBreaker({
+        windowMs: 30_000,
+        minSamples: 10,
+        failureThreshold: 0.5,
+        openDurationMs: 15_000,
+        halfOpenProbeCount: 1,
+      }),
+      logger,
+      onRequestComplete: options.onRequestComplete,
+    })
+  }
 
   async fetchFeed(signal: AbortSignal): Promise<TokenFeedItem[]> {
     const tokenMints = parseDexTokenMints(this.options.tokenMints)
@@ -336,29 +356,19 @@ export class DexScreenerFeedProvider implements FeedProvider {
   }
 
   private async fetchDexJson(path: string, signal: AbortSignal): Promise<unknown> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.options.timeoutMs)
-    const abortOnParent = () => controller.abort()
-    signal.addEventListener('abort', abortOnParent, { once: true })
+    const pathWithSlash = path.startsWith('/') ? path : `/${path}`
+    const url = `https://api.dexscreener.com${pathWithSlash}`
+    const response = await this.httpClient.request(url, {
+      method: 'GET',
+      signal,
+      headers: { accept: 'application/json' },
+    })
 
-    try {
-      const pathWithSlash = path.startsWith('/') ? path : `/${path}`
-      const url = `https://api.dexscreener.com${pathWithSlash}`
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { accept: 'application/json' },
-      })
-
-      if (!response.ok) {
-        throw new Error(`DexScreener request failed with status ${response.status} for ${pathWithSlash}`)
-      }
-
-      return (await response.json()) as unknown
-    } finally {
-      clearTimeout(timeoutId)
-      signal.removeEventListener('abort', abortOnParent)
+    if (!response.ok) {
+      throw new Error(`DexScreener request failed with status ${response.status} for ${pathWithSlash}`)
     }
+
+    return (await response.json()) as unknown
   }
 }
 

@@ -1,15 +1,49 @@
 import { FastifyInstance } from 'fastify'
+import { CircuitBreaker } from '../lib/circuit-breaker.js'
 import { errorEnvelope } from '../lib/error-envelope.js'
+import { ResilientHttpClient } from '../lib/http-client.js'
 
 interface ImageProxyQuerystring {
   url?: string
 }
 
+interface ImageProxyRouteDependencies {
+  rateLimitImageProxyPerMinute: number
+}
+
 const DEFAULT_TIMEOUT_MS = 8_000
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024
 
-export async function registerImageProxyRoute(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: ImageProxyQuerystring }>('/v1/image/proxy', async (request, reply) => {
+export async function registerImageProxyRoute(
+  app: FastifyInstance,
+  dependencies: ImageProxyRouteDependencies,
+): Promise<void> {
+  const httpClient = new ResilientHttpClient({
+    upstream: 'image_proxy',
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxRetries: 2,
+    retryBaseDelayMs: 200,
+    circuitBreaker: new CircuitBreaker({
+      windowMs: 30_000,
+      minSamples: 10,
+      failureThreshold: 0.5,
+      openDurationMs: 15_000,
+      halfOpenProbeCount: 1,
+    }),
+    logger: app.log,
+  })
+
+  app.get<{ Querystring: ImageProxyQuerystring }>(
+    '/v1/image/proxy',
+    {
+      config: {
+        rateLimit: {
+          max: dependencies.rateLimitImageProxyPerMinute,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
     const rawUrl = request.query.url
     if (!rawUrl || rawUrl.trim().length === 0) {
       return reply.code(400).send(errorEnvelope('BAD_REQUEST', 'url query param is required'))
@@ -26,12 +60,8 @@ export async function registerImageProxyRoute(app: FastifyInstance): Promise<voi
       return reply.code(400).send(errorEnvelope('BAD_REQUEST', 'url protocol must be http or https'))
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
-
     try {
-      const upstream = await fetch(parsedUrl, {
-        signal: controller.signal,
+      const upstream = await httpClient.request(parsedUrl, {
         headers: {
           accept: 'image/*,*/*;q=0.8',
           'user-agent': 'ReelFlipImageProxy/1.0',
@@ -68,8 +98,7 @@ export async function registerImageProxyRoute(app: FastifyInstance): Promise<voi
     } catch (error) {
       request.log.warn({ error, url: parsedUrl.toString() }, 'Image proxy request failed')
       return reply.code(502).send(errorEnvelope('UPSTREAM_ERROR', 'Unable to fetch image'))
-    } finally {
-      clearTimeout(timeoutId)
     }
-  })
+    },
+  )
 }

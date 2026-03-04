@@ -1,10 +1,16 @@
 import type { FastifyInstance } from 'fastify'
 import WebSocket from 'ws'
+import { ChartHistoryService } from './chart.history-service.js'
 import { ChartRegistry } from './chart.registry.js'
+import { ChartStreamService } from './chart.stream.service.js'
 import { ChartInterval, ChartStreamEvent } from './chart.types.js'
 
 interface ChartWsTransportDependencies {
   chartRegistry: ChartRegistry
+  chartHistoryService: ChartHistoryService
+  chartStreamService: ChartStreamService
+  onStreamEventConsumed?: (event: ChartStreamEvent) => void
+  onStreamQueueSample?: (pairAddress: string, interval: ChartInterval, queueSize: number) => void
 }
 
 const SUPPORTED_INTERVALS: ChartInterval[] = ['1s', '1m']
@@ -21,6 +27,11 @@ export function registerChartWebSocketTransport(
       return
     }
 
+    if (!dependencies.chartStreamService.isAvailable()) {
+      closeWithError(connection, 1013, 'Chart stream backend is unavailable')
+      return
+    }
+
     const socket = resolveSocket(connection)
     if (!socket) {
       request.log.warn('Chart WS connection missing socket handle')
@@ -28,9 +39,10 @@ export function registerChartWebSocketTransport(
     }
 
     let closed = false
-    let unsubscribe: (() => void) | null = null
     let subscribedPairs: string[] = []
+    let interval: ChartInterval = '1m'
     let subscriptionVersion = 0
+    const lastIds = new Map<string, string>()
     let applyQueue = Promise.resolve()
 
     const sendEvent = (event: ChartStreamEvent) => {
@@ -59,9 +71,42 @@ export function registerChartWebSocketTransport(
       }
       closed = true
       clearInterval(heartbeatTimer)
-      unsubscribe?.()
-      unsubscribe = null
     }
+
+    const runStreamLoop = (version: number) =>
+      (async () => {
+        while (!closed && version === subscriptionVersion && subscribedPairs.length > 0) {
+          const subscriptions = subscribedPairs.map((pairAddress) => ({
+            pairAddress,
+            interval,
+            lastId: lastIds.get(pairAddress) ?? '$',
+          }))
+
+          const events = await dependencies.chartStreamService.read(subscriptions, true)
+          if (closed || version !== subscriptionVersion || events.length === 0) {
+            continue
+          }
+
+          for (const event of events) {
+            if (!('pairAddress' in event)) {
+              continue
+            }
+            sendEvent(event)
+            dependencies.onStreamEventConsumed?.(event)
+            if (event.streamId) {
+              const queueSize = await dependencies.chartStreamService.getQueueLength(event.pairAddress, interval)
+              dependencies.onStreamQueueSample?.(event.pairAddress, interval, queueSize)
+            }
+            if (event.streamId) {
+              lastIds.set(event.pairAddress, event.streamId)
+            }
+          }
+        }
+      })().catch((error) => {
+        request.log.warn({ error }, 'Chart WS stream read loop failed')
+        cleanup()
+        safeClose(socket, 1011, 'stream_failure')
+      })
 
     socket.on('close', cleanup)
     socket.on('error', (error: unknown) => {
@@ -82,49 +127,50 @@ export function registerChartWebSocketTransport(
             return
           }
 
-          const nextPairs = message.nextPairs
-          const interval = message.interval
           const version = ++subscriptionVersion
+          interval = message.interval
+          subscribedPairs = message.nextPairs
 
-          unsubscribe?.()
-          unsubscribe = null
-          subscribedPairs = nextPairs
+          for (const pairAddress of subscribedPairs) {
+            if (!lastIds.has(pairAddress)) {
+              lastIds.set(pairAddress, '$')
+            }
+          }
+          for (const known of Array.from(lastIds.keys())) {
+            if (!subscribedPairs.includes(known)) {
+              lastIds.delete(known)
+            }
+          }
 
-          if (nextPairs.length === 0) {
+          if (subscribedPairs.length === 0) {
             return
           }
 
-          for (const pairAddress of nextPairs) {
-            try {
-              await dependencies.chartRegistry.ensurePairSeeded(pairAddress)
-            } catch (error) {
-              request.log.warn({ error, pairAddress }, 'Failed to seed pair for WS bootstrap')
-            }
-
-            if (closed || version !== subscriptionVersion) {
-              return
-            }
-
-            const snapshotEvent = dependencies.chartRegistry.buildSnapshotEvent(pairAddress, SNAPSHOT_LIMIT, interval)
-            if (snapshotEvent) {
-              sendEvent(snapshotEvent)
-            }
-
-            sendEvent(dependencies.chartRegistry.buildStatusEvent(pairAddress))
+          for (const pairAddress of subscribedPairs) {
+            const history = await dependencies.chartHistoryService.getPairHistory(pairAddress, SNAPSHOT_LIMIT, interval)
+            sendEvent({
+              type: 'snapshot',
+              pairAddress,
+              interval,
+              delayed: history.delayed,
+              candles: history.candles,
+              serverTime: new Date().toISOString(),
+            })
+            sendEvent({
+              type: 'status',
+              pairAddress,
+              interval,
+              status: history.delayed ? 'delayed' : history.candles.length > 0 ? 'live' : 'reconnecting',
+              serverTime: new Date().toISOString(),
+            })
           }
 
-          if (closed || version !== subscriptionVersion) {
-            return
-          }
-
-          unsubscribe = dependencies.chartRegistry.subscribe(nextPairs, interval, (event) => {
-            sendEvent(event)
-          })
+          void runStreamLoop(version)
 
           request.log.debug?.(
             {
-              pairCount: nextPairs.length,
-              pairs: nextPairs,
+              pairCount: subscribedPairs.length,
+              pairs: subscribedPairs,
               interval,
             },
             'Chart WS subscription updated',
