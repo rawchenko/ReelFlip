@@ -6,6 +6,20 @@ loadLocalEnvFile()
 export interface BackendEnv {
   host: string
   port: number
+  supabaseUrl?: string
+  supabaseServiceRoleKey?: string
+  supabaseRequestTimeoutMs: number
+  supabaseReadEnabled: boolean
+  supabaseDualWriteEnabled: boolean
+  tokenIngestIntervalSeconds: number
+  tokenCandleRetentionDays: number
+  alertWebhookUrl?: string
+  alertWebhookTimeoutMs: number
+  alertWebhookRetryCount: number
+  alertWebhookCooldownSeconds: number
+  alertFeedSeedRateThreshold: number
+  alertSupabaseFailureRateThreshold: number
+  alertMinRequests: number
   redisUrl?: string
   feedCacheTtlSeconds: number
   feedCacheStaleTtlSeconds: number
@@ -94,6 +108,17 @@ function parseEnvValue(rawValue: string): string {
 const DEFAULTS = {
   host: '0.0.0.0',
   port: 3001,
+  supabaseRequestTimeoutMs: 10_000,
+  supabaseReadEnabled: false,
+  supabaseDualWriteEnabled: false,
+  tokenIngestIntervalSeconds: 300,
+  tokenCandleRetentionDays: 14,
+  alertWebhookTimeoutMs: 3000,
+  alertWebhookRetryCount: 2,
+  alertWebhookCooldownSeconds: 300,
+  alertFeedSeedRateThreshold: 0.4,
+  alertSupabaseFailureRateThreshold: 0.2,
+  alertMinRequests: 20,
   feedCacheTtlSeconds: 5,
   feedCacheStaleTtlSeconds: 30,
   feedCursorTtlSeconds: 300,
@@ -175,6 +200,20 @@ function parseBoolEnv(name: string, fallback: boolean): boolean {
   throw new Error(`Invalid ${name}: expected boolean`)
 }
 
+function parseFloatEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) {
+    return fallback
+  }
+
+  const parsed = Number.parseFloat(raw)
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    throw new Error(`Invalid ${name}: expected number between ${min} and ${max}`)
+  }
+
+  return parsed
+}
+
 export function loadEnv(): BackendEnv {
   const chartHistoryProvider = (process.env.CHART_HISTORY_PROVIDER ?? DEFAULTS.chartHistoryProvider).trim().toLowerCase()
   if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'none') {
@@ -185,6 +224,50 @@ export function loadEnv(): BackendEnv {
   return {
     host: process.env.HOST ?? DEFAULTS.host,
     port: parseIntEnv('PORT', DEFAULTS.port, 1),
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseRequestTimeoutMs: parseIntEnv(
+      'SUPABASE_REQUEST_TIMEOUT_MS',
+      DEFAULTS.supabaseRequestTimeoutMs,
+      500,
+    ),
+    supabaseReadEnabled: parseBoolEnv('SUPABASE_READ_ENABLED', DEFAULTS.supabaseReadEnabled),
+    supabaseDualWriteEnabled: parseBoolEnv('SUPABASE_DUAL_WRITE_ENABLED', DEFAULTS.supabaseDualWriteEnabled),
+    tokenIngestIntervalSeconds: parseIntEnv(
+      'TOKEN_INGEST_INTERVAL_SECONDS',
+      DEFAULTS.tokenIngestIntervalSeconds,
+      5,
+    ),
+    tokenCandleRetentionDays: parseIntEnv('TOKEN_CANDLE_RETENTION_DAYS', DEFAULTS.tokenCandleRetentionDays, 1),
+    alertWebhookUrl: process.env.ALERT_WEBHOOK_URL,
+    alertWebhookTimeoutMs: parseIntEnv(
+      'ALERT_WEBHOOK_TIMEOUT_MS',
+      DEFAULTS.alertWebhookTimeoutMs,
+      200,
+    ),
+    alertWebhookRetryCount: parseIntEnv(
+      'ALERT_WEBHOOK_RETRY_COUNT',
+      DEFAULTS.alertWebhookRetryCount,
+      0,
+    ),
+    alertWebhookCooldownSeconds: parseIntEnv(
+      'ALERT_WEBHOOK_COOLDOWN_SECONDS',
+      DEFAULTS.alertWebhookCooldownSeconds,
+      0,
+    ),
+    alertFeedSeedRateThreshold: parseFloatEnv(
+      'ALERT_FEED_SEED_RATE_THRESHOLD',
+      DEFAULTS.alertFeedSeedRateThreshold,
+      0,
+      1,
+    ),
+    alertSupabaseFailureRateThreshold: parseFloatEnv(
+      'ALERT_SUPABASE_FAILURE_RATE_THRESHOLD',
+      DEFAULTS.alertSupabaseFailureRateThreshold,
+      0,
+      1,
+    ),
+    alertMinRequests: parseIntEnv('ALERT_MIN_REQUESTS', DEFAULTS.alertMinRequests, 1),
     redisUrl: process.env.REDIS_URL,
     feedCacheTtlSeconds: parseIntEnv('FEED_CACHE_TTL_SECONDS', DEFAULTS.feedCacheTtlSeconds, 1),
     feedCacheStaleTtlSeconds: parseIntEnv('FEED_CACHE_STALE_TTL_SECONDS', DEFAULTS.feedCacheStaleTtlSeconds, 1),

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { FeedCache, FeedSnapshot } from './feed.cache.js'
 import { decodeFeedCursor, encodeFeedCursor, FeedCursorError, FeedCursorPayload } from './feed.cursor.js'
 import { CompositeFeedProvider, FeedCategory, FeedLabel, FeedProviderUnavailableError, TokenFeedItem } from './feed.provider.js'
+import { FeedRepository, ScoredFeedItem } from '../storage/feed.repository.js'
+import { TokenRepository } from '../storage/token.repository.js'
 
 export class InvalidFeedRequestError extends Error {
   readonly statusCode = 400
@@ -50,6 +52,13 @@ interface FeedServiceOptions {
   requireFullChartHistory?: boolean
   enforceRenderableTokens?: boolean
   requireLiveSourceForMinLifetime?: boolean
+  tokenRepository?: TokenRepository
+  feedRepository?: FeedRepository
+  readThroughEnabled?: boolean
+  writeThroughEnabled?: boolean
+  logger?: {
+    warn: (obj: unknown, msg?: string) => void
+  }
 }
 
 const CATEGORY_TO_DISCOVERY_LABEL: Record<FeedCategory, FeedLabel> = {
@@ -61,7 +70,11 @@ const CATEGORY_TO_DISCOVERY_LABEL: Record<FeedCategory, FeedLabel> = {
 
 export class FeedRankingService {
   rank(items: TokenFeedItem[]): TokenFeedItem[] {
-    const scored = items.map((item, index) => ({ item, index, score: this.score(item) }))
+    return this.rankWithScores(items).map((entry) => entry.item)
+  }
+
+  rankWithScores(items: TokenFeedItem[]): Array<{ item: TokenFeedItem; score: number }> {
+    const scored = items.map((item, index) => ({ item, index, score: this.scoreItem(item) }))
     const bestByMint = new Map<string, (typeof scored)[number]>()
 
     for (const candidate of scored) {
@@ -102,10 +115,10 @@ export class FeedRankingService {
 
         return left.index - right.index
       })
-      .map((entry) => entry.item)
+      .map((entry) => ({ item: entry.item, score: entry.score }))
   }
 
-  private score(item: TokenFeedItem): number {
+  scoreItem(item: TokenFeedItem): number {
     const liquidityScore = Math.log10(Math.max(1, item.liquidity))
     const volumeScore = Math.log10(Math.max(1, item.volume24h))
     const recentVolumeScore = Math.log10(Math.max(1, item.recentVolume5m ?? 0))
@@ -139,6 +152,13 @@ export class FeedService {
   private readonly requireFullChartHistory: boolean
   private readonly enforceRenderableTokens: boolean
   private readonly requireLiveSourceForMinLifetime: boolean
+  private readonly tokenRepository?: TokenRepository
+  private readonly feedRepository?: FeedRepository
+  private readonly readThroughEnabled: boolean
+  private readonly writeThroughEnabled: boolean
+  private readonly logger?: {
+    warn: (obj: unknown, msg?: string) => void
+  }
 
   constructor(
     private readonly cache: FeedCache,
@@ -152,6 +172,11 @@ export class FeedService {
     this.requireFullChartHistory = options.requireFullChartHistory ?? true
     this.enforceRenderableTokens = options.enforceRenderableTokens ?? false
     this.requireLiveSourceForMinLifetime = options.requireLiveSourceForMinLifetime ?? false
+    this.tokenRepository = options.tokenRepository
+    this.feedRepository = options.feedRepository
+    this.readThroughEnabled = options.readThroughEnabled ?? false
+    this.writeThroughEnabled = options.writeThroughEnabled ?? false
+    this.logger = options.logger
   }
 
   async getPage(query: FeedQueryInput): Promise<FeedPageResult> {
@@ -162,7 +187,13 @@ export class FeedService {
     const requiresLiveSource =
       this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0
     if (cursorPayload) {
-      const snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
+      let snapshot = await this.cache.readSnapshotById(cursorPayload.snapshotId)
+      if (!snapshot && this.readThroughEnabled && this.feedRepository?.isEnabled()) {
+        snapshot = await this.feedRepository.readSnapshotById(cursorPayload.snapshotId)
+        if (snapshot) {
+          await this.cache.writeSnapshot(snapshot).catch(() => undefined)
+        }
+      }
       if (!snapshot) {
         throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
       }
@@ -178,6 +209,16 @@ export class FeedService {
 
     if (freshSnapshot && (!requiresLiveSource || freshSnapshot.source === 'providers')) {
       return this.paginateSnapshot(freshSnapshot, null, category, minLifetimeHours, limit, 'HIT')
+    }
+
+    if (this.readThroughEnabled && this.feedRepository?.isEnabled()) {
+      const persistedSnapshot = await this.feedRepository.readLatestSnapshot()
+      if (persistedSnapshot && this.canUseSnapshot(persistedSnapshot)) {
+        if (!requiresLiveSource || persistedSnapshot.source === 'providers') {
+          await this.cache.writeSnapshot(persistedSnapshot).catch(() => undefined)
+          return this.paginateSnapshot(persistedSnapshot, null, category, minLifetimeHours, limit, 'MISS')
+        }
+      }
     }
 
     try {
@@ -210,14 +251,7 @@ export class FeedService {
         throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
       }
 
-      const rankedItems = this.rankingService.rank(eligibilityResult.items)
-      const snapshot: FeedSnapshot = {
-        id: randomUUID(),
-        generatedAt: new Date().toISOString(),
-        source: providerResult.source,
-        items: rankedItems,
-      }
-      await this.cache.writeSnapshot(snapshot)
+      const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
 
       const page = this.paginateSnapshot(snapshot, null, category, minLifetimeHours, limit, 'MISS')
       return {
@@ -241,6 +275,68 @@ export class FeedService {
       }
 
       throw error
+    }
+  }
+
+  async refreshSnapshot(): Promise<FeedSnapshot | null> {
+    const providerResult = await this.provider.fetchFeed(new AbortController().signal)
+
+    if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
+      throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
+    }
+
+    const eligibilityResult = this.filterRenderableItems(providerResult.items)
+    if (this.enforceRenderableTokens && eligibilityResult.items.length === 0) {
+      throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
+    }
+
+    const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
+    return snapshot
+  }
+
+  private async materializeSnapshot(source: FeedSnapshot['source'], items: TokenFeedItem[]): Promise<FeedSnapshot> {
+    const rankedWithScores = this.rankingService.rankWithScores(items)
+    const snapshot: FeedSnapshot = {
+      id: randomUUID(),
+      generatedAt: new Date().toISOString(),
+      source,
+      items: rankedWithScores.map((entry) => entry.item),
+    }
+
+    await this.cache.writeSnapshot(snapshot)
+    await this.persistSnapshot(snapshot, rankedWithScores)
+    return snapshot
+  }
+
+  private async persistSnapshot(
+    snapshot: FeedSnapshot,
+    rankedWithScores: Array<{ item: TokenFeedItem; score: number }>,
+  ): Promise<void> {
+    if (!this.writeThroughEnabled) {
+      return
+    }
+
+    if (!this.tokenRepository?.isEnabled() || !this.feedRepository?.isEnabled()) {
+      return
+    }
+
+    try {
+      await this.tokenRepository.upsertTokenDomainBatch(snapshot.items, snapshot.generatedAt)
+      const scoredItems: ScoredFeedItem[] = rankedWithScores.map((entry, index) => ({
+        mint: entry.item.mint,
+        score: entry.score,
+        position: index,
+      }))
+      await this.feedRepository.createSnapshot(snapshot, scoredItems, 'MISS')
+    } catch (error) {
+      this.logger?.warn(
+        {
+          error,
+          snapshotId: snapshot.id,
+          itemCount: snapshot.items.length,
+        },
+        'Failed to persist feed snapshot to Supabase',
+      )
     }
   }
 

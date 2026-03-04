@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-03-04T09:48:22.522Z",
+  "tool": "feed_parity_check",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3001",
+    "feedLimit": 20,
+    "sampleSize": 50,
+    "numericTolerance": 0.005
+  },
+  "sampledMints": [
+    "FN3xz4ndtLVHU5g3QeY5NVWRNbru23JxEEKxXvrJBAGS",
+    "AsrtqZiNYt3c6nNCtkj7abUrVc8APsFF37Wffq45rkVh",
+    "agPXtMypuQdcTueQqxmLvbBVv4ksFyrGWUfjWaVxKRN",
+    "5VAwkGouBRzrBeYt4wCFDjoT5rAEwsqZJoBRSq2Lpump",
+    "6vhLsGaLCdcxkdx5R3cftVB7KS9uzK1CgGtN1ZZ6pump",
+    "8KvoBfxiPiVp9b9mxSFZHpJdX9NUtbmNFhAGggLDpump",
+    "8w6yhgsGKxfMZRPLNBBjgJQKRRGaXvgDAdhgQacEpump",
+    "8dXhKvPNRgrVEnHo58xiw1gj1fDdZPB88VDYFTZppump",
+    "26VemfNJqpPPrbP2UU2dJ34nmFzHwqiqRjBcimb3pump",
+    "8iJSvmFrPoxnhfFHG6xwXngdXbHLbqbdXcxqiu1upump",
+    "FD7g2RXbRoGUPZLmndouSsh9zMUtQCQ4CaNGoL5abVv5",
+    "58PuYihg3EW32dyiM5zc1P6iEHg5EauHhsWLy14xpump",
+    "ASLtCHWxo8xxNFpunxiB4Wo7LsSRTC96PYdu76HUpump",
+    "4cGQs21mM7AkY9HmMw4morzLEPsTFaHWPdHB2mrfrZW7",
+    "FqV9fmCVVCpfstxrG5HHkJpdt3xjn9EQn5WY1uAypump",
+    "3ktnVTQrzgqCEsnaU1fzsXYsk5pXfdtf4L9wvTNJpump",
+    "1219vjf4jUQ2XNZL6uxSsV9iYpS3XwzigKHELFkqfn1n",
+    "HC8XTxxMo69Nm3TqgXTJaxihZYbJUpBEzCEGcgMqpump",
+    "6fCNE2ib5HPUYAMs14sPqTHJG6gk6Ua1vw3T7kyKpump",
+    "AffGxvoEmVHx3hRpsZUVwqikjVxaEx27ThVo9Vehpump"
+  ],
+  "parity": {
+    "checkedMints": 20,
+    "missingInDb": [],
+    "mismatchedMints": [],
+    "mismatchCount": 0,
+    "mismatchRate": 0,
+    "issuesByMint": {},
+    "pass": true
+  }
+}

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PropsWithChildren, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { InteractionManager } from 'react-native'
 
 const ONBOARDING_STORAGE_KEY = 'reelflip.onboarding.state.v1'
 
@@ -244,6 +245,12 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
     }
   }, [])
 
+  const persistOnboardingState = useCallback((payload: PersistedOnboardingState) => {
+    InteractionManager.runAfterInteractions(() => {
+      void AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload)).catch(() => {})
+    })
+  }, [])
+
   const completeOnboardingIntro = useCallback(async () => {
     setOnboardingStage((currentStage) => (currentStage >= 1 ? currentStage : 1))
     const persistedStage = onboardingStage >= 1 ? onboardingStage : 1
@@ -254,11 +261,8 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
       safetyPreferences,
       stage: persistedStage,
     }
-
-    try {
-      await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload))
-    } catch {}
-  }, [finishPreferences, launchPreferences, onboardingStage, profilePreferences, safetyPreferences])
+    persistOnboardingState(payload)
+  }, [finishPreferences, launchPreferences, onboardingStage, persistOnboardingState, profilePreferences, safetyPreferences])
 
   const completeOnboardingProfile = useCallback(
     async (preferences: OnboardingPreferences) => {
@@ -272,12 +276,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
         safetyPreferences,
         stage: persistedStage,
       }
-
-      try {
-        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload))
-      } catch {}
+      persistOnboardingState(payload)
     },
-    [finishPreferences, launchPreferences, onboardingStage, safetyPreferences],
+    [finishPreferences, launchPreferences, onboardingStage, persistOnboardingState, safetyPreferences],
   )
 
   const completeOnboardingSafety = useCallback(
@@ -293,12 +294,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
         safetyPreferences: nextSafetyPreferences,
         stage: persistedStage,
       }
-
-      try {
-        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload))
-      } catch {}
+      persistOnboardingState(payload)
     },
-    [finishPreferences, launchPreferences, onboardingStage, profilePreferences],
+    [finishPreferences, launchPreferences, onboardingStage, persistOnboardingState, profilePreferences],
   )
 
   const completeOnboardingLaunch = useCallback(
@@ -315,12 +313,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
         safetyPreferences: currentSafety,
         stage: persistedStage,
       }
-
-      try {
-        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload))
-      } catch {}
+      persistOnboardingState(payload)
     },
-    [finishPreferences, onboardingStage, profilePreferences, safetyPreferences],
+    [finishPreferences, onboardingStage, persistOnboardingState, profilePreferences, safetyPreferences],
   )
 
   const completeOnboarding = useCallback(
@@ -341,12 +336,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
         finalPreferences: currentLaunch,
         stage: 5,
       }
-
-      try {
-        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload))
-      } catch {}
+      persistOnboardingState(payload)
     },
-    [launchPreferences, profilePreferences, safetyPreferences],
+    [launchPreferences, persistOnboardingState, profilePreferences, safetyPreferences],
   )
 
   const resetOnboarding = useCallback(async () => {

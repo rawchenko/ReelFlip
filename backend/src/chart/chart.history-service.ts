@@ -1,6 +1,7 @@
 import { ChartHistoryCache } from './chart.history-cache.js'
 import { HistoricalCandleProvider } from './chart.history-provider.js'
 import { ChartRegistry } from './chart.registry.js'
+import { ChartRepository, toPersistedCandles } from '../storage/chart.repository.js'
 import {
   ChartBatchHistoryPairResult,
   ChartBatchHistoryResponse,
@@ -26,6 +27,9 @@ export interface ChartHistoryServiceOptions {
   backfillEnabled: boolean
   backfillConcurrency: number
   warmupTopPairs: number
+  chartRepository?: ChartRepository
+  readThroughEnabled?: boolean
+  writeThroughEnabled?: boolean
 }
 
 interface PairHistoryResolved {
@@ -39,6 +43,9 @@ interface PairHistoryResolved {
 
 export class ChartHistoryService {
   private readonly backfillInFlight = new Map<string, Promise<void>>()
+  private readonly chartRepository?: ChartRepository
+  private readonly readThroughEnabled: boolean
+  private readonly writeThroughEnabled: boolean
 
   constructor(
     private readonly chartRegistry: ChartRegistry,
@@ -46,7 +53,11 @@ export class ChartHistoryService {
     private readonly historicalProvider: HistoricalCandleProvider,
     private readonly options: ChartHistoryServiceOptions,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.chartRepository = options.chartRepository
+    this.readThroughEnabled = options.readThroughEnabled ?? false
+    this.writeThroughEnabled = options.writeThroughEnabled ?? false
+  }
 
   getBatchMaxPairs(): number {
     return this.options.batchMaxPairs
@@ -154,6 +165,18 @@ export class ChartHistoryService {
     const runtimeCandles = runtimeSnapshot.candles.map(fromChartCandleDto)
 
     let cacheRead = await this.historyCache.readPair(pairAddress, interval)
+    if (
+      interval === '1m' &&
+      this.readThroughEnabled &&
+      this.chartRepository?.isEnabled() &&
+      (cacheRead.entry?.candles.length ?? 0) < boundedLimit
+    ) {
+      const storedCandles = await this.chartRepository.getCandles(pairAddress, boundedLimit)
+      if (storedCandles.length > 0) {
+        await this.historyCache.writeHistorical(pairAddress, storedCandles, interval)
+        cacheRead = await this.historyCache.readPair(pairAddress, interval)
+      }
+    }
     const cacheHasEnough = (cacheRead.entry?.candles.length ?? 0) >= boundedLimit && (cacheRead.entry?.hasHistoricalBackfill ?? false)
     const runtimeHasEnough = runtimeCandles.length >= boundedLimit
     let backfillHappened = false
@@ -181,6 +204,14 @@ export class ChartHistoryService {
           : merged.length > 0
             ? 'runtime_aggregator'
             : 'runtime_aggregator'
+
+    if (interval === '1m' && merged.length > 0 && this.writeThroughEnabled && this.chartRepository?.isEnabled()) {
+      void this.chartRepository
+        .upsertCandles(toPersistedCandles(pairAddress, merged))
+        .catch((error) =>
+          this.logger.warn({ error, pairAddress, candleCount: merged.length }, 'Chart Supabase write-through failed'),
+        )
+    }
 
     return {
       pairAddress,

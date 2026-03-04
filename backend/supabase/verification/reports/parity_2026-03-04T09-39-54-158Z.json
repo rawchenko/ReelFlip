@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-03-04T09:39:54.158Z",
+  "tool": "feed_parity_check",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3001",
+    "feedLimit": 20,
+    "sampleSize": 50,
+    "numericTolerance": 0.005
+  },
+  "sampledMints": [
+    "3XR4myVuedWRhKdZ6gbkkGAqa9Q17JaQoRDGohNspump",
+    "5cZf4Gp94wizChAb5c9JPbTrQ52U4G8CLPwPpCUapump",
+    "NV2RYH954cTJ3ckFUpvfqaQXU4ARqqDH3562nFSpump",
+    "GMD16hpoKqfpXpPTWoymvzjddsruQsdqPu8T28ZKpump",
+    "D26ESwuP4CKJqurPhmum8YskCrke9cSqeEmczkxXpump",
+    "71AZt4P5kc5vpfTJR1HjNbMzD84G7vxam4DtL3kJpump",
+    "84yCF7hyUuRNAra9BjFHVDpnRdGXmfsV2emyZwLjpump",
+    "4c1HzBShCHc1EckQTVXZZ5feDCgkDweaw3t3JQQqpump",
+    "5P4sZjYRbaawFZ6FyFgeaq1PYk57Bj5GL4UHXgnjpump",
+    "ABmMqCr6ybUhSPoG2iT1JKaf9ix5dqJU4eqmaBBCUipJ",
+    "7okHmAi1re834jSp2kAdduML9a1RfZ5fQJfQ878k8y7g",
+    "FN3xz4ndtLVHU5g3QeY5NVWRNbru23JxEEKxXvrJBAGS",
+    "6r1dpuWKdDXEK5fiQu1sU3EEKnpyDBBVBEH8kPC3pump",
+    "CSznn6WWGSvPSFmGrGtMJddPT3hk1vzRUcRV8uc441K",
+    "4xB2NGznSwQXAAjRsyAputhonM2uDD1FYwnGo92pdoge",
+    "4fCwRhFEEMeqnervnjCCzQyw436g5WJKPKk7QPC6pump",
+    "buZEcf51e2tD4goTbb9mFZ1567jpC6aYu7if1TTpump",
+    "9rTrsxzcDRMKpBHsbmdMkfPsU6K8FHepcyp43Dr6pump",
+    "8mNuDUshJxp4YTGtJ4b4MZHy31Ymr3WGrBWDNcG4pump",
+    "412zDygnwP9DzitnQVgRKUFFTDmrYScFch6P2k39pump"
+  ],
+  "parity": {
+    "checkedMints": 20,
+    "missingInDb": [],
+    "mismatchedMints": [],
+    "mismatchCount": 0,
+    "mismatchRate": 0,
+    "issuesByMint": {},
+    "pass": true
+  }
+}

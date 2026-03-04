@@ -4,6 +4,8 @@ import { FeedCache } from './feed.cache.js'
 import { CompositeFeedProvider, FeedLabel, FeedProvider, SeedFeedProvider, TokenFeedItem } from './feed.provider.js'
 import { DEFAULT_SEEDED_FEED } from './feed.seed.js'
 import { FeedRankingService, FeedService, FeedUnavailableError, InvalidFeedRequestError } from './feed.service.js'
+import { FeedRepository } from '../storage/feed.repository.js'
+import { TokenRepository } from '../storage/token.repository.js'
 
 const logger = {
   info: () => undefined,
@@ -788,4 +790,129 @@ test('trending category still includes items with trending discovery label after
   assert.equal(trendingPage.items.length, 2)
   assert.ok(mints.includes('label-trending'))
   assert.ok(mints.includes('direct-trending'))
+})
+
+test('read-through loads latest snapshot from repository when cache is empty', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider([], new SeedFeedProvider([]), logger)
+  const expectedItem = buildItem({
+    mint: 'persisted-a',
+    name: 'Persisted',
+    symbol: 'PRS',
+    priceUsd: 1.5,
+    priceChange24h: 4,
+    volume24h: 2000,
+    liquidity: 5000,
+    marketCap: 10000,
+    pairAddress: 'pair-persisted',
+    category: 'trending',
+    riskTier: 'allow',
+  })
+
+  const fakeFeedRepository = {
+    isEnabled: () => true,
+    readLatestSnapshot: async () => ({
+      id: 'snapshot-persisted',
+      generatedAt: '2026-03-03T00:00:00.000Z',
+      source: 'providers' as const,
+      items: [expectedItem],
+    }),
+    readSnapshotById: async () => null,
+    createSnapshot: async () => undefined,
+  }
+
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    readThroughEnabled: true,
+    feedRepository: fakeFeedRepository as unknown as FeedRepository,
+  })
+
+  const page = await service.getPage({ limit: 10 })
+  assert.equal(page.items.length, 1)
+  assert.equal(page.items[0]?.mint, 'persisted-a')
+  assert.equal(page.source, 'providers')
+})
+
+test('write-through persists token and snapshot rows when enabled', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider(
+    [
+      new SequenceLiveProvider([
+        [
+          buildItem({
+            mint: 'persist-w',
+            name: 'Persist Write',
+            symbol: 'PWR',
+            priceUsd: 2,
+            priceChange24h: 8,
+            volume24h: 10000,
+            liquidity: 30000,
+            marketCap: 500000,
+            pairAddress: 'pair-w',
+            category: 'trending',
+            riskTier: 'allow',
+          }),
+        ],
+      ]),
+    ],
+    new SeedFeedProvider(DEFAULT_SEEDED_FEED),
+    logger,
+  )
+
+  let tokenPersistCalls = 0
+  let snapshotPersistCalls = 0
+  const fakeTokenRepository = {
+    isEnabled: () => true,
+    upsertTokenDomainBatch: async () => {
+      tokenPersistCalls += 1
+    },
+  }
+  const fakeFeedRepository = {
+    isEnabled: () => true,
+    readLatestSnapshot: async () => null,
+    readSnapshotById: async () => null,
+    createSnapshot: async () => {
+      snapshotPersistCalls += 1
+    },
+  }
+
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10, {
+    writeThroughEnabled: true,
+    tokenRepository: fakeTokenRepository as unknown as TokenRepository,
+    feedRepository: fakeFeedRepository as unknown as FeedRepository,
+  })
+
+  const page = await service.getPage({ limit: 10 })
+  assert.equal(page.items.length, 1)
+  assert.equal(tokenPersistCalls, 1)
+  assert.equal(snapshotPersistCalls, 1)
+})
+
+test('empty data window returns deterministic empty page without crashing', async () => {
+  const cache = new FeedCache({
+    ttlSeconds: 30,
+    staleTtlSeconds: 60,
+    logger,
+  })
+
+  const provider = new CompositeFeedProvider([], new SeedFeedProvider([]), logger)
+  const service = new FeedService(cache, provider, new FeedRankingService(), 10)
+
+  const first = await service.getPage({ limit: 10 })
+  assert.equal(first.items.length, 0)
+  assert.equal(first.nextCursor, null)
+  assert.equal(first.source, 'seed')
+
+  const second = await service.getPage({ limit: 10 })
+  assert.equal(second.items.length, 0)
+  assert.equal(second.nextCursor, null)
 })

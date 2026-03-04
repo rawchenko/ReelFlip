@@ -20,7 +20,20 @@ import { registerFeedRoutes } from './feed/feed.route.js'
 import { CompositeFeedProvider, DexScreenerFeedProvider, SeedFeedProvider } from './feed/feed.provider.js'
 import { DEFAULT_SEEDED_FEED } from './feed/feed.seed.js'
 import { FeedRankingService, FeedService } from './feed/feed.service.js'
+import { TokenIngestJob } from './ingest/token.ingest.job.js'
 import { errorEnvelope } from './lib/error-envelope.js'
+import { BackendMetrics } from './observability/backend.metrics.js'
+import {
+  buildFeedSeedRateAlert,
+  buildIngestFailureThresholdAlert,
+  buildIngestMissedIntervalsAlert,
+  buildSupabaseFailureRateAlert,
+} from './observability/migration-alerts.js'
+import { WebhookAlertNotifier } from './observability/webhook.alert-notifier.js'
+import { ChartRepository } from './storage/chart.repository.js'
+import { FeedRepository } from './storage/feed.repository.js'
+import { SupabaseClient } from './storage/supabase.client.js'
+import { TokenRepository } from './storage/token.repository.js'
 
 const env = loadEnv()
 
@@ -33,6 +46,48 @@ const app = Fastify({
     level: env.logLevel,
   },
 })
+const metrics = new BackendMetrics()
+const alertContext = {
+  service: 'reelflip-backend',
+  environment: (process.env.NODE_ENV ?? 'development').trim() || 'development',
+}
+const alertNotifier = new WebhookAlertNotifier({
+  url: env.alertWebhookUrl,
+  timeoutMs: env.alertWebhookTimeoutMs,
+  retryCount: env.alertWebhookRetryCount,
+  cooldownSeconds: env.alertWebhookCooldownSeconds,
+  logger: app.log,
+})
+
+const supabaseClient = new SupabaseClient({
+  url: env.supabaseUrl,
+  serviceRoleKey: env.supabaseServiceRoleKey,
+  requestTimeoutMs: env.supabaseRequestTimeoutMs,
+  onRequestComplete: (event) => {
+    metrics.recordSupabaseRequest(event)
+    const alert = metrics.maybeSupabaseFailureRateAlert(env.alertSupabaseFailureRateThreshold, env.alertMinRequests)
+    if (alert.shouldAlert) {
+      app.log.warn(
+        {
+          totalRequests: alert.totalRequests,
+          failedRequests: alert.failedRequests,
+          failureRate: Number(alert.failureRate.toFixed(3)),
+        },
+        'Supabase request failure rate is above threshold',
+      )
+      void alertNotifier.notify(
+        buildSupabaseFailureRateAlert(alertContext, {
+          failureRate: alert.failureRate,
+          totalRequests: alert.totalRequests,
+          failedRequests: alert.failedRequests,
+        }),
+      )
+    }
+  },
+})
+const tokenRepository = new TokenRepository(supabaseClient, app.log)
+const feedRepository = new FeedRepository(supabaseClient, app.log)
+const chartRepository = new ChartRepository(supabaseClient, app.log)
 
 const feedCache = new FeedCache({
   redisUrl: env.redisUrl,
@@ -95,6 +150,9 @@ const chartHistoryService = new ChartHistoryService(
     backfillEnabled: env.chartHistoryBackfillEnabled,
     backfillConcurrency: env.chartHistoryBackfillConcurrency,
     warmupTopPairs: env.chartHistoryWarmupTopPairs,
+    chartRepository,
+    readThroughEnabled: env.supabaseReadEnabled,
+    writeThroughEnabled: env.supabaseDualWriteEnabled,
   },
   app.log,
 )
@@ -155,7 +213,43 @@ const feedService = new FeedService(feedCache, feedProvider, new FeedRankingServ
   minChartCandles: env.feedMinChartCandles,
   requireFullChartHistory: env.feedRequireFullChartHistory,
   enforceRenderableTokens: !env.feedEnableSeedFallback,
+  tokenRepository,
+  feedRepository,
+  readThroughEnabled: env.supabaseReadEnabled,
+  writeThroughEnabled: env.supabaseDualWriteEnabled,
+  logger: app.log,
 })
+
+const tokenIngestJob = new TokenIngestJob(
+  feedService,
+  chartRepository.isEnabled() ? chartRepository : null,
+  {
+    intervalSeconds: env.tokenIngestIntervalSeconds,
+    candleRetentionDays: env.tokenCandleRetentionDays,
+  },
+  app.log,
+  metrics,
+  {
+    onFailureThreshold: (event) => {
+      void alertNotifier.notify(
+        buildIngestFailureThresholdAlert(alertContext, {
+          cycle: event.cycle,
+          consecutiveFailures: event.consecutiveFailures,
+          intervalSeconds: event.intervalSeconds,
+        }),
+      )
+    },
+    onMissedIntervals: (event) => {
+      void alertNotifier.notify(
+        buildIngestMissedIntervalsAlert(alertContext, {
+          missedIntervals: event.missedIntervals,
+          lagMs: event.lagMs,
+          intervalSeconds: event.intervalSeconds,
+        }),
+      )
+    },
+  },
+)
 
 await app.register(cors, {
   origin: true,
@@ -173,6 +267,31 @@ await registerFeedRoutes(app, {
     const pairAddresses = items.map((item) => item.pairAddress ?? '').filter((pair) => pair.length > 0)
     chartHistoryService.warmupPairs(pairAddresses)
   },
+  onFeedPageServed: (result) => {
+    metrics.recordFeedPage({
+      source: result.source,
+      cacheStatus: result.cacheStatus,
+    })
+    const alert = metrics.maybeFeedSeedRateAlert(env.alertFeedSeedRateThreshold, env.alertMinRequests)
+    if (alert.shouldAlert) {
+      app.log.warn(
+        {
+          totalRequests: alert.totalRequests,
+          seedRate: Number(alert.seedRate.toFixed(3)),
+        },
+        'Feed source seed ratio is above threshold',
+      )
+      void alertNotifier.notify(
+        buildFeedSeedRateAlert(alertContext, {
+          seedRate: alert.seedRate,
+          totalRequests: alert.totalRequests,
+        }),
+      )
+    }
+  },
+  onFeedUnavailable: () => {
+    metrics.recordFeedUnavailable()
+  },
 })
 await registerImageProxyRoute(app)
 
@@ -186,7 +305,15 @@ app.get('/health', async () => {
     status: 'ok',
     cacheMode: feedCache.cacheMode(),
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
+    supabaseEnabled: supabaseClient.isEnabled(),
+    supabaseReadEnabled: env.supabaseReadEnabled,
+    supabaseDualWriteEnabled: env.supabaseDualWriteEnabled,
+    metrics: metrics.snapshot(),
   }
+})
+
+app.get('/metrics', async () => {
+  return metrics.snapshot()
 })
 
 app.setErrorHandler((error, _request, reply) => {
@@ -196,6 +323,7 @@ app.setErrorHandler((error, _request, reply) => {
 })
 
 const closeGracefully = async () => {
+  tokenIngestJob.stop()
   await app.close()
   await chartRegistry.close()
   await chartHistoryCache.close()
@@ -215,12 +343,19 @@ await app.listen({
   port: env.port,
 })
 
+if (env.supabaseDualWriteEnabled && supabaseClient.isEnabled()) {
+  tokenIngestJob.start()
+}
+
 app.log.info(
   {
     host: env.host,
     port: env.port,
     cacheMode: feedCache.cacheMode(),
     chartHistoryCacheMode: chartHistoryCache.cacheMode(),
+    supabaseEnabled: supabaseClient.isEnabled(),
+    supabaseReadEnabled: env.supabaseReadEnabled,
+    supabaseDualWriteEnabled: env.supabaseDualWriteEnabled,
   },
   'Feed backend started',
 )

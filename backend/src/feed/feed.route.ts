@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { errorEnvelope } from '../lib/error-envelope.js'
 import { FeedCategory } from './feed.provider.js'
-import { FeedService, FeedUnavailableError, InvalidFeedRequestError } from './feed.service.js'
+import { FeedPageResult, FeedService, FeedUnavailableError, InvalidFeedRequestError } from './feed.service.js'
 import type { TokenFeedItem } from './feed.provider.js'
 
 interface FeedRouteDependencies {
@@ -9,6 +9,8 @@ interface FeedRouteDependencies {
   feedDefaultLimit: number
   feedMaxLimit: number
   onFeedItemsServed?: (items: TokenFeedItem[]) => void
+  onFeedPageServed?: (result: FeedPageResult) => void
+  onFeedUnavailable?: () => void
 }
 
 interface FeedQuerystring {
@@ -61,6 +63,7 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
       )
 
       dependencies.onFeedItemsServed?.(result.items)
+      dependencies.onFeedPageServed?.(result)
 
       return {
         items: result.items,
@@ -73,6 +76,7 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
       }
 
       if (error instanceof FeedUnavailableError) {
+        dependencies.onFeedUnavailable?.()
         request.log.warn(
           {
             category: parseCategoryOrAll(request.query.category),

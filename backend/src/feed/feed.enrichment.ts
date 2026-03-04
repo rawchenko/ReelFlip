@@ -602,21 +602,21 @@ function bucketCandlesToSparkline(
 
   const output = Array.from({ length: normalizedTargetPoints }, (_entry, index) => closeByBucketIndex.get(index) ?? Number.NaN)
   const firstKnownClose = output.find((value) => Number.isFinite(value) && value > 0)
-  if (!Number.isFinite(firstKnownClose) || (firstKnownClose ?? 0) <= 0) {
+  if (firstKnownClose === undefined || !Number.isFinite(firstKnownClose) || firstKnownClose <= 0) {
     return []
   }
 
   let carryClose = firstKnownClose
   for (let index = 0; index < output.length; index += 1) {
     const value = output[index]
-    if (Number.isFinite(value) && value > 0) {
+    if (value !== undefined && Number.isFinite(value) && value > 0) {
       carryClose = value
       continue
     }
     output[index] = carryClose
   }
 
-  return output.map((value) => (Number.isFinite(value) && value > 0 ? value : firstKnownClose))
+  return output.map((value) => (value !== undefined && Number.isFinite(value) && value > 0 ? value : firstKnownClose))
 }
 
 async function mapWithConcurrency<TInput>(

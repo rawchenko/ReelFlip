@@ -36,6 +36,35 @@ npm run dev
 
 Set `EXPO_PUBLIC_API_BASE_URL` in `.env` when running on a real device or custom simulator networking.
 
+### Supabase Token Persistence
+
+Backend supports Supabase-backed token/feed/chart persistence in hybrid mode.
+
+1. Set these variables in `backend/.env`:
+```bash
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+SUPABASE_READ_ENABLED=true
+SUPABASE_DUAL_WRITE_ENABLED=true
+TOKEN_INGEST_INTERVAL_SECONDS=300
+TOKEN_CANDLE_RETENTION_DAYS=14
+```
+2. Keep mobile API contract unchanged (`GET /v1/feed` stays the same).
+3. Backend will dual-write token domain data to Supabase and optionally read-through from Supabase first.
+4. Monitoring endpoints:
+- `GET /health` includes migration flags and in-process counters.
+- `GET /metrics` returns feed/supabase/ingest counters for dashboards or log shipping.
+5. Performance verification SQL:
+- `backend/supabase/verification/performance_checks.sql`
+6. Migration closure verification commands:
+- `npm run backend:verify:parity`
+- `npm run backend:perf:baseline`
+- `npm run backend:perf:check`
+- `npm run backend:rollout:gate`
+- `npm run backend:verify:migration`
+7. Generated reports:
+- `backend/supabase/verification/reports/*.json`
+
 ### Build Android
 
 ```bash

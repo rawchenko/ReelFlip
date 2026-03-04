@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { interFontFamily } from '@/constants/typography'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
-const LOADING_REDIRECT_DELAY_MS = 1500
+const LOADING_REDIRECT_DELAY_MS = 650
 
 export default function OnboardingTwoScreen() {
   const router = useRouter()
