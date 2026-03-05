@@ -1,7 +1,7 @@
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { useChartPairState } from '@/features/feed/chart/chart-store'
-import type { ChartCandle, ChartHistoryQuality } from '@/features/feed/chart/types'
+import type { ChartHistoryQuality, ChartPoint } from '@/features/feed/chart/types'
 import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import { MiniChart } from '@/features/feed/mini-chart'
 import { TradingViewMiniChart } from '@/features/feed/tradingview-mini-chart'
@@ -16,14 +16,16 @@ interface TokenCardProps {
   availableHeight: number
   enableTradingView?: boolean
   canSell?: boolean
+  strictTrendingCharts?: boolean
+  onStrictReject?: (cardKey: string, reason: string) => void
   onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
 }
 
-const CHART_COLOR_LOOKBACK_CANDLES = 60
+const CHART_COLOR_LOOKBACK_POINTS = 60
 const FEED_CARD_BUCKET_SECONDS = 5 * 60
-const FEED_CARD_MAX_BUCKET_CANDLES = 72
-const RUNTIME_ONLY_MIN_1M_CANDLES = 120
+const FEED_CARD_MAX_BUCKET_POINTS = 72
+const RUNTIME_ONLY_MIN_1M_POINTS = 120
 const REALTIME_MAX_STALENESS_SECONDS = 15 * 60
 const REALTIME_MIN_UNIQUE_CLOSES = 3
 const REALTIME_MIN_RELATIVE_RANGE = 0.0001
@@ -34,7 +36,8 @@ const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
 const DEFAULT_IOS_API_URL = 'http://127.0.0.1:3001'
 
 const LABEL_PRIORITY: FeedLabel[] = ['trending', 'meme', 'gainer', 'new']
-type FeedCardChartMode = 'realtime_candles' | 'server_sparkline' | 'loading_skeleton'
+const STRICT_TRENDING_GRACE_MS = 3000
+type FeedCardChartMode = 'realtime_points' | 'server_sparkline' | 'loading_skeleton'
 type FeedCardPriceSource = 'feed' | 'realtime'
 
 function sanitizeSparklinePoints(points?: number[]): number[] {
@@ -54,52 +57,32 @@ function deriveTrendFromPoints(points?: number[]): boolean | null {
   return (visible[visible.length - 1] ?? 0) >= (visible[0] ?? 0)
 }
 
-function deriveTrendFromCandles(candles?: ChartCandle[], latestCandle?: ChartCandle | null): boolean | null {
-  const visible = Array.isArray(candles) ? candles.slice(-CHART_COLOR_LOOKBACK_CANDLES) : []
-
-  if (visible.length >= 2) {
-    const firstVisible = visible[0]
-    const lastClose = latestCandle?.close ?? visible[visible.length - 1]?.close
-    if (firstVisible && Number.isFinite(firstVisible.open) && Number.isFinite(lastClose)) {
-      return lastClose >= firstVisible.open
-    }
-  }
-
-  const single = latestCandle ?? visible[0]
-  if (!single) {
+function deriveTrendFromRealtimePoints(points?: ChartPoint[]): boolean | null {
+  const visible = Array.isArray(points) ? points.slice(-CHART_COLOR_LOOKBACK_POINTS) : []
+  if (visible.length < 2) {
     return null
   }
 
-  if (!Number.isFinite(single.open) || !Number.isFinite(single.close)) {
+  const first = visible[0]?.value
+  const last = visible[visible.length - 1]?.value
+  if (!Number.isFinite(first) || !Number.isFinite(last)) {
     return null
   }
 
-  return single.close >= single.open
+  return last >= first
 }
 
-function aggregateCandlesToBuckets(
-  candles?: ChartCandle[],
+function aggregatePointsToBuckets(
+  points?: ChartPoint[],
   bucketSeconds: number = FEED_CARD_BUCKET_SECONDS,
-  maxCandles: number = FEED_CARD_MAX_BUCKET_CANDLES,
-): ChartCandle[] {
-  if (!Array.isArray(candles) || candles.length === 0 || bucketSeconds <= 0) {
+  maxPoints: number = FEED_CARD_MAX_BUCKET_POINTS,
+): ChartPoint[] {
+  if (!Array.isArray(points) || points.length === 0 || bucketSeconds <= 0) {
     return []
   }
 
-  const sorted = candles
-    .filter(
-      (candle) =>
-        Number.isFinite(candle.time) &&
-        candle.time > 0 &&
-        Number.isFinite(candle.open) &&
-        Number.isFinite(candle.high) &&
-        Number.isFinite(candle.low) &&
-        Number.isFinite(candle.close) &&
-        candle.open > 0 &&
-        candle.high > 0 &&
-        candle.low > 0 &&
-        candle.close > 0,
-    )
+  const sorted = points
+    .filter((point) => Number.isFinite(point.time) && point.time > 0 && Number.isFinite(point.value) && point.value > 0)
     .slice()
     .sort((left, right) => left.time - right.time)
 
@@ -107,11 +90,11 @@ function aggregateCandlesToBuckets(
     return []
   }
 
-  const output: ChartCandle[] = []
-  let active: ChartCandle | null = null
+  const output: ChartPoint[] = []
+  let active: ChartPoint | null = null
 
-  for (const candle of sorted) {
-    const bucketTime = Math.floor(candle.time / bucketSeconds) * bucketSeconds
+  for (const point of sorted) {
+    const bucketTime = Math.floor(point.time / bucketSeconds) * bucketSeconds
 
     if (!active || active.time !== bucketTime) {
       if (active) {
@@ -120,37 +103,28 @@ function aggregateCandlesToBuckets(
 
       active = {
         time: bucketTime,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        ...(typeof candle.volume === 'number' && Number.isFinite(candle.volume) ? { volume: candle.volume } : {}),
+        value: point.value,
       }
       continue
     }
 
-    active.high = Math.max(active.high, candle.high)
-    active.low = Math.min(active.low, candle.low)
-    active.close = candle.close
-    if (typeof candle.volume === 'number' && Number.isFinite(candle.volume)) {
-      active.volume = (active.volume ?? 0) + candle.volume
-    }
+    active.value = point.value
   }
 
   if (active) {
     output.push(active)
   }
 
-  return output.slice(-maxCandles)
+  return output.slice(-maxPoints)
 }
 
-function shouldUseRealtimeCandles(
+function shouldUseRealtimePoints(
   historyQuality: ChartHistoryQuality | null | undefined,
-  candleCount: number,
+  pointCount: number,
   nowSec: number,
-  candles?: ChartCandle[],
+  points?: ChartPoint[],
 ): boolean {
-  if (candleCount < 2) {
+  if (pointCount < 2) {
     return false
   }
 
@@ -162,11 +136,11 @@ function shouldUseRealtimeCandles(
     return false
   }
 
-  if (historyQuality === 'runtime_only' && candleCount < RUNTIME_ONLY_MIN_1M_CANDLES) {
+  if (historyQuality === 'runtime_only' && pointCount < RUNTIME_ONLY_MIN_1M_POINTS) {
     return false
   }
 
-  const latest = candles?.[candles.length - 1]
+  const latest = points?.[points.length - 1]
   if (!latest || !Number.isFinite(latest.time) || latest.time <= 0) {
     return false
   }
@@ -176,21 +150,21 @@ function shouldUseRealtimeCandles(
     return false
   }
 
-  const closes = (candles ?? [])
-    .slice(-RUNTIME_ONLY_MIN_1M_CANDLES)
-    .map((candle) => candle.close)
+  const values = (points ?? [])
+    .slice(-RUNTIME_ONLY_MIN_1M_POINTS)
+    .map((point) => point.value)
     .filter((value) => Number.isFinite(value) && value > 0)
 
-  if (closes.length < 2) {
+  if (values.length < 2) {
     return false
   }
 
-  const uniqueCloseCount = new Set(closes.map((value) => value.toFixed(8))).size
-  const minClose = Math.min(...closes)
-  const maxClose = Math.max(...closes)
-  const relativeRange = minClose > 0 ? (maxClose - minClose) / minClose : 0
+  const uniquePointCount = new Set(values.map((value) => value.toFixed(8))).size
+  const minValue = Math.min(...values)
+  const maxValue = Math.max(...values)
+  const relativeRange = minValue > 0 ? (maxValue - minValue) / minValue : 0
 
-  if (uniqueCloseCount < REALTIME_MIN_UNIQUE_CLOSES && relativeRange < REALTIME_MIN_RELATIVE_RANGE) {
+  if (uniquePointCount < REALTIME_MIN_UNIQUE_CLOSES && relativeRange < REALTIME_MIN_RELATIVE_RANGE) {
     return false
   }
 
@@ -311,7 +285,7 @@ function buildTokenImageCandidates(uri: string | null, apiBaseUrl: string): stri
 function triggerHaptic(kind: 'selection' | 'impactLight' = 'selection') {
   const promise =
     kind === 'selection' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  void promise.catch(() => {})
+  void promise.catch(() => { })
 }
 
 function mapCategoryToLabel(category: FeedCategory): FeedLabel {
@@ -389,6 +363,8 @@ export function TokenCard({
   availableHeight,
   enableTradingView = false,
   canSell = false,
+  strictTrendingCharts = false,
+  onStrictReject,
   onTradePress,
 }: TokenCardProps) {
   const { width } = useWindowDimensions()
@@ -428,30 +404,34 @@ export function TokenCard({
     [hasPairAddress, realtimeChartsEnabled, useTradingViewChart],
   )
 
-  const realtimeCandleCount = pairChartState?.candles.length ?? 0
+  const realtimePointCount = pairChartState?.points.length ?? 0
   const realtimeHistoryQuality = pairChartState?.historyQuality ?? null
   const realtimeNowSec = useMemo(
     () => Math.floor(Date.now() / 1000),
-    [pairChartState?.lastUpdateTimeMs, pairChartState?.status, realtimeCandleCount, realtimeEligibilityTick],
+    [pairChartState?.lastUpdateTimeMs, pairChartState?.status, realtimePointCount, realtimeEligibilityTick],
   )
-  const realtimeCandlesEligible = useMemo(
+  const realtimePointsEligible = useMemo(
     () =>
       useRealtimeWebChart &&
-      shouldUseRealtimeCandles(realtimeHistoryQuality, realtimeCandleCount, realtimeNowSec, pairChartState?.candles),
-    [pairChartState?.candles, realtimeCandleCount, realtimeHistoryQuality, realtimeNowSec, useRealtimeWebChart],
+      shouldUseRealtimePoints(realtimeHistoryQuality, realtimePointCount, realtimeNowSec, pairChartState?.points),
+    [pairChartState?.points, realtimePointCount, realtimeHistoryQuality, realtimeNowSec, useRealtimeWebChart],
   )
 
-  const aggregatedRealtimeCandles = useMemo(
-    () => aggregateCandlesToBuckets(pairChartState?.candles, FEED_CARD_BUCKET_SECONDS, FEED_CARD_MAX_BUCKET_CANDLES),
-    [pairChartState?.candles, pairChartState?.lastUpdateTimeMs],
+  const aggregatedRealtimePoints = useMemo(
+    () => aggregatePointsToBuckets(pairChartState?.points, FEED_CARD_BUCKET_SECONDS, FEED_CARD_MAX_BUCKET_POINTS),
+    [pairChartState?.points, pairChartState?.lastUpdateTimeMs],
   )
-  const hasRealtimeCandlesForDisplay = useMemo(
-    () => Boolean(useRealtimeWebChart && realtimeCandlesEligible && aggregatedRealtimeCandles.length >= 2),
-    [aggregatedRealtimeCandles.length, realtimeCandlesEligible, useRealtimeWebChart],
+  const hasRealtimePointsForDisplay = useMemo(
+    () => Boolean(useRealtimeWebChart && realtimePointsEligible && aggregatedRealtimePoints.length >= 2),
+    [aggregatedRealtimePoints.length, realtimePointsEligible, useRealtimeWebChart],
   )
   const chartMode = useMemo<FeedCardChartMode>(() => {
-    if (hasRealtimeCandlesForDisplay) {
-      return 'realtime_candles'
+    if (hasRealtimePointsForDisplay) {
+      return 'realtime_points'
+    }
+
+    if (strictTrendingCharts) {
+      return 'loading_skeleton'
     }
 
     if (hasChartPoints) {
@@ -459,7 +439,7 @@ export function TokenCard({
     }
 
     return 'loading_skeleton'
-  }, [hasChartPoints, hasRealtimeCandlesForDisplay])
+  }, [hasChartPoints, hasRealtimePointsForDisplay, strictTrendingCharts])
 
   const showChartLoadingSkeleton = useMemo(() => {
     if (chartMode !== 'loading_skeleton') {
@@ -472,33 +452,33 @@ export function TokenCard({
 
     return true
   }, [chartMode, hasMiniFallbackPoints, tradingViewUnavailable, useTradingViewChart])
-  const tvRealtimeCandles = useMemo(
-    () => (chartMode === 'realtime_candles' ? aggregatedRealtimeCandles : undefined),
-    [aggregatedRealtimeCandles, chartMode],
+  const tvRealtimePoints = useMemo(
+    () => (chartMode === 'realtime_points' ? aggregatedRealtimePoints : undefined),
+    [aggregatedRealtimePoints, chartMode],
   )
   const realtimeCloseUsd = useMemo(() => {
-    const realtimeLastClose = tvRealtimeCandles?.[tvRealtimeCandles.length - 1]?.close
-    if (typeof realtimeLastClose === 'number' && Number.isFinite(realtimeLastClose) && realtimeLastClose > 0) {
-      return realtimeLastClose
+    const realtimeLastValue = tvRealtimePoints?.[tvRealtimePoints.length - 1]?.value
+    if (typeof realtimeLastValue === 'number' && Number.isFinite(realtimeLastValue) && realtimeLastValue > 0) {
+      return realtimeLastValue
     }
 
-    const latestPairClose = pairChartState?.latestCandle?.close
+    const latestPairClose = pairChartState?.latestPoint?.value
     if (typeof latestPairClose === 'number' && Number.isFinite(latestPairClose) && latestPairClose > 0) {
       return latestPairClose
     }
 
     return null
-  }, [pairChartState?.latestCandle?.close, tvRealtimeCandles])
+  }, [pairChartState?.latestPoint?.value, tvRealtimePoints])
   const feedSnapshotPriceUsd = useMemo(() => sanitizePositivePrice(item.priceUsd), [item.priceUsd])
   const targetPriceSource = useMemo<FeedCardPriceSource>(
-    () => (chartMode === 'realtime_candles' && realtimeCloseUsd !== null ? 'realtime' : 'feed'),
+    () => (chartMode === 'realtime_points' && realtimeCloseUsd !== null ? 'realtime' : 'feed'),
     [chartMode, realtimeCloseUsd],
   )
   const targetPriceUsd = useMemo(
     () => (targetPriceSource === 'realtime' ? realtimeCloseUsd : feedSnapshotPriceUsd),
     [feedSnapshotPriceUsd, realtimeCloseUsd, targetPriceSource],
   )
-  const streamBadgeState = chartMode === 'realtime_candles' ? (pairChartState?.status ?? 'reconnecting') : null
+  const streamBadgeState = chartMode === 'realtime_points' ? (pairChartState?.status ?? 'reconnecting') : null
   const imageApiBaseUrl = useMemo(() => resolveImageApiBaseUrl(), [])
   const normalizedImageUri = useMemo(() => normalizeTokenImageUri(item.imageUri), [item.imageUri])
   const avatarImageCandidates = useMemo(
@@ -673,13 +653,44 @@ export function TokenCard({
     return () => clearInterval(timer)
   }, [useRealtimeWebChart])
 
+  // Strict trending grace timer: reject card if realtime not ready within 3s
+  const strictRejectedRef = useRef(false)
+  const strictCardKey = useMemo(
+    () => `${item.mint}:${item.pairAddress ?? 'no-pair'}`,
+    [item.mint, item.pairAddress],
+  )
+
+  useEffect(() => {
+    if (!strictTrendingCharts || !enableTradingView) {
+      return
+    }
+
+    if (hasRealtimePointsForDisplay || strictRejectedRef.current) {
+      return
+    }
+
+    const graceTimer = setTimeout(() => {
+      if (!strictRejectedRef.current) {
+        strictRejectedRef.current = true
+        onStrictReject?.(strictCardKey, 'no_realtime_within_grace')
+      }
+    }, STRICT_TRENDING_GRACE_MS)
+
+    return () => clearTimeout(graceTimer)
+  }, [strictTrendingCharts, enableTradingView, hasRealtimePointsForDisplay, strictCardKey, onStrictReject])
+
+  // Reset rejection state when card identity changes
+  useEffect(() => {
+    strictRejectedRef.current = false
+  }, [item.mint, item.pairAddress])
+
   useEffect(() => {
     if (!__DEV__) {
       return
     }
 
     const mode = chartMode
-    const logKey = `${item.mint}:${mode}:${realtimeHistoryQuality ?? 'none'}:${realtimeCandleCount >= RUNTIME_ONLY_MIN_1M_CANDLES}:${targetPriceSource}`
+    const logKey = `${item.mint}:${mode}:${realtimeHistoryQuality ?? 'none'}:${realtimePointCount >= RUNTIME_ONLY_MIN_1M_POINTS}:${targetPriceSource}`
     if (lastChartModeLogRef.current === logKey) {
       return
     }
@@ -696,8 +707,8 @@ export function TokenCard({
       mint: item.mint,
       mode,
       historyQuality: realtimeHistoryQuality,
-      candleCount1m: realtimeCandleCount,
-      candleCount5m: aggregatedRealtimeCandles.length,
+      pointCount1m: realtimePointCount,
+      pointCount5m: aggregatedRealtimePoints.length,
       useRealtimeWebChart,
       hasSparkline: hasChartPoints,
       priceSource: targetPriceSource,
@@ -706,13 +717,13 @@ export function TokenCard({
       modeTransition,
     })
   }, [
-    aggregatedRealtimeCandles.length,
+    aggregatedRealtimePoints.length,
     chartMode,
     displayPriceUsd,
     hasChartPoints,
     item.mint,
     item.symbol,
-    realtimeCandleCount,
+    realtimePointCount,
     realtimeHistoryQuality,
     targetPriceSource,
     targetPriceUsd,
@@ -720,9 +731,8 @@ export function TokenCard({
   ])
 
   const chartIsUp = useMemo(() => {
-    if (hasRealtimeCandlesForDisplay) {
-      const latestRealtimeCandle = aggregatedRealtimeCandles[aggregatedRealtimeCandles.length - 1] ?? null
-      const realtimeTrend = deriveTrendFromCandles(aggregatedRealtimeCandles, latestRealtimeCandle)
+    if (hasRealtimePointsForDisplay) {
+      const realtimeTrend = deriveTrendFromRealtimePoints(aggregatedRealtimePoints)
       if (realtimeTrend !== null) {
         return realtimeTrend
       }
@@ -734,7 +744,7 @@ export function TokenCard({
     }
 
     return isUp24h
-  }, [aggregatedRealtimeCandles, hasRealtimeCandlesForDisplay, isUp24h, sparklinePoints])
+  }, [aggregatedRealtimePoints, hasRealtimePointsForDisplay, isUp24h, sparklinePoints])
 
   const metricsValues = useMemo(
     () => ({
@@ -768,10 +778,13 @@ export function TokenCard({
     [availableHeight],
   )
 
-  const webChartPoints = chartMode === 'server_sparkline' ? sparklinePoints : undefined
-  const webChartCandles = chartMode === 'realtime_candles' ? tvRealtimeCandles : undefined
-  const webChartLatestCandle =
-    chartMode === 'realtime_candles' ? (tvRealtimeCandles?.[tvRealtimeCandles.length - 1] ?? null) : null
+  const webChartRealtimePoints = chartMode === 'realtime_points' ? tvRealtimePoints : undefined
+  const webChartPoints =
+    chartMode === 'realtime_points'
+      ? webChartRealtimePoints?.map((point) => point.value)
+      : chartMode === 'server_sparkline'
+        ? sparklinePoints
+        : undefined
   const descriptionText = item.description || item.name
   const displayLabels = getDisplayLabels(item)
   const trustTags = getTrustTags(item)
@@ -838,13 +851,18 @@ export function TokenCard({
   const renderTradingView = () => (
     <TradingViewMiniChart
       points={webChartPoints}
-      candles={webChartCandles}
-      latestCandle={webChartLatestCandle}
+      latestPoint={webChartRealtimePoints?.[webChartRealtimePoints.length - 1] ?? null}
       streamStatus={streamBadgeState ?? undefined}
       pairAddress={item.pairAddress ?? undefined}
       positiveTrend={chartIsUp}
       feedMode
-      onUnavailable={() => setTradingViewUnavailable(true)}
+      onUnavailable={() => {
+        setTradingViewUnavailable(true)
+        if (strictTrendingCharts && !strictRejectedRef.current) {
+          strictRejectedRef.current = true
+          onStrictReject?.(strictCardKey, 'renderer_unavailable')
+        }
+      }}
     />
   )
 
@@ -855,7 +873,9 @@ export function TokenCard({
           ? renderChartLoadingSkeleton()
           : useTradingViewChart
             ? renderTradingView()
-            : renderMiniFallback()}
+            : strictTrendingCharts
+              ? renderChartLoadingSkeleton()
+              : renderMiniFallback()}
       </View>
 
       <View

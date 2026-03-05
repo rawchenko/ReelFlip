@@ -91,8 +91,8 @@ export async function fetchChartHistory(
   }
 
   const payload = (await response.json()) as Partial<ChartHistoryResponse>
-  if (!Array.isArray(payload.candles)) {
-    throw new Error('Chart history response is missing candles array')
+  if (!Array.isArray(payload.points)) {
+    throw new Error('Chart history response is missing points array')
   }
 
   return {
@@ -102,7 +102,7 @@ export async function fetchChartHistory(
     source: typeof payload.source === 'string' ? payload.source : 'runtime_aggregator',
     delayed: Boolean(payload.delayed),
     ...(isHistoryQuality(payload.historyQuality) ? { historyQuality: payload.historyQuality } : {}),
-    candles: sanitizeCandles(payload.candles),
+    points: sanitizePoints(payload.points),
   }
 }
 
@@ -440,7 +440,7 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
   }
 
   if (type === 'snapshot') {
-    if (typeof input.pairAddress !== 'string' || !Array.isArray(input.candles)) {
+    if (typeof input.pairAddress !== 'string' || !Array.isArray(input.points)) {
       return null
     }
 
@@ -449,28 +449,28 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
       pairAddress: input.pairAddress,
       interval: normalizeInterval(input.interval),
       delayed: Boolean(input.delayed),
-      candles: sanitizeCandles(input.candles),
+      points: sanitizePoints(input.points),
       serverTime: typeof input.serverTime === 'string' ? input.serverTime : new Date().toISOString(),
     }
   }
 
-  if (type === 'candle_update') {
-    if (typeof input.pairAddress !== 'string' || !isRecord(input.candle)) {
+  if (type === 'point_update') {
+    if (typeof input.pairAddress !== 'string' || !isRecord(input.point)) {
       return null
     }
 
-    const candle = sanitizeCandle(input.candle)
-    if (!candle) {
+    const point = sanitizePoint(input.point)
+    if (!point) {
       return null
     }
 
     return {
-      type: 'candle_update',
+      type: 'point_update',
       pairAddress: input.pairAddress,
       interval: normalizeInterval(input.interval),
       delayed: Boolean(input.delayed),
-      candle,
-      isNewCandle: Boolean(input.isNewCandle),
+      point,
+      isNewPoint: Boolean(input.isNewPoint),
       serverTime: typeof input.serverTime === 'string' ? input.serverTime : new Date().toISOString(),
     }
   }
@@ -478,10 +478,10 @@ function normalizeStreamEvent(input: unknown, eventName: string | null): ChartSt
   return null
 }
 
-function sanitizeCandles(candles: unknown[]): ChartHistoryResponse['candles'] {
-  const normalized: ChartHistoryResponse['candles'] = []
-  for (const candle of candles) {
-    const parsed = sanitizeCandle(candle)
+function sanitizePoints(points: unknown[]): ChartHistoryResponse['points'] {
+  const normalized: ChartHistoryResponse['points'] = []
+  for (const point of points) {
+    const parsed = sanitizePoint(point)
     if (parsed) {
       normalized.push(parsed)
     }
@@ -490,7 +490,7 @@ function sanitizeCandles(candles: unknown[]): ChartHistoryResponse['candles'] {
 }
 
 function normalizeBatchHistoryPairResult(input: unknown): ChartBatchHistoryResponse['results'][number] | null {
-  if (!isRecord(input) || typeof input.pairAddress !== 'string' || !Array.isArray(input.candles)) {
+  if (!isRecord(input) || typeof input.pairAddress !== 'string' || !Array.isArray(input.points)) {
     return null
   }
 
@@ -511,43 +511,25 @@ function normalizeBatchHistoryPairResult(input: unknown): ChartBatchHistoryRespo
     status: input.status,
     source: typeof input.source === 'string' ? input.source : 'runtime_aggregator',
     historyQuality,
-    candles: sanitizeCandles(input.candles),
+    points: sanitizePoints(input.points),
   }
 }
 
-function sanitizeCandle(input: unknown): ChartHistoryResponse['candles'][number] | null {
+function sanitizePoint(input: unknown): ChartHistoryResponse['points'][number] | null {
   if (!isRecord(input)) {
     return null
   }
 
   const time = readFiniteNumber(input.time)
-  const open = readFiniteNumber(input.open)
-  const high = readFiniteNumber(input.high)
-  const low = readFiniteNumber(input.low)
-  const close = readFiniteNumber(input.close)
+  const value = readFiniteNumber(input.value)
 
-  if (
-    time === null ||
-    open === null ||
-    high === null ||
-    low === null ||
-    close === null ||
-    time <= 0 ||
-    open <= 0 ||
-    high <= 0 ||
-    low <= 0 ||
-    close <= 0
-  ) {
+  if (time === null || value === null || time <= 0 || value <= 0) {
     return null
   }
 
   return {
     time,
-    open,
-    high,
-    low,
-    close,
-    ...(readFiniteNumber(input.volume) !== null ? { volume: readFiniteNumber(input.volume)! } : {}),
+    value,
   }
 }
 

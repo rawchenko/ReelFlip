@@ -14,9 +14,23 @@ interface UseFeedChartRealtimeOptions {
 const ACTIVE_RADIUS = 1
 const PAIRS_PER_STREAM = 3
 const RECONNECT_BACKOFF_MS = [1000, 2000, 5000] as const
-const HISTORY_POLL_INTERVAL_MS = 1000
+const DEFAULT_HISTORY_POLL_INTERVAL_MS = 10_000
 const HISTORY_VISIBLE_CANDLES = 360
 const CHART_INTERVAL = '1m' as const
+
+function resolveHistoryPollIntervalMs(): number {
+  const raw = process.env.EXPO_PUBLIC_CHART_FALLBACK_POLL_MS
+  if (!raw) {
+    return DEFAULT_HISTORY_POLL_INTERVAL_MS
+  }
+
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed < 1000) {
+    return DEFAULT_HISTORY_POLL_INTERVAL_MS
+  }
+
+  return parsed
+}
 
 function logChartRealtimeDiagnostic(event: string, details?: Record<string, unknown>): void {
   if (!__DEV__) {
@@ -34,6 +48,7 @@ function logChartRealtimeDiagnostic(event: string, details?: Record<string, unkn
 export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedChartRealtimeOptions): void {
   const isFocused = useIsFocused()
   const historyInFlightRef = useRef(new Set<string>())
+  const historyPollIntervalMs = useMemo(() => resolveHistoryPollIntervalMs(), [])
 
   const activePairs = useMemo(() => {
     if (!enabled) {
@@ -86,7 +101,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
 
     const pairsNeedingHistory = stableActivePairs.filter((pairAddress) => {
       const existing = getChartPairState(pairAddress)
-      return (existing?.candles.length ?? 0) === 0 && !historyInFlightRef.current.has(pairAddress)
+      return (existing?.points.length ?? 0) === 0 && !historyInFlightRef.current.has(pairAddress)
     })
 
     if (pairsNeedingHistory.length === 0) {
@@ -111,7 +126,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
             pairAddress: result.pairAddress,
             source: result.source,
             historyQuality: result.historyQuality,
-            candleCount: result.candles.length,
+            pointCount: result.points.length,
           }))
           logChartRealtimeDiagnostic('history_batch_bootstrap', {
             pairCount: batch.results.length,
@@ -126,8 +141,8 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
             continue
           }
 
-          if (result.candles.length > 0) {
-            feedChartStore.hydrateHistory(result.pairAddress, result.candles, {
+          if (result.points.length > 0) {
+            feedChartStore.hydrateHistory(result.pairAddress, result.points, {
               source: result.source,
               historyQuality: result.historyQuality,
             })
@@ -146,7 +161,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
             try {
               const history = await fetchChartHistory(pairAddress, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES })
               if (!cancelled) {
-                feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+                feedChartStore.hydrateHistory(history.pairAddress, history.points, {
                   source: history.source,
                   historyQuality: history.historyQuality ?? null,
                 })
@@ -175,7 +190,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
             try {
               const history = await fetchChartHistory(pairAddress, { interval: CHART_INTERVAL, limit: HISTORY_VISIBLE_CANDLES })
               if (!cancelled) {
-                feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+                feedChartStore.hydrateHistory(history.pairAddress, history.points, {
                   source: history.source,
                   historyQuality: history.historyQuality ?? null,
                 })
@@ -263,7 +278,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       clearPollTimer()
       pollTimer = setTimeout(() => {
         void pollHistoryOnce()
-      }, HISTORY_POLL_INTERVAL_MS)
+      }, historyPollIntervalMs)
     }
 
     const pollHistoryOnce = async () => {
@@ -281,7 +296,7 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
         )
 
         for (const history of results) {
-          feedChartStore.hydrateHistory(history.pairAddress, history.candles, {
+          feedChartStore.hydrateHistory(history.pairAddress, history.points, {
             source: history.source,
             historyQuality: history.historyQuality ?? null,
           })
@@ -352,13 +367,13 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       }
 
       if (event.type === 'snapshot') {
-        feedChartStore.hydrateHistory(event.pairAddress, event.candles)
+        feedChartStore.hydrateHistory(event.pairAddress, event.points)
         feedChartStore.setStatus(event.pairAddress, event.delayed ? 'delayed' : 'live')
         return
       }
 
-      if (event.type === 'candle_update') {
-        feedChartStore.applyCandleUpdate(event.pairAddress, event.candle, event.isNewCandle)
+      if (event.type === 'point_update') {
+        feedChartStore.applyPointUpdate(event.pairAddress, event.point, event.isNewPoint)
         feedChartStore.setStatus(event.pairAddress, event.delayed ? 'delayed' : 'live')
         return
       }
@@ -548,5 +563,5 @@ export function useFeedChartRealtime({ items, activeIndex, enabled }: UseFeedCha
       clearPollTimer()
       closeStream()
     }
-  }, [activePairsKey, enabled, isFocused, stableActivePairs])
+  }, [activePairsKey, enabled, historyPollIntervalMs, isFocused, stableActivePairs])
 }

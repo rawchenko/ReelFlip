@@ -15,7 +15,7 @@ import { InfiniteData, useQueryClient } from '@tanstack/react-query'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Button, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -32,10 +32,9 @@ const FEED_TABS: FeedTabConfig[] = [
   { key: 'watchlist', label: 'Watchlist' },
 ]
 const FEED_PAGE_LIMIT = 20
-const TRENDING_MIN_LIFETIME_HOURS = 6
 
 function triggerSelectionHaptic() {
-  void Haptics.selectionAsync().catch(() => {})
+  void Haptics.selectionAsync().catch(() => { })
 }
 
 function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
@@ -51,38 +50,34 @@ export default function FeedScreen() {
   const [uiTab, setUiTab] = useState<FeedUiTab>('for_you')
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [activeSheet, setActiveSheet] = useState<FeedPlaceholderSheetPayload | null>(null)
-
+  const [hiddenTrendingCardKeys, setHiddenTrendingCardKeys] = useState<Set<string>>(() => new Set())
+  const isTrendingTab = uiTab === 'trending'
+  const strictTrendingCharts = isTrendingTab && process.env.EXPO_PUBLIC_ENABLE_TV_CHART !== 'false'
   const isWatchlistTab = uiTab === 'watchlist'
   const infiniteFeedEnabled = process.env.EXPO_PUBLIC_FEED_INFINITE_SCROLL !== 'false'
   const queryCategory = useMemo(() => mapUiTabToCategory(uiTab), [uiTab])
-  const queryMinLifetimeHours = useMemo(
-    () => (uiTab === 'trending' ? TRENDING_MIN_LIFETIME_HOURS : undefined),
-    [uiTab],
-  )
   const infiniteQuery = useInfiniteFeedQuery({
     category: queryCategory,
-    minLifetimeHours: queryMinLifetimeHours,
     enabled: !isWatchlistTab && infiniteFeedEnabled,
     limit: FEED_PAGE_LIMIT,
   })
   const singleQuery = useFeedQuery({
     category: queryCategory,
-    minLifetimeHours: queryMinLifetimeHours,
     enabled: !isWatchlistTab && !infiniteFeedEnabled,
     limit: FEED_PAGE_LIMIT,
   })
 
   const handleRefresh = useCallback(async () => {
     setIsManualRefreshing(true)
+    setHiddenTrendingCardKeys(new Set())
     try {
       if (infiniteFeedEnabled) {
         const firstPage = await fetchFeed({
           category: queryCategory,
-          minLifetimeHours: queryMinLifetimeHours,
           limit: FEED_PAGE_LIMIT,
         })
         queryClient.setQueryData<InfiniteData<FeedResponse>>(
-          getFeedInfiniteQueryKey(queryCategory, queryMinLifetimeHours, FEED_PAGE_LIMIT),
+          getFeedInfiniteQueryKey(queryCategory, undefined, FEED_PAGE_LIMIT),
           (current) => {
             if (!current || current.pages.length === 0) {
               return {
@@ -103,7 +98,19 @@ export default function FeedScreen() {
     } finally {
       setIsManualRefreshing(false)
     }
-  }, [infiniteFeedEnabled, queryCategory, queryClient, queryMinLifetimeHours, singleQuery])
+  }, [infiniteFeedEnabled, queryCategory, queryClient, singleQuery])
+
+  const handleStrictReject = useCallback((cardKey: string, _reason: string) => {
+    setHiddenTrendingCardKeys((current) => {
+      if (current.has(cardKey)) {
+        return current
+      }
+
+      const next = new Set(current)
+      next.add(cardKey)
+      return next
+    })
+  }, [])
 
   const openSheet = useCallback((type: FeedPlaceholderSheetType, item: TokenFeedItem) => {
     setActiveSheet({ type, item })
@@ -133,17 +140,57 @@ export default function FeedScreen() {
     setUiTab((current) => {
       if (current !== nextTab) {
         triggerSelectionHaptic()
+        if (current === 'trending') {
+          setHiddenTrendingCardKeys(new Set())
+        }
       }
       return nextTab
     })
   }, [])
 
-  const items = infiniteFeedEnabled ? infiniteQuery.items : singleQuery.data?.items ?? []
+  const items = useMemo(() => {
+    const rawItems = infiniteFeedEnabled ? infiniteQuery.items : singleQuery.data?.items ?? []
+    if (!isTrendingTab || hiddenTrendingCardKeys.size === 0) {
+      return rawItems
+    }
+
+    return rawItems.filter((item) => {
+      const cardKey = `${item.mint}:${item.pairAddress ?? 'no-pair'}`
+      return !hiddenTrendingCardKeys.has(cardKey)
+    })
+  }, [hiddenTrendingCardKeys, infiniteFeedEnabled, infiniteQuery.items, isTrendingTab, singleQuery.data?.items])
   const isLoading = infiniteFeedEnabled ? infiniteQuery.isLoading : singleQuery.isLoading
   const isError = infiniteFeedEnabled ? infiniteQuery.isError : singleQuery.isError
   const error = infiniteFeedEnabled ? infiniteQuery.error : singleQuery.error
   const showLoadingState = !isWatchlistTab && isLoading && items.length === 0
   const showErrorState = !isWatchlistTab && isError && items.length === 0
+
+  // Auto-refill: fetch more pages when visible trending cards drop below target
+  const autoRefillInProgress = useRef(false)
+  useEffect(() => {
+    if (
+      !strictTrendingCharts ||
+      !infiniteFeedEnabled ||
+      !infiniteQuery.hasNextPage ||
+      infiniteQuery.isFetchingNextPage ||
+      autoRefillInProgress.current ||
+      items.length >= FEED_PAGE_LIMIT
+    ) {
+      return
+    }
+
+    autoRefillInProgress.current = true
+    void infiniteQuery.fetchNextPage().finally(() => {
+      autoRefillInProgress.current = false
+    })
+  }, [
+    strictTrendingCharts,
+    infiniteFeedEnabled,
+    infiniteQuery.hasNextPage,
+    infiniteQuery.isFetchingNextPage,
+    items.length,
+    infiniteQuery,
+  ])
 
   return (
     <View style={styles.screenRoot}>
@@ -179,6 +226,8 @@ export default function FeedScreen() {
             onEndReached={infiniteFeedEnabled ? handleLoadMore : undefined}
             hasNextPage={infiniteFeedEnabled ? Boolean(infiniteQuery.hasNextPage) : undefined}
             isFetchingNextPage={infiniteFeedEnabled ? infiniteQuery.isFetchingNextPage : undefined}
+            strictTrendingCharts={strictTrendingCharts}
+            onStrictReject={strictTrendingCharts ? handleStrictReject : undefined}
             onActionPress={handleActionPress}
             onTradePress={handleTradePress}
           />

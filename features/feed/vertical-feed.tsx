@@ -4,7 +4,17 @@ import { useFeedChartRealtime } from '@/features/feed/chart/use-feed-chart-realt
 import { TokenCard } from '@/features/feed/token-card'
 import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, FlatList, StyleSheet, Text, View, ViewToken, useWindowDimensions } from 'react-native'
+import {
+  ActivityIndicator,
+  FlatList,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  StyleSheet,
+  Text,
+  View,
+  ViewToken,
+  useWindowDimensions,
+} from 'react-native'
 
 interface VerticalFeedProps {
   items: TokenFeedItem[]
@@ -14,6 +24,8 @@ interface VerticalFeedProps {
   onEndReached?: () => void
   hasNextPage?: boolean
   isFetchingNextPage?: boolean
+  strictTrendingCharts?: boolean
+  onStrictReject?: (cardKey: string, reason: string) => void
   onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
 }
@@ -26,12 +38,15 @@ export function VerticalFeed({
   onEndReached,
   hasNextPage = false,
   isFetchingNextPage = false,
+  strictTrendingCharts = false,
+  onStrictReject,
   onActionPress,
   onTradePress,
 }: VerticalFeedProps) {
   const { height: windowHeight } = useWindowDimensions()
   const [listHeight, setListHeight] = useState(windowHeight)
   const [activeIndex, setActiveIndex] = useState(0)
+  const realtimeSubscriptionRadius = 1
   const pageHeight = Math.max(listHeight - topInset, 460)
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 70 })
   const { data: ownedAmountByMint } = useAccountTokenBalances()
@@ -47,6 +62,15 @@ export function VerticalFeed({
 
   const initialRenderCount = useMemo(() => Math.min(items.length, 3), [items.length])
   const realtimeChartsEnabled = process.env.EXPO_PUBLIC_ENABLE_TV_REALTIME_CHART !== 'false'
+  const tradingViewCardRadius = useMemo(() => {
+    const parsed = Number(process.env.EXPO_PUBLIC_TV_CARD_RADIUS)
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.min(6, Math.floor(parsed)))
+    }
+
+    // Default to a wider radius than realtime streaming so more cards use the same chart renderer.
+    return 2
+  }, [])
 
   useFeedChartRealtime({
     items,
@@ -69,6 +93,22 @@ export function VerticalFeed({
 
     onEndReached()
   }, [hasNextPage, isFetchingNextPage, onEndReached])
+  const handleMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = event.nativeEvent.contentOffset.y
+      if (!Number.isFinite(offsetY)) {
+        return
+      }
+
+      const nextIndex = Math.round(offsetY / pageHeight)
+      if (nextIndex < 0 || nextIndex >= items.length) {
+        return
+      }
+
+      setActiveIndex((current) => (current === nextIndex ? current : nextIndex))
+    },
+    [items.length, pageHeight],
+  )
   const showPaginationFooter = Boolean(onEndReached)
 
   if (items.length === 0) {
@@ -92,6 +132,7 @@ export function VerticalFeed({
       removeClippedSubviews
       pagingEnabled
       decelerationRate="fast"
+      onMomentumScrollEnd={handleMomentumScrollEnd}
       showsVerticalScrollIndicator={false}
       refreshing={refreshing}
       onRefresh={onRefresh}
@@ -104,19 +145,19 @@ export function VerticalFeed({
         showPaginationFooter
           ? hasNextPage
             ? (
-                <View style={styles.footerContainer}>
-                  {isFetchingNextPage ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.footerText}>Loading more...</Text>
-                  )}
-                </View>
-              )
+              <View style={styles.footerContainer}>
+                {isFetchingNextPage ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.footerText}>Loading more...</Text>
+                )}
+              </View>
+            )
             : (
-                <View style={styles.footerContainer}>
-                  <Text style={styles.footerText}>You are all caught up</Text>
-                </View>
-              )
+              <View style={styles.footerContainer}>
+                <Text style={styles.footerText}>You are all caught up</Text>
+              </View>
+            )
           : null
       }
       renderItem={({ item, index }) => (
@@ -124,8 +165,10 @@ export function VerticalFeed({
           <TokenCard
             item={item}
             availableHeight={pageHeight}
-            enableTradingView={Math.abs(index - activeIndex) <= 1}
+            enableTradingView={Math.abs(index - activeIndex) <= tradingViewCardRadius}
             canSell={Boolean(ownedAmountByMint && (ownedAmountByMint[item.mint] ?? 0n) > 0n)}
+            strictTrendingCharts={strictTrendingCharts && Math.abs(index - activeIndex) <= realtimeSubscriptionRadius}
+            onStrictReject={onStrictReject}
             onActionPress={onActionPress}
             onTradePress={onTradePress}
           />

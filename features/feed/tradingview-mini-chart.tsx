@@ -1,14 +1,13 @@
 import { semanticColors } from '@/constants/semantic-colors'
 import { LIGHTWEIGHT_CHARTS_STANDALONE_SCRIPT } from '@/features/feed/lightweight-charts-standalone'
-import { ChartCandle } from '@/features/feed/chart/types'
+import { ChartPoint } from '@/features/feed/chart/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 
 interface TradingViewMiniChartProps {
   points?: number[]
-  candles?: ChartCandle[]
-  latestCandle?: ChartCandle | null
+  latestPoint?: ChartPoint | null
   streamStatus?: 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
   pairAddress?: string
   positiveTrend: boolean
@@ -24,7 +23,6 @@ interface WebMessagePayload {
 }
 
 const MAX_POINTS = 360
-const MAX_CANDLES = 360
 
 function sanitizePoints(points?: number[]): number[] {
   if (!Array.isArray(points)) {
@@ -32,52 +30,6 @@ function sanitizePoints(points?: number[]): number[] {
   }
 
   return points.filter((point) => Number.isFinite(point) && point > 0).slice(-MAX_POINTS)
-}
-
-function sanitizeCandle(candle?: ChartCandle | null): ChartCandle | null {
-  if (!candle) {
-    return null
-  }
-
-  if (
-    !Number.isFinite(candle.time) ||
-    !Number.isFinite(candle.open) ||
-    !Number.isFinite(candle.high) ||
-    !Number.isFinite(candle.low) ||
-    !Number.isFinite(candle.close) ||
-    candle.time <= 0 ||
-    candle.open <= 0 ||
-    candle.high <= 0 ||
-    candle.low <= 0 ||
-    candle.close <= 0
-  ) {
-    return null
-  }
-
-  return {
-    time: candle.time,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    ...(typeof candle.volume === 'number' && Number.isFinite(candle.volume) ? { volume: candle.volume } : {}),
-  }
-}
-
-function sanitizeCandles(candles?: ChartCandle[]): ChartCandle[] {
-  if (!Array.isArray(candles)) {
-    return []
-  }
-
-  const normalized: ChartCandle[] = []
-  for (const candle of candles.slice(-MAX_CANDLES)) {
-    const sanitized = sanitizeCandle(candle)
-    if (sanitized) {
-      normalized.push(sanitized)
-    }
-  }
-
-  return normalized
 }
 
 function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: boolean): string {
@@ -265,51 +217,6 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           return bars
         }
 
-        function isValidBar(candle) {
-          return (
-            candle &&
-            Number.isFinite(Number(candle.time)) &&
-            Number.isFinite(Number(candle.open)) &&
-            Number.isFinite(Number(candle.high)) &&
-            Number.isFinite(Number(candle.low)) &&
-            Number.isFinite(Number(candle.close)) &&
-            Number(candle.time) > 0 &&
-            Number(candle.open) > 0 &&
-            Number(candle.high) > 0 &&
-            Number(candle.low) > 0 &&
-            Number(candle.close) > 0
-          )
-        }
-
-        function normalizeCandle(candle) {
-          if (!isValidBar(candle)) {
-            return null
-          }
-
-          return {
-            time: Number(candle.time),
-            open: Number(candle.open),
-            high: Number(candle.high),
-            low: Number(candle.low),
-            close: Number(candle.close),
-          }
-        }
-
-        function normalizeCandles(candles) {
-          if (!Array.isArray(candles)) {
-            return []
-          }
-
-          var output = []
-          for (var i = 0; i < candles.length; i += 1) {
-            var parsed = normalizeCandle(candles[i])
-            if (parsed) {
-              output.push(parsed)
-            }
-          }
-          return output
-        }
-
         function inferBarStepSec(bars) {
           if (!Array.isArray(bars) || bars.length < 2) {
             return 60
@@ -476,30 +383,23 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           updateOverlayPosition()
         }
 
-        function setCandles(candles) {
+        function updatePoint(point) {
           if (!initialized || !series) {
             return
           }
 
-          var bars = normalizeCandles(candles)
-          if (bars.length === 0) {
+          var time = Number(point && point.time)
+          var value = Number(point && point.value)
+          if (!Number.isFinite(time) || !Number.isFinite(value) || time <= 0 || value <= 0) {
             return
           }
 
-          bars = densifyVisibleWindowBars(bars)
-          applyBarsData(bars)
-          setVisibleWindow(currentWindowAnchorSec(liveStepSec))
-          updateOverlayPosition()
-        }
-
-        function updateCandle(candle) {
-          if (!initialized || !series) {
-            return
-          }
-
-          var bar = normalizeCandle(candle)
-          if (!bar) {
-            return
+          var bar = {
+            time: time,
+            open: value,
+            high: value,
+            low: value,
+            close: value,
           }
 
           applyBarUpdate(bar)
@@ -640,6 +540,44 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
           }
         }
 
+        function resolveUnixSeconds(time) {
+          if (Number.isFinite(Number(time))) {
+            return Number(time)
+          }
+
+          if (time && Number.isFinite(Number(time.timestamp))) {
+            return Number(time.timestamp)
+          }
+
+          if (
+            time &&
+            Number.isFinite(Number(time.year)) &&
+            Number.isFinite(Number(time.month)) &&
+            Number.isFinite(Number(time.day))
+          ) {
+            var dateUtc = Date.UTC(Number(time.year), Number(time.month) - 1, Number(time.day))
+            return Math.floor(dateUtc / 1000)
+          }
+
+          return NaN
+        }
+
+        function formatTimeTick(time) {
+          var unixSeconds = resolveUnixSeconds(time)
+          if (!Number.isFinite(unixSeconds)) {
+            return ''
+          }
+
+          var date = new Date(unixSeconds * 1000)
+          if (!Number.isFinite(date.getTime())) {
+            return ''
+          }
+
+          var hours = String(date.getHours()).padStart(2, '0')
+          var minutes = String(date.getMinutes()).padStart(2, '0')
+          return hours + ':' + minutes
+        }
+
         function updateOverlayPosition() {
           return
         }
@@ -663,6 +601,12 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
                 textColor: '${text}',
                 attributionLogo: ${feedMode ? 'false' : 'true'},
               },
+              localization: {
+                locale: 'en-US',
+                timeFormatter: function (time) {
+                  return formatTimeTick(time)
+                },
+              },
               rightPriceScale: {
                 borderVisible: false,
                 visible: ${feedMode ? 'true' : 'false'},
@@ -674,8 +618,11 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
               timeScale: {
                 borderVisible: false,
                 secondsVisible: false,
-                timeVisible: ${feedMode ? 'false' : 'true'},
-                ticksVisible: ${feedMode ? 'false' : 'true'},
+                timeVisible: true,
+                ticksVisible: true,
+                tickMarkFormatter: function (time) {
+                  return formatTimeTick(time)
+                },
                 barSpacing: 6,
                 minBarSpacing: 2,
                 rightOffset: 1,
@@ -800,8 +747,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
         }
 
         window.__RF_SET_POINTS = setPoints
-        window.__RF_SET_CANDLES = setCandles
-        window.__RF_UPDATE_CANDLE = updateCandle
+        window.__RF_UPDATE_POINT = updatePoint
         window.addEventListener('resize', resizeChart)
 
         if (document.readyState === 'loading') {
@@ -823,8 +769,7 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
 
 export function TradingViewMiniChart({
   points,
-  candles,
-  latestCandle,
+  latestPoint,
   positiveTrend,
   feedMode = false,
   interactive = false,
@@ -833,14 +778,14 @@ export function TradingViewMiniChart({
 }: TradingViewMiniChartProps) {
   const webViewRef = useRef<WebView>(null)
   const unavailableNotifiedRef = useRef(false)
+  const retryCountRef = useRef(0)
   const normalizedPoints = useMemo(() => sanitizePoints(points), [points])
-  const normalizedCandles = useMemo(() => sanitizeCandles(candles), [candles])
-  const normalizedLatestCandle = useMemo(() => sanitizeCandle(latestCandle), [latestCandle])
   const html = useMemo(
     () => buildChartHtml(positiveTrend, LIGHTWEIGHT_CHARTS_STANDALONE_SCRIPT, feedMode),
     [feedMode, positiveTrend],
   )
   const [isReady, setIsReady] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
 
   const markUnavailable = useCallback(() => {
     if (unavailableNotifiedRef.current) {
@@ -852,9 +797,27 @@ export function TradingViewMiniChart({
     console.warn('[TradingViewMiniChart] falling back to MiniChart (WebView/lightweight-charts unavailable)')
     onUnavailable?.()
   }, [onStatusChange, onUnavailable])
+  const handleChartFailure = useCallback(
+    (reason?: string) => {
+      if (retryCountRef.current < 1) {
+        retryCountRef.current += 1
+        setIsReady(false)
+        setReloadNonce((value) => value + 1)
+        if (__DEV__) {
+          console.warn('[TradingViewMiniChart] retrying chart initialization', { reason: reason ?? 'unknown' })
+        }
+        return
+      }
+
+      markUnavailable()
+    },
+    [markUnavailable],
+  )
 
   useEffect(() => {
     setIsReady(false)
+    setReloadNonce(0)
+    retryCountRef.current = 0
     unavailableNotifiedRef.current = false
     onStatusChange?.('loading')
   }, [html, onStatusChange])
@@ -864,38 +827,35 @@ export function TradingViewMiniChart({
       return
     }
 
-    if (normalizedCandles.length > 0) {
-      const payload = JSON.stringify(normalizedCandles)
-      webViewRef.current?.injectJavaScript(`window.__RF_SET_CANDLES && window.__RF_SET_CANDLES(${payload}); true;`)
-      return
-    }
-
     if (normalizedPoints.length < 2) {
       return
     }
 
     const payload = JSON.stringify(normalizedPoints)
     webViewRef.current?.injectJavaScript(`window.__RF_SET_POINTS && window.__RF_SET_POINTS(${payload}); true;`)
-  }, [isReady, normalizedCandles, normalizedPoints])
+  }, [isReady, normalizedPoints])
 
   useEffect(() => {
     if (!isReady) {
       return
     }
 
-    if (normalizedCandles.length === 0 && normalizedPoints.length < 2) {
+    if (normalizedPoints.length < 2) {
       markUnavailable()
     }
-  }, [isReady, markUnavailable, normalizedCandles.length, normalizedPoints.length])
+  }, [isReady, markUnavailable, normalizedPoints.length])
 
   useEffect(() => {
-    if (!isReady || !normalizedLatestCandle) {
+    if (!isReady || !latestPoint || !Number.isFinite(latestPoint.time) || !Number.isFinite(latestPoint.value)) {
       return
     }
 
-    const payload = JSON.stringify(normalizedLatestCandle)
-    webViewRef.current?.injectJavaScript(`window.__RF_UPDATE_CANDLE && window.__RF_UPDATE_CANDLE(${payload}); true;`)
-  }, [isReady, normalizedLatestCandle])
+    const payload = JSON.stringify({
+      time: latestPoint.time,
+      value: latestPoint.value,
+    })
+    webViewRef.current?.injectJavaScript(`window.__RF_UPDATE_POINT && window.__RF_UPDATE_POINT(${payload}); true;`)
+  }, [isReady, latestPoint])
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -917,21 +877,22 @@ export function TradingViewMiniChart({
         if (payload.message) {
           console.warn('[TradingViewMiniChart] chart-error:', payload.message)
         }
-        markUnavailable()
+        handleChartFailure(payload.message)
       }
     },
-    [markUnavailable, onStatusChange],
+    [handleChartFailure, onStatusChange],
   )
 
   return (
     <View style={styles.container} pointerEvents={interactive ? 'auto' : 'none'}>
       <WebView
+        key={`tv-mini-chart:${reloadNonce}`}
         ref={webViewRef}
         source={{ html }}
         originWhitelist={['*']}
         style={styles.webView}
         onMessage={handleMessage}
-        onError={markUnavailable}
+        onError={() => handleChartFailure('webview-error')}
         javaScriptEnabled
         domStorageEnabled
         cacheEnabled

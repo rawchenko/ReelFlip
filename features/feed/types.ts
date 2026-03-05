@@ -16,10 +16,15 @@ export interface TokenFeedSparklineMeta {
   source: string
   points: number
   generatedAt: string
+  historyQuality?: 'real_backfill' | 'runtime_only' | 'partial' | 'unavailable'
+  pointCount1m?: number
+  lastPointTimeSec?: number
 }
 
 export interface TokenFeedSources {
   price: 'birdeye' | 'dexscreener' | 'seed'
+  liquidity: 'birdeye' | 'dexscreener' | 'seed'
+  volume: 'birdeye' | 'dexscreener' | 'seed'
   marketCap: 'birdeye' | 'dexscreener_market_cap' | 'dexscreener_fdv' | 'seed' | 'unavailable'
   metadata: 'helius' | 'dexscreener' | 'seed'
   tags: string[]

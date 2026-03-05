@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from 'react'
-import { ChartCandle, ChartHistoryQuality, ChartStreamStatus } from '@/features/feed/chart/types'
+import { ChartHistoryQuality, ChartPoint, ChartStreamStatus } from '@/features/feed/chart/types'
 
-const MAX_CANDLES_PER_PAIR = 360
+const MAX_POINTS_PER_PAIR = 360
 
 export interface ChartPairState {
   pairAddress: string
-  candles: ChartCandle[]
-  latestCandle: ChartCandle | null
+  points: ChartPoint[]
+  latestPoint: ChartPoint | null
   status: ChartStreamStatus
   historySource: string | null
   historyQuality: ChartHistoryQuality | null
@@ -29,8 +29,8 @@ type StoreListener = () => void
 const EMPTY_MAP = new Map<string, ChartPairInternalState>()
 const DEFAULT_PAIR_STATE: ChartPairState = {
   pairAddress: '',
-  candles: [],
-  latestCandle: null,
+  points: [],
+  latestPoint: null,
   status: 'reconnecting',
   historySource: null,
   historyQuality: null,
@@ -86,13 +86,13 @@ class FeedChartStore {
     }))
   }
 
-  hydrateHistory(pairAddress: string, candles: ChartCandle[], metadata?: HydrateHistoryMetadata): void {
-    const sanitized = sanitizeCandles(candles)
+  hydrateHistory(pairAddress: string, points: ChartPoint[], metadata?: HydrateHistoryMetadata): void {
+    const sanitized = sanitizePoints(points)
     const now = Date.now()
     this.updatePair(pairAddress, (current) => ({
       ...current,
-      candles: sanitized.slice(-MAX_CANDLES_PER_PAIR),
-      latestCandle: sanitized.length > 0 ? { ...sanitized[sanitized.length - 1] } : null,
+      points: sanitized.slice(-MAX_POINTS_PER_PAIR),
+      latestPoint: sanitized.length > 0 ? { ...sanitized[sanitized.length - 1] } : null,
       historySource: metadata?.source ?? current.historySource,
       historyQuality: metadata?.historyQuality ?? current.historyQuality,
       lastHistoryHydratedAtMs: now,
@@ -101,43 +101,43 @@ class FeedChartStore {
     }))
   }
 
-  applyCandleUpdate(pairAddress: string, candle: ChartCandle, isNewCandle: boolean): void {
-    const nextCandle = sanitizeCandle(candle)
-    if (!nextCandle) {
+  applyPointUpdate(pairAddress: string, point: ChartPoint, isNewPoint: boolean): void {
+    const nextPoint = sanitizePoint(point)
+    if (!nextPoint) {
       return
     }
 
     const now = Date.now()
     this.updatePair(pairAddress, (current) => {
-      const candles = current.candles.length === 0 ? [] : current.candles
-      const last = candles[candles.length - 1]
+      const points = current.points.length === 0 ? [] : current.points
+      const last = points[points.length - 1]
 
       if (!last) {
-        const nextCandles = [nextCandle]
+        const nextPoints = [nextPoint]
         return {
           ...current,
-          candles: nextCandles,
-          latestCandle: { ...nextCandle },
+          points: nextPoints,
+          latestPoint: { ...nextPoint },
           lastUpdateTimeMs: now,
           lastTouchedAtMs: now,
         }
       }
 
-      if (isNewCandle || nextCandle.time > last.time) {
-        candles.push(nextCandle)
-        if (candles.length > MAX_CANDLES_PER_PAIR) {
-          candles.splice(0, candles.length - MAX_CANDLES_PER_PAIR)
+      if (isNewPoint || nextPoint.time > last.time) {
+        points.push(nextPoint)
+        if (points.length > MAX_POINTS_PER_PAIR) {
+          points.splice(0, points.length - MAX_POINTS_PER_PAIR)
         }
-      } else if (nextCandle.time === last.time) {
-        candles[candles.length - 1] = nextCandle
+      } else if (nextPoint.time === last.time) {
+        points[points.length - 1] = nextPoint
       } else {
         return current
       }
 
       return {
         ...current,
-        candles,
-        latestCandle: { ...nextCandle },
+        points,
+        latestPoint: { ...nextPoint },
         lastUpdateTimeMs: now,
         lastTouchedAtMs: now,
       }
@@ -240,10 +240,10 @@ export function getChartPairState(pairAddress?: string | null): ChartPairState |
   return feedChartStore.getPairState(pairAddress)
 }
 
-function sanitizeCandles(candles: ChartCandle[]): ChartCandle[] {
-  const output: ChartCandle[] = []
-  for (const candle of candles) {
-    const sanitized = sanitizeCandle(candle)
+function sanitizePoints(points: ChartPoint[]): ChartPoint[] {
+  const output: ChartPoint[] = []
+  for (const point of points) {
+    const sanitized = sanitizePoint(point)
     if (sanitized) {
       output.push(sanitized)
     }
@@ -251,28 +251,13 @@ function sanitizeCandles(candles: ChartCandle[]): ChartCandle[] {
   return output
 }
 
-function sanitizeCandle(candle: ChartCandle): ChartCandle | null {
-  if (
-    !Number.isFinite(candle.time) ||
-    !Number.isFinite(candle.open) ||
-    !Number.isFinite(candle.high) ||
-    !Number.isFinite(candle.low) ||
-    !Number.isFinite(candle.close) ||
-    candle.time <= 0 ||
-    candle.open <= 0 ||
-    candle.high <= 0 ||
-    candle.low <= 0 ||
-    candle.close <= 0
-  ) {
+function sanitizePoint(point: ChartPoint): ChartPoint | null {
+  if (!Number.isFinite(point.time) || !Number.isFinite(point.value) || point.time <= 0 || point.value <= 0) {
     return null
   }
 
   return {
-    time: candle.time,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    ...(typeof candle.volume === 'number' && Number.isFinite(candle.volume) ? { volume: candle.volume } : {}),
+    time: point.time,
+    value: point.value,
   }
 }

@@ -1,12 +1,8 @@
 export type ChartInterval = '1m' | '1s'
 
-export interface ChartCandle {
+export interface ChartPoint {
   time: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume?: number
+  value: number
 }
 
 export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
@@ -19,7 +15,7 @@ export interface ChartHistoryResponse {
   source: string
   delayed: boolean
   historyQuality?: ChartHistoryQuality
-  candles: ChartCandle[]
+  points: ChartPoint[]
 }
 
 export interface ChartBatchHistoryPairResult {
@@ -28,7 +24,7 @@ export interface ChartBatchHistoryPairResult {
   status: ChartStreamStatus
   source: string
   historyQuality: ChartHistoryQuality
-  candles: ChartCandle[]
+  points: ChartPoint[]
 }
 
 export interface ChartBatchHistoryResponse {
@@ -43,16 +39,16 @@ export type ChartStreamEvent =
       pairAddress: string
       interval: ChartInterval
       delayed: boolean
-      candles: ChartCandle[]
+      points: ChartPoint[]
       serverTime: string
     }
   | {
-      type: 'candle_update'
+      type: 'point_update'
       pairAddress: string
       interval: ChartInterval
       delayed: boolean
-      candle: ChartCandle
-      isNewCandle: boolean
+      point: ChartPoint
+      isNewPoint: boolean
       serverTime: string
     }
   | {
