@@ -253,7 +253,9 @@ Feed supports additional filter `minLifetimeHours`, which rejects entries lackin
 - **Cache/stream**: Redis.
 - **Fallback cache**: in-process memory cache.
 
-### 6.2 Supabase Tables and Views (Current Migration)
+### 6.2 Supabase Tables and Views
+
+Current migration baseline:
 
 - `tokens`
 - `token_market_latest`
@@ -263,6 +265,19 @@ Feed supports additional filter `minLifetimeHours`, which rejects entries lackin
 - `feed_snapshots`
 - `feed_snapshot_items`
 - `v_token_feed` (view joining token domain tables for feed reconstruction)
+
+Stage 1 canonical target contract (docs finalized, to be implemented in Stage 2 migrations):
+- `tokens` (metadata only)
+- `token_pairs` (canonical many-pairs table per mint)
+- `token_market_latest` (one-row latest market projection per mint with primary pair reference)
+- `token_labels_latest`
+- `token_sparklines_latest`
+- `token_candles_1m` (canonical key: `pair_address + time_sec`)
+- `v_token_feed` compatibility mapping preserved for app shape
+
+Contract references:
+- [docs/supabase-token-domain-stage1-contract.md](/Users/rawchenko/Documents/GitHub/ReelFlip/docs/supabase-token-domain-stage1-contract.md)
+- [docs/supabase-token-domain-field-ownership.md](/Users/rawchenko/Documents/GitHub/ReelFlip/docs/supabase-token-domain-field-ownership.md)
 
 ### 6.3 Caching Layers
 

@@ -67,6 +67,8 @@ TOKEN_CANDLE_RETENTION_DAYS=14
 - `backend/supabase/verification/reports/*.json`
 8. CI workflow:
 - `.github/workflows/backend-migration-verification.yml` runs build/tests on backend changes and, when Supabase secrets are configured, executes parity + perf verification and uploads reports.
+9. Gecko -> Birdeye rollout runbook:
+- `docs/gecko-to-birdeye-rollout-checklist.md`
 
 ### Build Android
 

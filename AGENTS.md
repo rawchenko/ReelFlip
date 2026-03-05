@@ -39,3 +39,22 @@ If build scripts reference missing generated JNI/codegen dirs, regenerate by reb
 
 ### 6) Known non-blocking warning
 - `@noble/hashes ... not listed in exports ... ./crypto.js` is noisy and usually non-blocking for local Android dev.
+
+### 7) Compute-optimized backend profile (recommended for dev and cost control)
+Use these values in `backend/.env`:
+```bash
+FEED_REFRESH_INTERVAL_SECONDS=30
+FEED_ENRICHMENT_MAX_ITEMS=20
+FEED_ENRICHMENT_CONCURRENCY=4
+FEED_HELIUS_METADATA_ENABLED=false
+FEED_MARKET_TTL_SECONDS=60
+FEED_METADATA_TTL_SECONDS=43200
+FEED_ENRICHMENT_FAILURE_COOLDOWN_SECONDS=300
+CHART_HISTORY_PROVIDER=public
+CHART_HISTORY_PROVIDER_FALLBACK=none
+```
+Client fallback chart polling:
+```bash
+EXPO_PUBLIC_CHART_FALLBACK_POLL_MS=10000
+```
+Validate impact by comparing `/health` metrics deltas over 30 minutes (especially `upstream.helius_metadata`, `upstream.birdeye_market`, and `upstream.jupiter_tags`).
