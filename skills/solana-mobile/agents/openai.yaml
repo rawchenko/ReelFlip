@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solana Mobile"
+  short_description: "Guidance for Solana Mobile docs"
+  default_prompt: "Use $solana-mobile to help with Solana Mobile integration or dApp Store publishing."
