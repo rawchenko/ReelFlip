@@ -136,7 +136,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
             pairAddress,
             interval,
             delayed: history.delayed,
-            candles: history.candles,
+            points: history.points,
             serverTime: new Date().toISOString(),
           }
           response.write(formatSseEvent('snapshot', snapshotEvent))
@@ -145,7 +145,7 @@ export async function registerChartRoutes(app: FastifyInstance, dependencies: Ch
               type: 'status',
               pairAddress,
               interval,
-              status: history.delayed ? 'delayed' : history.candles.length > 0 ? 'live' : 'reconnecting',
+              status: history.delayed ? 'delayed' : history.points.length > 0 ? 'live' : 'reconnecting',
               serverTime: new Date().toISOString(),
             }),
           )
@@ -340,8 +340,8 @@ function parseLastEventId(value: unknown): string | null {
 
 function mapEventTypeToSseName(type: ChartStreamEvent['type']): string {
   switch (type) {
-    case 'candle_update':
-      return 'candle_update'
+    case 'point_update':
+      return 'point_update'
     case 'status':
       return 'status'
     case 'snapshot':

@@ -153,14 +153,14 @@ export function registerChartWebSocketTransport(
               pairAddress,
               interval,
               delayed: history.delayed,
-              candles: history.candles,
+              points: history.points,
               serverTime: new Date().toISOString(),
             })
             sendEvent({
               type: 'status',
               pairAddress,
               interval,
-              status: history.delayed ? 'delayed' : history.candles.length > 0 ? 'live' : 'reconnecting',
+              status: history.delayed ? 'delayed' : history.points.length > 0 ? 'live' : 'reconnecting',
               serverTime: new Date().toISOString(),
             })
           }

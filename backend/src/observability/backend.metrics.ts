@@ -41,6 +41,11 @@ export class BackendMetrics {
   private readonly ingest = {
     success: 0,
     failure: 0,
+    refreshSuccess: 0,
+    refreshFailure: 0,
+    durableSuccess: 0,
+    durableFailure: 0,
+    durableSkipped: 0,
     skippedOverlap: 0,
     lastCompletedAt: null as string | null,
     lastFailedAt: null as string | null,
@@ -125,6 +130,26 @@ export class BackendMetrics {
     this.ingest.failure += 1
     this.ingest.consecutiveFailures += 1
     this.ingest.lastFailedAt = new Date().toISOString()
+  }
+
+  recordIngestRefreshSuccess(): void {
+    this.ingest.refreshSuccess += 1
+  }
+
+  recordIngestRefreshFailure(): void {
+    this.ingest.refreshFailure += 1
+  }
+
+  recordIngestDurableSuccess(): void {
+    this.ingest.durableSuccess += 1
+  }
+
+  recordIngestDurableFailure(): void {
+    this.ingest.durableFailure += 1
+  }
+
+  recordIngestDurableSkipped(): void {
+    this.ingest.durableSkipped += 1
   }
 
   recordIngestSkippedOverlap(): void {
@@ -307,6 +332,11 @@ export class BackendMetrics {
       ingest: {
         successCount: this.ingest.success,
         failureCount: this.ingest.failure,
+        refreshSuccessCount: this.ingest.refreshSuccess,
+        refreshFailureCount: this.ingest.refreshFailure,
+        durableSuccessCount: this.ingest.durableSuccess,
+        durableFailureCount: this.ingest.durableFailure,
+        durableSkippedCount: this.ingest.durableSkipped,
         overlapSkipCount: this.ingest.skippedOverlap,
         consecutiveFailures: this.ingest.consecutiveFailures,
         avgDurationMs: ingestAvgDurationMs,

@@ -46,6 +46,28 @@ test('loadEnv rejects invalid CHART_HISTORY_CACHE_TTL_SECONDS', () => {
   })
 })
 
+test('loadEnv uses default chart history providers when env is absent', () => {
+  withEnv({ CHART_HISTORY_PROVIDER: undefined, CHART_HISTORY_PROVIDER_FALLBACK: undefined }, () => {
+    const env = loadEnv()
+    assert.equal(env.chartHistoryProvider, 'public')
+    assert.equal(env.chartHistoryProviderFallback, 'none')
+  })
+})
+
+test('loadEnv parses chart history provider and fallback', () => {
+  withEnv({ CHART_HISTORY_PROVIDER: 'birdeye', CHART_HISTORY_PROVIDER_FALLBACK: 'public' }, () => {
+    const env = loadEnv()
+    assert.equal(env.chartHistoryProvider, 'birdeye')
+    assert.equal(env.chartHistoryProviderFallback, 'public')
+  })
+})
+
+test('loadEnv rejects invalid CHART_HISTORY_PROVIDER_FALLBACK', () => {
+  withEnv({ CHART_HISTORY_PROVIDER_FALLBACK: 'invalid' }, () => {
+    assert.throws(() => loadEnv(), /Invalid CHART_HISTORY_PROVIDER_FALLBACK/)
+  })
+})
+
 test('loadEnv uses default token ingest values when env is absent', () => {
   withEnv(
     {
@@ -76,6 +98,112 @@ test('loadEnv parses supabase toggles', () => {
       assert.equal(env.supabaseDualWriteEnabled, true)
     },
   )
+})
+
+test('loadEnv uses aggressive enrichment defaults when env is absent', () => {
+  withEnv(
+    {
+      FEED_REFRESH_INTERVAL_SECONDS: undefined,
+      FEED_ENRICHMENT_MAX_ITEMS: undefined,
+      FEED_ENRICHMENT_CONCURRENCY: undefined,
+      FEED_HELIUS_METADATA_ENABLED: undefined,
+      FEED_MARKET_TTL_SECONDS: undefined,
+      FEED_MARKET_CACHE_MAX_KEYS: undefined,
+      FEED_METADATA_TTL_SECONDS: undefined,
+      FEED_METADATA_CACHE_MAX_KEYS: undefined,
+      FEED_TRUST_TAGS_CACHE_MAX_KEYS: undefined,
+      FEED_ENRICHMENT_FAILURE_COOLDOWN_SECONDS: undefined,
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.feedRefreshIntervalSeconds, 30)
+      assert.equal(env.feedEnrichmentMaxItems, 20)
+      assert.equal(env.feedEnrichmentConcurrency, 4)
+      assert.equal(env.feedHeliusMetadataEnabled, false)
+      assert.equal(env.feedMarketTtlSeconds, 60)
+      assert.equal(env.feedMarketCacheMaxKeys, 2000)
+      assert.equal(env.feedMetadataTtlSeconds, 43_200)
+      assert.equal(env.feedMetadataCacheMaxKeys, 2000)
+      assert.equal(env.feedTrustTagsCacheMaxKeys, 2000)
+      assert.equal(env.feedEnrichmentFailureCooldownSeconds, 300)
+    },
+  )
+})
+
+test('loadEnv parses enrichment ttl and cooldown controls', () => {
+  withEnv(
+    {
+      FEED_HELIUS_METADATA_ENABLED: 'true',
+      FEED_MARKET_TTL_SECONDS: '120',
+      FEED_MARKET_CACHE_MAX_KEYS: '2500',
+      FEED_METADATA_TTL_SECONDS: '86400',
+      FEED_METADATA_CACHE_MAX_KEYS: '2600',
+      FEED_TRUST_TAGS_CACHE_MAX_KEYS: '2700',
+      FEED_ENRICHMENT_FAILURE_COOLDOWN_SECONDS: '30',
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.feedHeliusMetadataEnabled, true)
+      assert.equal(env.feedMarketTtlSeconds, 120)
+      assert.equal(env.feedMarketCacheMaxKeys, 2500)
+      assert.equal(env.feedMetadataTtlSeconds, 86_400)
+      assert.equal(env.feedMetadataCacheMaxKeys, 2600)
+      assert.equal(env.feedTrustTagsCacheMaxKeys, 2700)
+      assert.equal(env.feedEnrichmentFailureCooldownSeconds, 30)
+    },
+  )
+})
+
+test('loadEnv rejects enrichment cache max keys below 1', () => {
+  withEnv({ FEED_MARKET_CACHE_MAX_KEYS: '0' }, () => {
+    assert.throws(() => loadEnv(), /Invalid FEED_MARKET_CACHE_MAX_KEYS/)
+  })
+
+  withEnv({ FEED_METADATA_CACHE_MAX_KEYS: '0' }, () => {
+    assert.throws(() => loadEnv(), /Invalid FEED_METADATA_CACHE_MAX_KEYS/)
+  })
+
+  withEnv({ FEED_TRUST_TAGS_CACHE_MAX_KEYS: '0' }, () => {
+    assert.throws(() => loadEnv(), /Invalid FEED_TRUST_TAGS_CACHE_MAX_KEYS/)
+  })
+})
+
+test('loadEnv uses default trending policy settings when env is absent', () => {
+  withEnv(
+    {
+      FEED_TRENDING_MIN_LIFETIME_HOURS: undefined,
+      FEED_TRENDING_EXCLUDE_RISK_BLOCK: undefined,
+      FEED_TRENDING_REQUIRE_PROVIDER_SOURCE: undefined,
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.feedTrendingMinLifetimeHours, 6)
+      assert.equal(env.feedTrendingExcludeRiskBlock, true)
+      assert.equal(env.feedTrendingRequireProviderSource, true)
+    },
+  )
+})
+
+test('loadEnv parses trending policy settings', () => {
+  withEnv(
+    {
+      FEED_TRENDING_MIN_LIFETIME_HOURS: '12',
+      FEED_TRENDING_EXCLUDE_RISK_BLOCK: 'false',
+      FEED_TRENDING_REQUIRE_PROVIDER_SOURCE: '0',
+    },
+    () => {
+      const env = loadEnv()
+      assert.equal(env.feedTrendingMinLifetimeHours, 12)
+      assert.equal(env.feedTrendingExcludeRiskBlock, false)
+      assert.equal(env.feedTrendingRequireProviderSource, false)
+    },
+  )
+})
+
+test('loadEnv rejects invalid FEED_TRENDING_MIN_LIFETIME_HOURS', () => {
+  withEnv({ FEED_TRENDING_MIN_LIFETIME_HOURS: '-1' }, () => {
+    assert.throws(() => loadEnv(), /Invalid FEED_TRENDING_MIN_LIFETIME_HOURS/)
+  })
 })
 
 test('loadEnv uses default alert settings when env is absent', () => {

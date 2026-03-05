@@ -5,13 +5,11 @@ import { ChartRepository, toPersistedCandles } from '../storage/chart.repository
 import {
   ChartBatchHistoryPairResult,
   ChartBatchHistoryResponse,
-  ChartCandleDto,
   ChartHistoryQuality,
   ChartHistoryResponse,
   ChartInterval,
   OhlcCandle,
-  fromChartCandleDto,
-  toChartCandleDto,
+  toChartPointDto,
 } from './chart.types.js'
 
 interface Logger {
@@ -39,7 +37,7 @@ interface PairHistoryResolved {
   status: ChartBatchHistoryPairResult['status']
   source: string
   historyQuality: ChartHistoryQuality
-  candles: ChartCandleDto[]
+  points: ChartBatchHistoryPairResult['points']
 }
 
 export class ChartHistoryService {
@@ -79,7 +77,7 @@ export class ChartHistoryService {
       source: resolved.source,
       delayed: resolved.delayed,
       historyQuality: resolved.historyQuality,
-      candles: resolved.candles,
+      points: resolved.points,
     }
   }
 
@@ -103,7 +101,7 @@ export class ChartHistoryService {
           status: resolved.status,
           source: resolved.source,
           historyQuality: resolved.historyQuality,
-          candles: resolved.candles,
+          points: resolved.points,
         }
         return result
       },
@@ -165,7 +163,13 @@ export class ChartHistoryService {
     }
 
     const runtimeSnapshot = this.chartRegistry.getPairSnapshot(pairAddress, this.options.historyLimit, interval)
-    const runtimeCandles = runtimeSnapshot.candles.map(fromChartCandleDto)
+    const runtimeCandles = runtimeSnapshot.points.map((point) => ({
+      timeSec: point.time,
+      open: point.value,
+      high: point.value,
+      low: point.value,
+      close: point.value,
+    }))
 
     const shouldReadThroughFromSupabase =
       interval === '1m' && this.readThroughEnabled && this.chartRepository?.isEnabled()
@@ -231,7 +235,7 @@ export class ChartHistoryService {
       status: runtimeSnapshot.status,
       source,
       historyQuality,
-      candles: merged.map(toChartCandleDto),
+      points: merged.map(toChartPointDto),
     }
   }
 

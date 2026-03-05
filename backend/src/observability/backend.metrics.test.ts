@@ -26,8 +26,13 @@ test('records supabase, ingest, and feed counters', () => {
   })
 
   metrics.recordIngestSuccess()
+  metrics.recordIngestRefreshSuccess()
   metrics.recordIngestDuration(450)
   metrics.recordIngestFailure()
+  metrics.recordIngestRefreshFailure()
+  metrics.recordIngestDurableSuccess()
+  metrics.recordIngestDurableFailure()
+  metrics.recordIngestDurableSkipped()
   metrics.recordIngestDuration(150)
   metrics.recordIngestSkippedOverlap()
   metrics.recordSupabaseRowsWritten('tokens', 10)
@@ -46,7 +51,18 @@ test('records supabase, ingest, and feed counters', () => {
       rowsWrittenTotal: number
       rowsWrittenByTable: Record<string, number>
     }
-    ingest: { successCount: number; failureCount: number; overlapSkipCount: number; avgDurationMs: number; lastDurationMs: number }
+    ingest: {
+      successCount: number
+      failureCount: number
+      refreshSuccessCount: number
+      refreshFailureCount: number
+      durableSuccessCount: number
+      durableFailureCount: number
+      durableSkippedCount: number
+      overlapSkipCount: number
+      avgDurationMs: number
+      lastDurationMs: number
+    }
     feed: { totalRequests: number; sourceProviders: number; sourceSeed: number; unavailable: number; seedRate: number; staleRate: number }
   }
 
@@ -58,6 +74,11 @@ test('records supabase, ingest, and feed counters', () => {
   assert.equal(snapshot.supabase.rowsWrittenByTable.token_market_latest, 10)
   assert.equal(snapshot.ingest.successCount, 1)
   assert.equal(snapshot.ingest.failureCount, 1)
+  assert.equal(snapshot.ingest.refreshSuccessCount, 1)
+  assert.equal(snapshot.ingest.refreshFailureCount, 1)
+  assert.equal(snapshot.ingest.durableSuccessCount, 1)
+  assert.equal(snapshot.ingest.durableFailureCount, 1)
+  assert.equal(snapshot.ingest.durableSkippedCount, 1)
   assert.equal(snapshot.ingest.overlapSkipCount, 1)
   assert.equal(snapshot.ingest.avgDurationMs, 300)
   assert.equal(snapshot.ingest.lastDurationMs, 150)

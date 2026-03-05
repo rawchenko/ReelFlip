@@ -9,6 +9,7 @@ interface Logger {
 interface TokenIngestJobOptions {
   intervalSeconds: number
   candleRetentionDays: number
+  requireDurablePersistence: boolean
 }
 
 interface TokenIngestJobMetrics {
@@ -16,6 +17,11 @@ interface TokenIngestJobMetrics {
   recordIngestFailure: () => void
   recordIngestSkippedOverlap: () => void
   recordIngestDuration?: (durationMs: number) => void
+  recordIngestRefreshSuccess?: () => void
+  recordIngestRefreshFailure?: () => void
+  recordIngestDurableSuccess?: () => void
+  recordIngestDurableFailure?: () => void
+  recordIngestDurableSkipped?: () => void
 }
 
 export interface IngestFailureThresholdEvent {
@@ -31,9 +37,16 @@ export interface IngestMissedIntervalsEvent {
   missedIntervals: number
 }
 
+export interface IngestDurableFailureThresholdEvent {
+  cycle: number
+  consecutiveDurableFailures: number
+  intervalSeconds: number
+}
+
 interface TokenIngestJobAlerts {
   onFailureThreshold?: (event: IngestFailureThresholdEvent) => void
   onMissedIntervals?: (event: IngestMissedIntervalsEvent) => void
+  onDurableFailureThreshold?: (event: IngestDurableFailureThresholdEvent) => void
 }
 
 export class TokenIngestJob {
@@ -41,6 +54,7 @@ export class TokenIngestJob {
   private inFlight = false
   private cycle = 0
   private consecutiveFailures = 0
+  private consecutiveDurableFailures = 0
   private lastCycleStartedAtMs: number | null = null
   private lastSuccessAtMs: number | null = null
   private lastMissedIntervalAlertAtMs: number | null = null
@@ -97,9 +111,47 @@ export class TokenIngestJob {
     this.lastCycleStartedAtMs = startedAt
     this.cycle += 1
     this.warnIfIngestMissedIntervals(startedAt)
+    let refreshSucceeded = false
+    let snapshot: { id: string; source: string; items: unknown[] } | null = null
+    let persistenceStatus: 'skipped' | 'succeeded' | 'failed' | null = null
+    let persistenceErrorMessage: string | null = null
 
     try {
-      const snapshot = await this.feedService.refreshSnapshot()
+      const refreshResult = await this.feedService.refreshSnapshotWithOutcome()
+      refreshSucceeded = true
+      this.metrics?.recordIngestRefreshSuccess?.()
+      snapshot = refreshResult.snapshot
+      persistenceStatus = refreshResult.persistence.status
+      persistenceErrorMessage = refreshResult.persistence.errorMessage ?? null
+
+      if (persistenceStatus === 'succeeded') {
+        this.metrics?.recordIngestDurableSuccess?.()
+        this.consecutiveDurableFailures = 0
+      } else if (persistenceStatus === 'failed') {
+        this.metrics?.recordIngestDurableFailure?.()
+        this.consecutiveDurableFailures += 1
+        this.emitDurableFailureThresholdIfNeeded()
+        if (!this.options.requireDurablePersistence) {
+          this.logger.warn(
+            {
+              trigger,
+              cycle: this.cycle,
+              error: persistenceErrorMessage,
+            },
+            'Token ingest durable persistence failed but cycle will continue',
+          )
+        }
+      } else {
+        this.metrics?.recordIngestDurableSkipped?.()
+        this.consecutiveDurableFailures = 0
+      }
+
+      if (this.options.requireDurablePersistence && persistenceStatus === 'failed') {
+        throw new DurablePersistenceRequiredError(
+          persistenceErrorMessage ?? 'Supabase durable persistence failed while strict mode is enabled.',
+        )
+      }
+
       if (this.chartRepository) {
         const retentionMs = Math.max(1, this.options.candleRetentionDays) * 24 * 60 * 60 * 1000
         const cutoffIso = new Date(Date.now() - retentionMs).toISOString()
@@ -117,10 +169,14 @@ export class TokenIngestJob {
           snapshotId: snapshot?.id ?? null,
           itemCount: snapshot?.items.length ?? 0,
           source: snapshot?.source ?? null,
+          persistenceStatus,
         },
         'Token ingest cycle completed',
       )
     } catch (error) {
+      if (!refreshSucceeded) {
+        this.metrics?.recordIngestRefreshFailure?.()
+      }
       this.consecutiveFailures += 1
       this.metrics?.recordIngestFailure()
       this.logger.warn(
@@ -187,5 +243,26 @@ export class TokenIngestJob {
       'Token ingest job appears to have missed scheduled intervals',
     )
     this.alerts.onMissedIntervals?.(missedEvent)
+  }
+
+  private emitDurableFailureThresholdIfNeeded(): void {
+    if (this.consecutiveDurableFailures < 2) {
+      return
+    }
+
+    const thresholdEvent: IngestDurableFailureThresholdEvent = {
+      cycle: this.cycle,
+      consecutiveDurableFailures: this.consecutiveDurableFailures,
+      intervalSeconds: this.options.intervalSeconds,
+    }
+    this.logger.warn(thresholdEvent, 'Token ingest durable persistence failure threshold reached')
+    this.alerts.onDurableFailureThreshold?.(thresholdEvent)
+  }
+}
+
+class DurablePersistenceRequiredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DurablePersistenceRequiredError'
   }
 }

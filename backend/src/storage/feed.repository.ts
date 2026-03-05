@@ -271,7 +271,8 @@ function readSparklineMeta(input: unknown): TokenFeedItem['sparklineMeta'] {
     points,
     generatedAt,
     historyQuality: readHistoryQuality(input.historyQuality),
-    candleCount1m: readNullableInteger(input.candleCount1m) ?? undefined,
+    pointCount1m: readNullableInteger(input.pointCount1m) ?? undefined,
+    lastPointTimeSec: readNullableInteger(input.lastPointTimeSec) ?? undefined,
   }
 }
 
@@ -289,6 +290,8 @@ function readSources(input: unknown): TokenFeedItem['sources'] {
   if (!isRecord(input)) {
     return {
       price: 'seed',
+      liquidity: 'seed',
+      volume: 'seed',
       marketCap: 'seed',
       metadata: 'seed',
       tags: [],
@@ -296,11 +299,18 @@ function readSources(input: unknown): TokenFeedItem['sources'] {
   }
 
   const price = input.price
+  const liquidity = input.liquidity
+  const volume = input.volume
   const marketCap = input.marketCap
   const metadata = input.metadata
 
+  const normalizedPrice = price === 'birdeye' || price === 'dexscreener' || price === 'seed' ? price : 'seed'
+
   return {
-    price: price === 'birdeye' || price === 'dexscreener' || price === 'seed' ? price : 'seed',
+    price: normalizedPrice,
+    liquidity:
+      liquidity === 'birdeye' || liquidity === 'dexscreener' || liquidity === 'seed' ? liquidity : normalizedPrice,
+    volume: volume === 'birdeye' || volume === 'dexscreener' || volume === 'seed' ? volume : normalizedPrice,
     marketCap:
       marketCap === 'birdeye' ||
       marketCap === 'dexscreener_market_cap' ||

@@ -2,6 +2,7 @@ export type MigrationAlertType =
   | 'feed_seed_rate_high'
   | 'supabase_failure_rate_high'
   | 'ingest_failure_threshold'
+  | 'ingest_durable_failure_threshold'
   | 'ingest_missed_intervals'
 
 export type MigrationAlertSeverity = 'warning' | 'critical'
@@ -41,6 +42,12 @@ export interface IngestFailureThresholdAlertInput {
 export interface IngestMissedIntervalsAlertInput {
   missedIntervals: number
   lagMs: number
+  intervalSeconds: number
+}
+
+export interface IngestDurableFailureThresholdAlertInput {
+  consecutiveDurableFailures: number
+  cycle: number
   intervalSeconds: number
 }
 
@@ -120,6 +127,26 @@ export function buildIngestMissedIntervalsAlert(
       intervalSeconds: input.intervalSeconds,
     },
     message: 'Token ingest appears to have missed scheduled intervals.',
+  }
+}
+
+export function buildIngestDurableFailureThresholdAlert(
+  context: AlertContext,
+  input: IngestDurableFailureThresholdAlertInput,
+  detectedAt = new Date().toISOString(),
+): MigrationAlertEvent {
+  return {
+    type: 'ingest_durable_failure_threshold',
+    severity: 'critical',
+    detectedAt,
+    service: context.service,
+    environment: context.environment,
+    metrics: {
+      consecutiveDurableFailures: input.consecutiveDurableFailures,
+      cycle: input.cycle,
+      intervalSeconds: input.intervalSeconds,
+    },
+    message: 'Token ingest durable persistence failure threshold reached.',
   }
 }
 

@@ -41,7 +41,23 @@ export interface FeedPageResult {
   eligibilityStats?: FeedEligibilityStats
 }
 
-type FeedEligibilityRejectionReason = 'missing_pair' | 'insufficient_chart_history' | 'chart_quality_not_full'
+export type SnapshotPersistenceStatus = 'skipped' | 'succeeded' | 'failed'
+
+export interface SnapshotPersistenceOutcome {
+  status: SnapshotPersistenceStatus
+  errorMessage?: string
+}
+
+export interface RefreshSnapshotOutcome {
+  snapshot: FeedSnapshot | null
+  persistence: SnapshotPersistenceOutcome
+}
+
+type FeedEligibilityRejectionReason =
+  | 'missing_pair'
+  | 'insufficient_chart_history'
+  | 'chart_stale'
+  | 'risk_block'
 
 interface FeedEligibilityStats {
   filteredTotal: number
@@ -54,6 +70,9 @@ interface FeedServiceOptions {
   requireFullChartHistory?: boolean
   enforceRenderableTokens?: boolean
   requireLiveSourceForMinLifetime?: boolean
+  trendingMinLifetimeHours?: number
+  trendingExcludeRiskBlock?: boolean
+  trendingRequireProviderSource?: boolean
   tokenRepository?: TokenRepository
   feedRepository?: FeedRepository
   readThroughEnabled?: boolean
@@ -70,6 +89,18 @@ const CATEGORY_TO_DISCOVERY_LABEL: Record<FeedCategory, FeedLabel> = {
   gainer: 'gainer',
   new: 'new',
   memecoin: 'meme',
+}
+
+function createEmptyEligibilityStats(): FeedEligibilityStats {
+  return {
+    filteredTotal: 0,
+    reasons: {
+      missing_pair: 0,
+      insufficient_chart_history: 0,
+      chart_stale: 0,
+      risk_block: 0,
+    },
+  }
 }
 
 export class FeedRankingService {
@@ -151,11 +182,15 @@ export class FeedRankingService {
 }
 
 export class FeedService {
+  private readonly maxChartPointStalenessSec = 180
   private readonly enableSeedFallback: boolean
   private readonly minChartCandles: number
   private readonly requireFullChartHistory: boolean
   private readonly enforceRenderableTokens: boolean
   private readonly requireLiveSourceForMinLifetime: boolean
+  private readonly trendingMinLifetimeHours: number
+  private readonly trendingExcludeRiskBlock: boolean
+  private readonly trendingRequireProviderSource: boolean
   private readonly tokenRepository?: TokenRepository
   private readonly feedRepository?: FeedRepository
   private readonly readThroughEnabled: boolean
@@ -178,6 +213,9 @@ export class FeedService {
     this.requireFullChartHistory = options.requireFullChartHistory ?? true
     this.enforceRenderableTokens = options.enforceRenderableTokens ?? false
     this.requireLiveSourceForMinLifetime = options.requireLiveSourceForMinLifetime ?? false
+    this.trendingMinLifetimeHours = Math.max(0, options.trendingMinLifetimeHours ?? 6)
+    this.trendingExcludeRiskBlock = options.trendingExcludeRiskBlock ?? true
+    this.trendingRequireProviderSource = options.trendingRequireProviderSource ?? true
     this.tokenRepository = options.tokenRepository
     this.feedRepository = options.feedRepository
     this.readThroughEnabled = options.readThroughEnabled ?? false
@@ -191,9 +229,10 @@ export class FeedService {
     const cursorPayload = this.parseCursor(query.cursor)
     const limit = this.resolveLimit(query.limit, cursorPayload)
     const category = this.resolveCategory(query.category, cursorPayload)
-    const minLifetimeHours = this.resolveMinLifetimeHours(query.minLifetimeHours, cursorPayload)
+    const minLifetimeHours = this.resolveEffectiveMinLifetimeHours(category, query.minLifetimeHours, cursorPayload)
     const requiresLiveSource =
-      this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0
+      (this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0) ||
+      (category === 'trending' && this.trendingRequireProviderSource)
     if (cursorPayload) {
       let snapshot: FeedSnapshot | null = null
       let cacheStatus: 'HIT' | 'MISS' = 'HIT'
@@ -222,6 +261,9 @@ export class FeedService {
       }
       if (!snapshot) {
         throw new InvalidFeedRequestError('Cursor snapshot is no longer valid. Start from the first page.')
+      }
+      if (requiresLiveSource && snapshot.source !== 'providers') {
+        throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
       }
 
       return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus, cacheStorage)
@@ -370,11 +412,19 @@ export class FeedService {
           throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
         }
 
-        const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
-        const page = this.paginateSnapshot(snapshot, null, category, minLifetimeHours, limit, 'MISS', this.cache.cacheStorage())
+        const result = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
+        const page = this.paginateSnapshot(
+          result.snapshot,
+          null,
+          category,
+          minLifetimeHours,
+          limit,
+          'MISS',
+          this.cache.cacheStorage(),
+        )
         return {
           ...page,
-          eligibilityStats: eligibilityResult.stats,
+          eligibilityStats: this.mergeEligibilityStats(eligibilityResult.stats, page.eligibilityStats),
         }
       } catch (error) {
         if (error instanceof FeedUnavailableError) {
@@ -420,6 +470,11 @@ export class FeedService {
   }
 
   async refreshSnapshot(): Promise<FeedSnapshot | null> {
+    const result = await this.refreshSnapshotWithOutcome()
+    return result.snapshot
+  }
+
+  async refreshSnapshotWithOutcome(): Promise<RefreshSnapshotOutcome> {
     const providerResult = await this.provider.fetchFeed(new AbortController().signal)
 
     if (!this.enableSeedFallback && providerResult.usedSeedFallback) {
@@ -431,11 +486,13 @@ export class FeedService {
       throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
     }
 
-    const snapshot = await this.materializeSnapshot(providerResult.source, eligibilityResult.items)
-    return snapshot
+    return this.materializeSnapshot(providerResult.source, eligibilityResult.items)
   }
 
-  private async materializeSnapshot(source: FeedSnapshot['source'], items: TokenFeedItem[]): Promise<FeedSnapshot> {
+  private async materializeSnapshot(
+    source: FeedSnapshot['source'],
+    items: TokenFeedItem[],
+  ): Promise<{ snapshot: FeedSnapshot; persistence: SnapshotPersistenceOutcome }> {
     const rankedWithScores = this.rankingService.rankWithScores(items)
     const snapshot: FeedSnapshot = {
       id: randomUUID(),
@@ -447,20 +504,20 @@ export class FeedService {
     }
 
     await this.cache.writeSnapshot(snapshot)
-    await this.persistSnapshot(snapshot, rankedWithScores)
-    return snapshot
+    const persistence = await this.persistSnapshot(snapshot, rankedWithScores)
+    return { snapshot, persistence }
   }
 
   private async persistSnapshot(
     snapshot: FeedSnapshot,
     rankedWithScores: Array<{ item: TokenFeedItem; score: number }>,
-  ): Promise<void> {
+  ): Promise<SnapshotPersistenceOutcome> {
     if (!this.writeThroughEnabled) {
-      return
+      return { status: 'skipped' }
     }
 
     if (!this.tokenRepository?.isEnabled() || !this.feedRepository?.isEnabled()) {
-      return
+      return { status: 'skipped' }
     }
 
     try {
@@ -471,6 +528,7 @@ export class FeedService {
         position: index,
       }))
       await this.feedRepository.createSnapshot(snapshot, scoredItems, 'MISS')
+      return { status: 'succeeded' }
     } catch (error) {
       this.logger?.warn(
         {
@@ -480,6 +538,10 @@ export class FeedService {
         },
         'Failed to persist feed snapshot to Supabase',
       )
+      return {
+        status: 'failed',
+        errorMessage: toErrorMessage(error),
+      }
     }
   }
 
@@ -506,9 +568,17 @@ export class FeedService {
   ): FeedPageResult {
     const generatedAtMs = Date.parse(snapshot.generatedAt)
     const referenceTimeMs = Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now()
+    const eligibilityStats = createEmptyEligibilityStats()
     const filtered = snapshot.items.filter((item) => {
       const categoryMatches = category ? this.matchesCategory(item, category) : true
       if (!categoryMatches) {
+        return false
+      }
+
+      const trendingPolicyReason = this.getTrendingPolicyRejectionReason(item, category)
+      if (trendingPolicyReason) {
+        eligibilityStats.filteredTotal += 1
+        eligibilityStats.reasons[trendingPolicyReason] += 1
         return false
       }
 
@@ -525,12 +595,12 @@ export class FeedService {
     const nextCursor =
       pageEnd < filtered.length
         ? encodeFeedCursor({
-            snapshotId: snapshot.id,
-            offset: pageEnd,
-            category,
-            minLifetimeHours,
-            limit,
-          })
+          snapshotId: snapshot.id,
+          offset: pageEnd,
+          category,
+          minLifetimeHours,
+          limit,
+        })
         : null
 
     return {
@@ -541,6 +611,7 @@ export class FeedService {
       stale: cacheStatus === 'STALE',
       cacheStorage,
       source: snapshot.source,
+      eligibilityStats,
     }
   }
 
@@ -571,18 +642,68 @@ export class FeedService {
     return ageMs >= minLifetimeHours * 60 * 60 * 1000
   }
 
+  private getTrendingPolicyRejectionReason(
+    item: TokenFeedItem,
+    category: FeedCategory | null,
+  ): FeedEligibilityRejectionReason | null {
+    if (category !== 'trending') {
+      return null
+    }
+
+    if (this.trendingExcludeRiskBlock && item.riskTier === 'block') {
+      return 'risk_block'
+    }
+
+    const pairAddress = item.pairAddress?.trim()
+    if (!pairAddress) {
+      return 'missing_pair'
+    }
+
+    const pointCount1m = item.sparklineMeta?.pointCount1m ?? 0
+    if (pointCount1m < this.minChartCandles) {
+      return 'insufficient_chart_history'
+    }
+
+    const lastPointTimeSec = item.sparklineMeta?.lastPointTimeSec
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (
+      typeof lastPointTimeSec !== 'number' ||
+      !Number.isFinite(lastPointTimeSec) ||
+      lastPointTimeSec <= 0 ||
+      nowSec - lastPointTimeSec > this.maxChartPointStalenessSec
+    ) {
+      return 'chart_stale'
+    }
+
+    return null
+  }
+
+  private mergeEligibilityStats(
+    base: FeedEligibilityStats | undefined,
+    additions: FeedEligibilityStats | undefined,
+  ): FeedEligibilityStats | undefined {
+    if (!base && !additions) {
+      return undefined
+    }
+
+    const merged = createEmptyEligibilityStats()
+    const sources = [base, additions].filter((value): value is FeedEligibilityStats => Boolean(value))
+    for (const source of sources) {
+      merged.filteredTotal += source.filteredTotal
+      merged.reasons.missing_pair += source.reasons.missing_pair
+      merged.reasons.insufficient_chart_history += source.reasons.insufficient_chart_history
+      merged.reasons.chart_stale += source.reasons.chart_stale
+      merged.reasons.risk_block += source.reasons.risk_block
+    }
+
+    return merged
+  }
+
   private filterRenderableItems(items: TokenFeedItem[]): {
     items: TokenFeedItem[]
     stats: FeedEligibilityStats
   } {
-    const stats: FeedEligibilityStats = {
-      filteredTotal: 0,
-      reasons: {
-        missing_pair: 0,
-        insufficient_chart_history: 0,
-        chart_quality_not_full: 0,
-      },
-    }
+    const stats = createEmptyEligibilityStats()
 
     if (!this.enforceRenderableTokens) {
       return { items, stats }
@@ -609,13 +730,20 @@ export class FeedService {
       return 'missing_pair'
     }
 
-    const candleCount1m = item.sparklineMeta?.candleCount1m ?? 0
-    if (candleCount1m < this.minChartCandles) {
+    const pointCount1m = item.sparklineMeta?.pointCount1m ?? 0
+    if (pointCount1m < this.minChartCandles) {
       return 'insufficient_chart_history'
     }
 
-    if (this.requireFullChartHistory && item.sparklineMeta?.historyQuality !== 'real_backfill') {
-      return 'chart_quality_not_full'
+    const lastPointTimeSec = item.sparklineMeta?.lastPointTimeSec
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (
+      typeof lastPointTimeSec !== 'number' ||
+      !Number.isFinite(lastPointTimeSec) ||
+      lastPointTimeSec <= 0 ||
+      nowSec - lastPointTimeSec > this.maxChartPointStalenessSec
+    ) {
+      return 'chart_stale'
     }
 
     return null
@@ -668,10 +796,19 @@ export class FeedService {
     return cursorPayload.category
   }
 
-  private resolveMinLifetimeHours(
+  private resolveEffectiveMinLifetimeHours(
+    category: FeedCategory | null,
     minLifetimeHours: number | undefined,
     cursorPayload: FeedCursorPayload | null,
   ): number | null {
+    if (category === 'trending') {
+      if (cursorPayload && cursorPayload.minLifetimeHours !== this.trendingMinLifetimeHours) {
+        throw new InvalidFeedRequestError('Cursor and minLifetimeHours must match.')
+      }
+
+      return this.trendingMinLifetimeHours
+    }
+
     if (!cursorPayload) {
       return minLifetimeHours ?? null
     }
@@ -686,4 +823,12 @@ export class FeedService {
 
     return cursorPayload.minLifetimeHours
   }
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return String(error)
 }

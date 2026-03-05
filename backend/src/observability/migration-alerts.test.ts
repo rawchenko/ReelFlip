@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildFeedSeedRateAlert,
+  buildIngestDurableFailureThresholdAlert,
   buildIngestFailureThresholdAlert,
   buildIngestMissedIntervalsAlert,
   buildSupabaseFailureRateAlert,
@@ -75,5 +76,23 @@ test('buildIngestMissedIntervalsAlert maps fields into webhook payload schema', 
   assert.equal(alert.severity, 'warning')
   assert.equal(alert.metrics.missedIntervals, 4)
   assert.equal(alert.metrics.lagMs, 1_800_000)
+  assert.equal(alert.metrics.intervalSeconds, 300)
+})
+
+test('buildIngestDurableFailureThresholdAlert maps fields into webhook payload schema', () => {
+  const alert = buildIngestDurableFailureThresholdAlert(
+    context,
+    {
+      consecutiveDurableFailures: 4,
+      cycle: 22,
+      intervalSeconds: 300,
+    },
+    '2026-03-04T00:00:00.000Z',
+  )
+
+  assert.equal(alert.type, 'ingest_durable_failure_threshold')
+  assert.equal(alert.severity, 'critical')
+  assert.equal(alert.metrics.consecutiveDurableFailures, 4)
+  assert.equal(alert.metrics.cycle, 22)
   assert.equal(alert.metrics.intervalSeconds, 300)
 })

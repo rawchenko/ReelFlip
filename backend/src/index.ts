@@ -3,8 +3,10 @@ import rateLimit from '@fastify/rate-limit'
 import Fastify from 'fastify'
 import { ChartHistoryCache } from './chart/chart.history-cache.js'
 import { ChartHistoryService } from './chart/chart.history-service.js'
+import { BirdeyeHistoricalCandleProvider } from './chart/chart.history-provider.birdeye.js'
+import { FallbackHistoricalCandleProvider } from './chart/chart.history-provider.composite.js'
 import { GeckoTerminalHistoricalCandleProvider } from './chart/chart.history-provider.geckoterminal.js'
-import { NoopHistoricalCandleProvider } from './chart/chart.history-provider.js'
+import { HistoricalCandleProvider, NoopHistoricalCandleProvider } from './chart/chart.history-provider.js'
 import { DexScreenerChartProvider } from './chart/chart.provider.dexscreener.js'
 import { ChartRegistry } from './chart/chart.registry.js'
 import { registerChartRoutes } from './chart/chart.route.js'
@@ -31,6 +33,7 @@ import { errorEnvelope } from './lib/error-envelope.js'
 import { BackendMetrics } from './observability/backend.metrics.js'
 import {
   buildFeedSeedRateAlert,
+  buildIngestDurableFailureThresholdAlert,
   buildIngestFailureThresholdAlert,
   buildIngestMissedIntervalsAlert,
   buildSupabaseFailureRateAlert,
@@ -189,15 +192,39 @@ const chartStreamService = new ChartStreamService(redisCacheStore?.getClient() ?
   maxLen: env.chartStreamMaxLen,
 })
 
+function buildHistoricalProvider(
+  provider: typeof env.chartHistoryProvider,
+): HistoricalCandleProvider {
+  if (provider === 'public') {
+    return new GeckoTerminalHistoricalCandleProvider(
+      {
+        timeoutMs: env.chartHistoryProviderTimeoutMs,
+      },
+      app.log,
+    )
+  }
+
+  if (provider === 'birdeye') {
+    return new BirdeyeHistoricalCandleProvider(
+      {
+        apiKey: env.birdeyeApiKey,
+        timeoutMs: env.chartHistoryProviderTimeoutMs,
+        onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
+      },
+      app.log,
+    )
+  }
+
+  return new NoopHistoricalCandleProvider()
+}
+
+const primaryHistoricalProvider = buildHistoricalProvider(env.chartHistoryProvider)
+const fallbackHistoricalProvider = buildHistoricalProvider(env.chartHistoryProviderFallback)
 const chartHistoricalProvider =
-  env.chartHistoryProvider === 'public'
-    ? new GeckoTerminalHistoricalCandleProvider(
-        {
-          timeoutMs: env.chartHistoryProviderTimeoutMs,
-        },
-        app.log,
-      )
-    : new NoopHistoricalCandleProvider()
+  env.chartHistoryProviderFallback !== 'none' &&
+  env.chartHistoryProviderFallback !== env.chartHistoryProvider
+    ? new FallbackHistoricalCandleProvider(primaryHistoricalProvider, fallbackHistoricalProvider, app.log)
+    : primaryHistoricalProvider
 
 const chartRegistry = new ChartRegistry(
   new DexScreenerChartProvider(
@@ -261,6 +288,7 @@ const feedEnrichmentService = new FeedEnrichmentService(
   new HeliusMetadataClient(
     {
       apiKey: env.heliusApiKey,
+      enabled: env.feedHeliusMetadataEnabled,
       timeoutMs: env.heliusTimeoutMs,
       dasUrl: env.heliusDasUrl,
       onRequestComplete: (event) => metrics.recordUpstreamRequest(event),
@@ -278,6 +306,13 @@ const feedEnrichmentService = new FeedEnrichmentService(
   {
     maxItems: env.feedEnrichmentMaxItems,
     concurrency: env.feedEnrichmentConcurrency,
+    marketTtlMs: env.feedMarketTtlSeconds * 1000,
+    marketCacheMaxKeys: env.feedMarketCacheMaxKeys,
+    metadataTtlMs: env.feedMetadataTtlSeconds * 1000,
+    metadataCacheMaxKeys: env.feedMetadataCacheMaxKeys,
+    trustTagsTtlMs: env.jupiterTagsTtlMs,
+    trustTagsCacheMaxKeys: env.feedTrustTagsCacheMaxKeys,
+    failureCooldownMs: env.feedEnrichmentFailureCooldownSeconds * 1000,
     sparklineWindowMinutes: env.feedSparklineWindowMinutes,
     sparklinePoints: env.feedSparklinePoints,
   },
@@ -308,6 +343,9 @@ const feedService = new FeedService(feedCache, feedProvider, new FeedRankingServ
   enableSeedFallback: env.feedEnableSeedFallback,
   minChartCandles: env.feedMinChartCandles,
   requireFullChartHistory: env.feedRequireFullChartHistory,
+  trendingMinLifetimeHours: env.feedTrendingMinLifetimeHours,
+  trendingExcludeRiskBlock: env.feedTrendingExcludeRiskBlock,
+  trendingRequireProviderSource: env.feedTrendingRequireProviderSource,
   enforceRenderableTokens: !env.feedEnableSeedFallback,
   tokenRepository,
   feedRepository,
@@ -328,6 +366,7 @@ const tokenIngestJob = new TokenIngestJob(
   {
     intervalSeconds: env.tokenIngestIntervalSeconds,
     candleRetentionDays: env.tokenCandleRetentionDays,
+    requireDurablePersistence: env.supabaseDualWriteEnabled,
   },
   app.log,
   metrics,
@@ -346,6 +385,15 @@ const tokenIngestJob = new TokenIngestJob(
         buildIngestMissedIntervalsAlert(alertContext, {
           missedIntervals: event.missedIntervals,
           lagMs: event.lagMs,
+          intervalSeconds: event.intervalSeconds,
+        }),
+      )
+    },
+    onDurableFailureThreshold: (event) => {
+      void alertNotifier.notify(
+        buildIngestDurableFailureThresholdAlert(alertContext, {
+          cycle: event.cycle,
+          consecutiveDurableFailures: event.consecutiveDurableFailures,
           intervalSeconds: event.intervalSeconds,
         }),
       )

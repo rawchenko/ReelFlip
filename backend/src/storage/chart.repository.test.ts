@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { SupabaseClient } from './supabase.client.js'
+import { SupabaseClient, SupabaseClientError } from './supabase.client.js'
 import { ChartRepository, toPersistedCandles } from './chart.repository.js'
 
 class FakeSupabaseClient {
@@ -8,6 +8,7 @@ class FakeSupabaseClient {
   upsertCalls: Array<{ table: string; rows: Record<string, unknown>[]; onConflict: string[] }> = []
   selectResponse: Record<string, unknown>[] = []
   deleteResponse: Record<string, unknown>[] = []
+  upsertError: unknown = null
 
   isEnabled(): boolean {
     return this.enabled
@@ -15,6 +16,9 @@ class FakeSupabaseClient {
 
   async upsertRows(table: string, rows: Record<string, unknown>[], onConflict: string[]): Promise<void> {
     this.upsertCalls.push({ table, rows, onConflict })
+    if (this.upsertError) {
+      throw this.upsertError
+    }
   }
 
   selectCalls: Array<Record<string, string | undefined>> = []
@@ -49,7 +53,8 @@ test('toPersistedCandles normalizes pair and timestamps', () => {
   assert.equal(rows.length, 1)
   assert.equal(rows[0]?.pair_address, 'pair-a')
   assert.equal(rows[0]?.sample_count, 1)
-  assert.equal(rows[0]?.bucket_start, '2023-11-14T22:13:20.000Z')
+  assert.equal(rows[0]?.time_sec, 1_700_000_000)
+  assert.equal(rows[0]?.source, 'runtime_aggregator')
 })
 
 test('upsertCandles writes expected table with conflict keys', async () => {
@@ -59,19 +64,79 @@ test('upsertCandles writes expected table with conflict keys', async () => {
   await repository.upsertCandles([
     {
       pair_address: 'pair-a',
-      bucket_start: '2026-03-03T00:00:00.000Z',
+      time_sec: 1_709_424_000,
       open: 1,
       high: 1,
       low: 1,
       close: 1,
       volume: 1,
       sample_count: 1,
+      source: 'runtime_aggregator',
+      updated_at: '2026-03-03T00:00:00.000Z',
+      ingested_at: '2026-03-03T00:00:00.000Z',
     },
   ])
 
   assert.equal(fake.upsertCalls.length, 1)
   assert.equal(fake.upsertCalls[0]?.table, 'token_candles_1m')
-  assert.deepEqual(fake.upsertCalls[0]?.onConflict, ['pair_address', 'bucket_start'])
+  assert.deepEqual(fake.upsertCalls[0]?.onConflict, ['pair_address', 'time_sec'])
+})
+
+test('upsertCandles ignores pair FK violations and logs warning context', async () => {
+  const fake = new FakeSupabaseClient()
+  fake.upsertError = new SupabaseClientError(
+    'Supabase request failed (409): insert or update on table "token_candles_1m" violates foreign key constraint "token_candles_1m_pair_address_fkey" (SQLSTATE 23503)',
+    409,
+  )
+  const warnings: Array<{ obj: unknown; msg?: string }> = []
+  const repository = new ChartRepository(fake as unknown as SupabaseClient, {
+    warn: (obj, msg) => warnings.push({ obj, msg }),
+    debug: () => undefined,
+  })
+
+  await repository.upsertCandles([
+    {
+      pair_address: 'missing-pair',
+      time_sec: 1_709_424_000,
+      open: 1,
+      high: 1,
+      low: 1,
+      close: 1,
+      volume: 1,
+      sample_count: 1,
+      source: 'runtime_aggregator',
+      updated_at: '2026-03-03T00:00:00.000Z',
+      ingested_at: '2026-03-03T00:00:00.000Z',
+    },
+  ])
+
+  assert.equal(fake.upsertCalls.length, 1)
+  assert.equal(warnings.length, 1)
+  assert.equal(warnings[0]?.msg, 'Skipped candle upsert due to missing token_pairs parent row')
+})
+
+test('upsertCandles rethrows non-FK write failures', async () => {
+  const fake = new FakeSupabaseClient()
+  fake.upsertError = new SupabaseClientError('Supabase request failed (503): temporary outage', 503)
+  const repository = new ChartRepository(fake as unknown as SupabaseClient, logger)
+
+  await assert.rejects(() =>
+    repository.upsertCandles([
+      {
+        pair_address: 'pair-a',
+        time_sec: 1_709_424_000,
+        open: 1,
+        high: 1,
+        low: 1,
+        close: 1,
+        volume: 1,
+        sample_count: 1,
+        source: 'runtime_aggregator',
+        updated_at: '2026-03-03T00:00:00.000Z',
+        ingested_at: '2026-03-03T00:00:00.000Z',
+      },
+    ]),
+  )
 })
 
 test('getCandles sorts ascending and parses numeric strings', async () => {
@@ -79,7 +144,7 @@ test('getCandles sorts ascending and parses numeric strings', async () => {
   fake.selectResponse = [
     {
       pair_address: 'pair-a',
-      bucket_start: '2026-03-03T00:02:00.000Z',
+      time_sec: 1_709_424_120,
       open: '3.2',
       high: '3.5',
       low: '3.0',
@@ -89,7 +154,7 @@ test('getCandles sorts ascending and parses numeric strings', async () => {
     },
     {
       pair_address: 'pair-a',
-      bucket_start: '2026-03-03T00:01:00.000Z',
+      time_sec: 1_709_424_060,
       open: 2.2,
       high: 2.5,
       low: 2.0,
@@ -121,7 +186,7 @@ test('getCandlesByRange uses range query and returns parsed candles', async () =
   fake.selectResponse = [
     {
       pair_address: 'pair-a',
-      bucket_start: '2026-03-03T00:01:00.000Z',
+      time_sec: 1_709_424_060,
       open: 1,
       high: 2,
       low: 0.5,
@@ -142,6 +207,6 @@ test('getCandlesByRange uses range query and returns parsed candles', async () =
   assert.equal(fake.selectCalls.length, 1)
   assert.equal(
     fake.selectCalls[0]?.and,
-    '(bucket_start.gte.2026-03-03T00:00:00.000Z,bucket_start.lte.2026-03-03T00:10:00.000Z)',
+    '(time_sec.gte.1772496000,time_sec.lte.1772496600)',
   )
 })

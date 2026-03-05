@@ -33,6 +33,9 @@ export interface BackendEnv {
   feedEnableSeedFallback: boolean
   feedMinChartCandles: number
   feedRequireFullChartHistory: boolean
+  feedTrendingMinLifetimeHours: number
+  feedTrendingExcludeRiskBlock: boolean
+  feedTrendingRequireProviderSource: boolean
   feedDefaultLimit: number
   feedMaxLimit: number
   dexScreenerTimeoutMs: number
@@ -46,6 +49,13 @@ export interface BackendEnv {
   jupiterTagsTtlMs: number
   feedEnrichmentMaxItems: number
   feedEnrichmentConcurrency: number
+  feedHeliusMetadataEnabled: boolean
+  feedMarketTtlSeconds: number
+  feedMarketCacheMaxKeys: number
+  feedMetadataTtlSeconds: number
+  feedMetadataCacheMaxKeys: number
+  feedTrustTagsCacheMaxKeys: number
+  feedEnrichmentFailureCooldownSeconds: number
   feedSparklineWindowMinutes: number
   feedSparklinePoints: number
   chartEnabled: boolean
@@ -60,7 +70,8 @@ export interface BackendEnv {
   chartHistoryBackfillEnabled: boolean
   chartHistoryWarmupTopPairs: number
   chartHistoryCacheTtlSeconds: number
-  chartHistoryProvider: 'public' | 'none'
+  chartHistoryProvider: 'public' | 'birdeye' | 'none'
+  chartHistoryProviderFallback: 'public' | 'birdeye' | 'none'
   chartHistoryProviderTimeoutMs: number
   chartHistoryBackfillConcurrency: number
   chartStreamMaxLen: number
@@ -141,6 +152,9 @@ const DEFAULTS = {
   feedSnapshotHistoryMax: 500,
   feedMinChartCandles: 120,
   feedRequireFullChartHistory: true,
+  feedTrendingMinLifetimeHours: 6,
+  feedTrendingExcludeRiskBlock: true,
+  feedTrendingRequireProviderSource: true,
   feedDefaultLimit: 10,
   feedMaxLimit: 20,
   dexScreenerTimeoutMs: 5000,
@@ -149,8 +163,15 @@ const DEFAULTS = {
   heliusDasUrl: 'https://mainnet.helius-rpc.com',
   heliusTimeoutMs: 2500,
   jupiterTagsTtlMs: 900000,
-  feedEnrichmentMaxItems: 80,
-  feedEnrichmentConcurrency: 8,
+  feedEnrichmentMaxItems: 20,
+  feedEnrichmentConcurrency: 4,
+  feedHeliusMetadataEnabled: false,
+  feedMarketTtlSeconds: 60,
+  feedMarketCacheMaxKeys: 2000,
+  feedMetadataTtlSeconds: 43_200,
+  feedMetadataCacheMaxKeys: 2000,
+  feedTrustTagsCacheMaxKeys: 2000,
+  feedEnrichmentFailureCooldownSeconds: 300,
   feedSparklineWindowMinutes: 360,
   feedSparklinePoints: 72,
   chartEnabled: true,
@@ -166,10 +187,11 @@ const DEFAULTS = {
   chartHistoryWarmupTopPairs: 10,
   chartHistoryCacheTtlSeconds: 43_200,
   chartHistoryProvider: 'public',
+  chartHistoryProviderFallback: 'none',
   chartHistoryProviderTimeoutMs: 3000,
   chartHistoryBackfillConcurrency: 4,
   chartStreamMaxLen: 2000,
-  feedRefreshIntervalSeconds: 5,
+  feedRefreshIntervalSeconds: 30,
   rateLimitFeedPerMinute: 120,
   rateLimitChartHistoryPerMinute: 240,
   rateLimitChartStreamPerMinute: 30,
@@ -238,8 +260,20 @@ function parseFloatEnv(name: string, fallback: number, min: number, max: number)
 
 export function loadEnv(): BackendEnv {
   const chartHistoryProvider = (process.env.CHART_HISTORY_PROVIDER ?? DEFAULTS.chartHistoryProvider).trim().toLowerCase()
-  if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'none') {
+  if (chartHistoryProvider !== 'public' && chartHistoryProvider !== 'birdeye' && chartHistoryProvider !== 'none') {
     throw new Error(`Invalid CHART_HISTORY_PROVIDER: ${chartHistoryProvider}`)
+  }
+  const chartHistoryProviderFallback = (
+    process.env.CHART_HISTORY_PROVIDER_FALLBACK ?? DEFAULTS.chartHistoryProviderFallback
+  )
+    .trim()
+    .toLowerCase()
+  if (
+    chartHistoryProviderFallback !== 'public' &&
+    chartHistoryProviderFallback !== 'birdeye' &&
+    chartHistoryProviderFallback !== 'none'
+  ) {
+    throw new Error(`Invalid CHART_HISTORY_PROVIDER_FALLBACK: ${chartHistoryProviderFallback}`)
   }
   const runtimeMode = parseRuntimeMode()
   const isProduction = runtimeMode === 'prod'
@@ -307,6 +341,19 @@ export function loadEnv(): BackendEnv {
       'FEED_REQUIRE_FULL_CHART_HISTORY',
       DEFAULTS.feedRequireFullChartHistory,
     ),
+    feedTrendingMinLifetimeHours: parseIntEnv(
+      'FEED_TRENDING_MIN_LIFETIME_HOURS',
+      DEFAULTS.feedTrendingMinLifetimeHours,
+      0,
+    ),
+    feedTrendingExcludeRiskBlock: parseBoolEnv(
+      'FEED_TRENDING_EXCLUDE_RISK_BLOCK',
+      DEFAULTS.feedTrendingExcludeRiskBlock,
+    ),
+    feedTrendingRequireProviderSource: parseBoolEnv(
+      'FEED_TRENDING_REQUIRE_PROVIDER_SOURCE',
+      DEFAULTS.feedTrendingRequireProviderSource,
+    ),
     feedDefaultLimit: parseIntEnv('FEED_DEFAULT_LIMIT', DEFAULTS.feedDefaultLimit, 1),
     feedMaxLimit: parseIntEnv('FEED_MAX_LIMIT', DEFAULTS.feedMaxLimit, 1),
     dexScreenerTimeoutMs: parseIntEnv('DEXSCREENER_TIMEOUT_MS', DEFAULTS.dexScreenerTimeoutMs, 200),
@@ -320,6 +367,28 @@ export function loadEnv(): BackendEnv {
     jupiterTagsTtlMs: parseIntEnv('JUPITER_TAGS_TTL_MS', DEFAULTS.jupiterTagsTtlMs, 1),
     feedEnrichmentMaxItems: parseIntEnv('FEED_ENRICHMENT_MAX_ITEMS', DEFAULTS.feedEnrichmentMaxItems, 1),
     feedEnrichmentConcurrency: parseIntEnv('FEED_ENRICHMENT_CONCURRENCY', DEFAULTS.feedEnrichmentConcurrency, 1),
+    feedHeliusMetadataEnabled: parseBoolEnv(
+      'FEED_HELIUS_METADATA_ENABLED',
+      DEFAULTS.feedHeliusMetadataEnabled,
+    ),
+    feedMarketTtlSeconds: parseIntEnv('FEED_MARKET_TTL_SECONDS', DEFAULTS.feedMarketTtlSeconds, 1),
+    feedMarketCacheMaxKeys: parseIntEnv('FEED_MARKET_CACHE_MAX_KEYS', DEFAULTS.feedMarketCacheMaxKeys, 1),
+    feedMetadataTtlSeconds: parseIntEnv('FEED_METADATA_TTL_SECONDS', DEFAULTS.feedMetadataTtlSeconds, 1),
+    feedMetadataCacheMaxKeys: parseIntEnv(
+      'FEED_METADATA_CACHE_MAX_KEYS',
+      DEFAULTS.feedMetadataCacheMaxKeys,
+      1,
+    ),
+    feedTrustTagsCacheMaxKeys: parseIntEnv(
+      'FEED_TRUST_TAGS_CACHE_MAX_KEYS',
+      DEFAULTS.feedTrustTagsCacheMaxKeys,
+      1,
+    ),
+    feedEnrichmentFailureCooldownSeconds: parseIntEnv(
+      'FEED_ENRICHMENT_FAILURE_COOLDOWN_SECONDS',
+      DEFAULTS.feedEnrichmentFailureCooldownSeconds,
+      0,
+    ),
     feedSparklineWindowMinutes: parseIntEnv(
       'FEED_SPARKLINE_WINDOW_MINUTES',
       DEFAULTS.feedSparklineWindowMinutes,
@@ -347,6 +416,7 @@ export function loadEnv(): BackendEnv {
       1,
     ),
     chartHistoryProvider: chartHistoryProvider as BackendEnv['chartHistoryProvider'],
+    chartHistoryProviderFallback: chartHistoryProviderFallback as BackendEnv['chartHistoryProviderFallback'],
     chartHistoryProviderTimeoutMs: parseIntEnv(
       'CHART_HISTORY_PROVIDER_TIMEOUT_MS',
       DEFAULTS.chartHistoryProviderTimeoutMs,

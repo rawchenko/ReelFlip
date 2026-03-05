@@ -63,8 +63,11 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
           feed_filtered_ineligible_missing_pair: result.eligibilityStats?.reasons.missing_pair ?? 0,
           feed_filtered_ineligible_insufficient_chart_history:
             result.eligibilityStats?.reasons.insufficient_chart_history ?? 0,
-          feed_filtered_ineligible_chart_quality_not_full:
-            result.eligibilityStats?.reasons.chart_quality_not_full ?? 0,
+          feed_filtered_ineligible_chart_stale:
+            result.eligibilityStats?.reasons.chart_stale ?? 0,
+          feed_filtered_ineligible_risk_block: result.eligibilityStats?.reasons.risk_block ?? 0,
+          feed_trending_provider_source_enforced: category === 'trending' ? 1 : 0,
+          feed_trending_provider_source_ok: category === 'trending' ? (result.source === 'providers' ? 1 : 0) : 0,
           limit: limit ?? dependencies.feedDefaultLimit,
           category: category ?? 'all',
           minLifetimeHours: minLifetimeHours ?? null,
@@ -94,6 +97,7 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
             category: parseCategoryOrAll(request.query.category),
             durationMs: Date.now() - startedAt,
             feed_unavailable_count: 1,
+            feed_trending_provider_source_enforced: parseCategoryOrAll(request.query.category) === 'trending' ? 1 : 0,
           },
           'Feed request unavailable',
         )

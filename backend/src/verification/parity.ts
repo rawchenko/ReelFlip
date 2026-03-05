@@ -14,6 +14,11 @@ export interface ComparableTokenRow {
   recentTxns5m: number | null
   category: string | null
   riskTier: string | null
+  sourcePrice: string | null
+  sourceLiquidity: string | null
+  sourceVolume: string | null
+  sourceMarketCap: string | null
+  sourceMetadata: string | null
   sparklinePresent: boolean
   sparklineLength: number
 }
@@ -84,6 +89,7 @@ export function normalizeFeedRow(input: Record<string, unknown>): ComparableToke
   }
 
   const sparkline = readArray(input.sparkline)
+  const sources = readSources(input.sources)
 
   return {
     mint,
@@ -101,6 +107,11 @@ export function normalizeFeedRow(input: Record<string, unknown>): ComparableToke
     recentTxns5m: readNullableNumber(input.recentTxns5m),
     category: readString(input.category),
     riskTier: readString(input.riskTier),
+    sourcePrice: sources.price,
+    sourceLiquidity: sources.liquidity,
+    sourceVolume: sources.volume,
+    sourceMarketCap: sources.marketCap,
+    sourceMetadata: sources.metadata,
     sparklinePresent: sparkline.length > 0,
     sparklineLength: sparkline.length,
   }
@@ -113,6 +124,7 @@ export function normalizeSupabaseRow(input: Record<string, unknown>): Comparable
   }
 
   const sparkline = readArray(input.sparkline)
+  const sources = readSources(input.sources)
 
   return {
     mint,
@@ -130,6 +142,11 @@ export function normalizeSupabaseRow(input: Record<string, unknown>): Comparable
     recentTxns5m: readNullableNumber(input.recentTxns5m),
     category: readString(input.category),
     riskTier: readString(input.riskTier),
+    sourcePrice: sources.price,
+    sourceLiquidity: sources.liquidity,
+    sourceVolume: sources.volume,
+    sourceMarketCap: sources.marketCap,
+    sourceMetadata: sources.metadata,
     sparklinePresent: sparkline.length > 0,
     sparklineLength: sparkline.length,
   }
@@ -146,6 +163,11 @@ function compareRows(expected: ComparableTokenRow, actual: ComparableTokenRow, t
     'quoteSymbol',
     'category',
     'riskTier',
+    'sourcePrice',
+    'sourceLiquidity',
+    'sourceVolume',
+    'sourceMarketCap',
+    'sourceMetadata',
   ] as const) {
     if ((expected[field] ?? null) !== (actual[field] ?? null)) {
       issues.push({ field, expected: expected[field], actual: actual[field] })
@@ -173,6 +195,32 @@ function compareRows(expected: ComparableTokenRow, actual: ComparableTokenRow, t
   }
 
   return issues
+}
+
+function readSources(input: unknown): {
+  price: string | null
+  liquidity: string | null
+  volume: string | null
+  marketCap: string | null
+  metadata: string | null
+} {
+  if (!isRecord(input)) {
+    return {
+      price: null,
+      liquidity: null,
+      volume: null,
+      marketCap: null,
+      metadata: null,
+    }
+  }
+
+  return {
+    price: readString(input.price),
+    liquidity: readString(input.liquidity),
+    volume: readString(input.volume),
+    marketCap: readString(input.marketCap),
+    metadata: readString(input.metadata),
+  }
 }
 
 function isNumericEqual(left: number | null, right: number | null, tolerance: number): boolean {
@@ -226,4 +274,8 @@ function readNullableNumber(input: unknown): number | null {
 
 function readArray(input: unknown): unknown[] {
   return Array.isArray(input) ? input : []
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === 'object' && input !== null
 }

@@ -54,6 +54,7 @@ Optional migration alert webhook environment variables:
 `GET /metrics` now includes:
 
 - ingest success/failure counts and duration (`avgDurationMs`, `lastDurationMs`)
+- ingest refresh and durable persistence outcome counters (`refreshSuccessCount`, `refreshFailureCount`, `durableSuccessCount`, `durableFailureCount`, `durableSkippedCount`)
 - Supabase request latency/failure counters
 - Supabase row writes by table (`rowsWrittenByTable`)
 - feed fallback rates (`seedRate`, `staleRate`)
@@ -61,3 +62,5 @@ Optional migration alert webhook environment variables:
 - upstream request health (`upstream.*`)
 - chart stream publish/consume and lag/queue size (`stream.*`)
 - rate-limit hit counter (`rateLimit.hits`)
+
+Webhook alert payloads can include: `feed_seed_rate_high`, `supabase_failure_rate_high`, `ingest_failure_threshold`, `ingest_durable_failure_threshold`, and `ingest_missed_intervals`.

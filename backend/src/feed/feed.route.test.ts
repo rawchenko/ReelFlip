@@ -25,7 +25,8 @@ function buildFeedItem(): TokenFeedItem {
       points: 3,
       generatedAt: '2026-03-03T00:00:00.000Z',
       historyQuality: 'real_backfill',
-      candleCount1m: 180,
+      pointCount1m: 180,
+      lastPointTimeSec: 1_704_460_800,
     },
     pairAddress: 'pair-route-1',
     pairCreatedAtMs: 1_700_000_000_000,
@@ -36,6 +37,8 @@ function buildFeedItem(): TokenFeedItem {
     labels: ['trending'],
     sources: {
       price: 'birdeye',
+      liquidity: 'dexscreener',
+      volume: 'dexscreener',
       marketCap: 'birdeye',
       metadata: 'helius',
       tags: ['jupiter'],

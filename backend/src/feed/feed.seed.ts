@@ -32,6 +32,8 @@ function buildSeededItem(
     },
     sources: {
       price: 'seed',
+      liquidity: 'seed',
+      volume: 'seed',
       marketCap: 'seed',
       metadata: 'seed',
       tags: trust.length > 0 ? ['internal_risk', 'seed'] : ['seed'],

@@ -10,7 +10,7 @@ explain analyze
 select *
 from public.token_candles_1m
 where pair_address = 'sample-pair-address'
-order by bucket_start desc
+order by time_sec desc
 limit 360;
 
 explain analyze
@@ -27,8 +27,10 @@ select
 from pg_stat_user_indexes
 where schemaname = 'public'
   and relname in (
-    'idx_token_market_latest_pair_address',
-    'idx_token_candles_1m_bucket_start_desc',
+    'idx_token_market_latest_primary_pair_address',
+    'idx_token_market_latest_volume_24h_desc',
+    'idx_token_labels_latest_risk_tier_updated_at_desc',
+    'idx_token_candles_1m_pair_time_sec_desc',
     'idx_feed_snapshots_generated_at_desc',
     'idx_feed_snapshot_items_snapshot_id_position'
   )

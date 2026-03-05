@@ -18,15 +18,27 @@ export interface PersistedMarketRow {
   volume_24h: number
   liquidity: number
   market_cap: number | null
-  pair_address: string | null
-  pair_created_at_ms: number | null
-  quote_symbol: string | null
+  primary_pair_address: string | null
   recent_volume_5m: number | null
   recent_txns_5m: number | null
-  market_source_price: TokenFeedItem['sources']['price']
-  market_source_market_cap: TokenFeedItem['sources']['marketCap']
-  metadata_source: TokenFeedItem['sources']['metadata']
+  source_price: TokenFeedItem['sources']['price']
+  source_market_cap: TokenFeedItem['sources']['marketCap']
+  source_liquidity: TokenFeedItem['sources']['liquidity']
+  source_volume: TokenFeedItem['sources']['volume']
+  source_metadata: TokenFeedItem['sources']['metadata']
   updated_at: string
+  ingested_at: string
+}
+
+export interface PersistedPairRow {
+  pair_address: string
+  mint: string
+  dex: string
+  quote_symbol: string | null
+  pair_created_at_ms: number | null
+  updated_at: string
+  ingested_at: string
+  source_discovery: string
 }
 
 export interface PersistedLabelsRow {
@@ -36,7 +48,9 @@ export interface PersistedLabelsRow {
   trust_tags: string[]
   discovery_labels: string[]
   source_tags: string[]
+  source_labels: string
   updated_at: string
+  ingested_at: string
 }
 
 export interface PersistedSparklineRow {
@@ -47,17 +61,23 @@ export interface PersistedSparklineRow {
   source: string
   generated_at: string
   history_quality: ChartHistoryQuality | null
-  candle_count_1m: number | null
+  point_count_1m: number | null
+  last_point_time_sec: number | null
   sparkline: number[]
+  updated_at: string
+  ingested_at: string
 }
 
 export interface PersistedCandleRow {
   pair_address: string
-  bucket_start: string
+  time_sec: number
   open: number
   high: number
   low: number
   close: number
   volume: number
   sample_count: number
+  source: string
+  updated_at: string
+  ingested_at: string
 }

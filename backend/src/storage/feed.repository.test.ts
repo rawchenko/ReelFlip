@@ -143,7 +143,14 @@ test('readLatestSnapshot returns mapped and ordered token feed items', async () 
       pairCreatedAtMs: null,
       tags: { trust: [], discovery: ['trending'] },
       labels: ['trending'],
-      sources: { price: 'seed', marketCap: 'seed', metadata: 'seed', tags: [] },
+      sources: {
+        price: 'seed',
+        liquidity: 'seed',
+        volume: 'seed',
+        marketCap: 'seed',
+        metadata: 'seed',
+        tags: [],
+      },
       category: 'trending',
       riskTier: 'allow',
     },
@@ -170,7 +177,14 @@ test('readLatestSnapshot returns mapped and ordered token feed items', async () 
       pairCreatedAtMs: null,
       tags: { trust: [], discovery: ['gainer'] },
       labels: ['gainer'],
-      sources: { price: 'seed', marketCap: 'seed', metadata: 'seed', tags: [] },
+      sources: {
+        price: 'seed',
+        liquidity: 'seed',
+        volume: 'seed',
+        marketCap: 'seed',
+        metadata: 'seed',
+        tags: [],
+      },
       category: 'gainer',
       riskTier: 'warn',
     },
@@ -214,7 +228,14 @@ test('createSnapshotAndPage returns created snapshot payload', async () => {
       pairCreatedAtMs: null,
       tags: { trust: [], discovery: ['trending'] },
       labels: ['trending'],
-      sources: { price: 'seed', marketCap: 'seed', metadata: 'seed', tags: [] },
+      sources: {
+        price: 'seed',
+        liquidity: 'seed',
+        volume: 'seed',
+        marketCap: 'seed',
+        metadata: 'seed',
+        tags: [],
+      },
       category: 'trending',
       riskTier: 'allow',
     },
@@ -226,4 +247,47 @@ test('createSnapshotAndPage returns created snapshot payload', async () => {
   assert.ok(created)
   assert.equal(created?.id, 'snap-1')
   assert.equal(created?.items.length, 1)
+})
+
+test('readLatestSnapshot falls back liquidity and volume sources to price for legacy rows', async () => {
+  const fake = new FakeSupabaseClient()
+  fake.setResponse('feed_snapshots', [
+    {
+      id: 'snap-legacy',
+      generated_at: '2026-03-03T00:00:00.000Z',
+      source: 'providers',
+    },
+  ])
+  fake.setResponse('feed_snapshot_items', [{ position: 0, mint: 'mint-legacy' }])
+  fake.setResponse('v_token_feed', [
+    {
+      mint: 'mint-legacy',
+      name: 'Token Legacy',
+      symbol: 'LEG',
+      description: null,
+      imageUri: null,
+      priceUsd: 1,
+      priceChange24h: 2,
+      volume24h: 3,
+      liquidity: 4,
+      marketCap: 5,
+      sparkline: [],
+      sparklineMeta: null,
+      pairAddress: null,
+      pairCreatedAtMs: null,
+      tags: { trust: [], discovery: ['trending'] },
+      labels: ['trending'],
+      sources: { price: 'dexscreener', marketCap: 'seed', metadata: 'seed', tags: [] },
+      category: 'trending',
+      riskTier: 'allow',
+    },
+  ])
+
+  const repository = new FeedRepository(fake as unknown as SupabaseClient, logger)
+  const latest = await repository.readLatestSnapshot()
+
+  assert.ok(latest)
+  assert.equal(latest?.items[0]?.sources.price, 'dexscreener')
+  assert.equal(latest?.items[0]?.sources.liquidity, 'dexscreener')
+  assert.equal(latest?.items[0]?.sources.volume, 'dexscreener')
 })

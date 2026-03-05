@@ -20,6 +20,11 @@ test('compareFeedParity tolerates small numeric drift and detects mismatches', (
     recentTxns5m: 2,
     category: 'trending',
     riskTier: 'warn',
+    sourcePrice: 'birdeye',
+    sourceLiquidity: 'dexscreener',
+    sourceVolume: 'dexscreener',
+    sourceMarketCap: 'birdeye',
+    sourceMetadata: 'helius',
     sparklinePresent: true,
     sparklineLength: 3,
   }
@@ -54,6 +59,11 @@ test('compareFeedParity detects missing mints in database', () => {
       recentTxns5m: null,
       category: null,
       riskTier: null,
+      sourcePrice: null,
+      sourceLiquidity: null,
+      sourceVolume: null,
+      sourceMarketCap: null,
+      sourceMetadata: null,
       sparklinePresent: false,
       sparklineLength: 0,
     },
@@ -73,6 +83,13 @@ test('normalize helpers map feed and supabase rows to comparable shape', () => {
     sparkline: [1, 2],
     category: 'new',
     riskTier: 'allow',
+    sources: {
+      price: 'seed',
+      liquidity: 'seed',
+      volume: 'seed',
+      marketCap: 'seed',
+      metadata: 'seed',
+    },
   })
   const normalizedDb = normalizeSupabaseRow({
     mint: 'mint-z',
@@ -82,10 +99,60 @@ test('normalize helpers map feed and supabase rows to comparable shape', () => {
     sparkline: [1, 2],
     category: 'new',
     riskTier: 'allow',
+    sources: {
+      price: 'seed',
+      liquidity: 'seed',
+      volume: 'seed',
+      marketCap: 'seed',
+      metadata: 'seed',
+    },
   })
 
   assert.equal(normalizedFeed?.mint, 'mint-z')
   assert.equal(normalizedFeed?.sparklineLength, 2)
+  assert.equal(normalizedFeed?.sourceLiquidity, 'seed')
   assert.equal(normalizedDb?.mint, 'mint-z')
   assert.equal(normalizedDb?.priceUsd, 1.1)
+  assert.equal(normalizedDb?.sourceVolume, 'seed')
+})
+
+test('compareFeedParity detects provenance source mismatches', () => {
+  const feed = normalizeFeedRow({
+    mint: 'mint-source-a',
+    name: 'Token Source',
+    symbol: 'SRC',
+    priceUsd: 1,
+    sparkline: [],
+    category: 'trending',
+    riskTier: 'allow',
+    sources: {
+      price: 'birdeye',
+      liquidity: 'dexscreener',
+      volume: 'dexscreener',
+      marketCap: 'birdeye',
+      metadata: 'helius',
+    },
+  })
+  const db = normalizeSupabaseRow({
+    mint: 'mint-source-a',
+    name: 'Token Source',
+    symbol: 'SRC',
+    priceUsd: 1,
+    sparkline: [],
+    category: 'trending',
+    riskTier: 'allow',
+    sources: {
+      price: 'birdeye',
+      liquidity: 'birdeye',
+      volume: 'birdeye',
+      marketCap: 'birdeye',
+      metadata: 'helius',
+    },
+  })
+
+  assert.ok(feed)
+  assert.ok(db)
+  const result = compareFeedParity([feed], [db], 0.005)
+  assert.equal(result.pass, false)
+  assert.equal(result.issuesByMint['mint-source-a']?.[0]?.field, 'sourceLiquidity')
 })

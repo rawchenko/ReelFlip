@@ -45,11 +45,39 @@ export interface TokenTrustTagsClient {
 export interface FeedEnrichmentServiceOptions {
   maxItems: number
   concurrency: number
+  marketTtlMs?: number
+  metadataTtlMs?: number
+  trustTagsTtlMs?: number
+  marketCacheMaxKeys?: number
+  metadataCacheMaxKeys?: number
+  trustTagsCacheMaxKeys?: number
+  failureCooldownMs?: number
   sparklineWindowMinutes: number
   sparklinePoints: number
 }
 
+type CacheResultStatus = 'fetched' | 'ttl_hit' | 'cooldown_skip' | 'stale_on_error' | 'fallback_on_error'
+
+interface MintCacheEntry<T> {
+  value: T
+  expiresAtMs: number
+  lastFailureAtMs: number | null
+}
+
+type CacheStatsCounter = Record<CacheResultStatus, number>
+
 export class FeedEnrichmentService implements FeedEnricher {
+  private readonly marketCache = new Map<string, MintCacheEntry<BirdeyeMarketSnapshot | null>>()
+  private readonly metadataCache = new Map<string, MintCacheEntry<TokenMetadataSnapshot | null>>()
+  private readonly trustTagsCache = new Map<string, MintCacheEntry<string[]>>()
+  private readonly marketTtlMs: number
+  private readonly metadataTtlMs: number
+  private readonly trustTagsTtlMs: number
+  private readonly marketCacheMaxKeys: number
+  private readonly metadataCacheMaxKeys: number
+  private readonly trustTagsCacheMaxKeys: number
+  private readonly failureCooldownMs: number
+
   constructor(
     private readonly marketDataClient: TokenMarketDataClient,
     private readonly metadataClient: TokenMetadataClient,
@@ -57,7 +85,15 @@ export class FeedEnrichmentService implements FeedEnricher {
     private readonly chartHistoryReader: ChartHistoryBatchReader | null,
     private readonly options: FeedEnrichmentServiceOptions,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.marketTtlMs = normalizeDurationMs(options.marketTtlMs, 60_000)
+    this.metadataTtlMs = normalizeDurationMs(options.metadataTtlMs, 43_200_000)
+    this.trustTagsTtlMs = normalizeDurationMs(options.trustTagsTtlMs, 900_000)
+    this.marketCacheMaxKeys = normalizeCacheMaxKeys(options.marketCacheMaxKeys, 2000)
+    this.metadataCacheMaxKeys = normalizeCacheMaxKeys(options.metadataCacheMaxKeys, 2000)
+    this.trustTagsCacheMaxKeys = normalizeCacheMaxKeys(options.trustTagsCacheMaxKeys, 2000)
+    this.failureCooldownMs = normalizeDurationMs(options.failureCooldownMs, 300_000)
+  }
 
   async enrich(items: TokenFeedItem[], signal: AbortSignal): Promise<TokenFeedItem[]> {
     if (items.length === 0 || this.options.maxItems <= 0) {
@@ -73,6 +109,11 @@ export class FeedEnrichmentService implements FeedEnricher {
     let priceFromBirdeye = 0
     let marketCapFromBirdeye = 0
     let metadataFromHelius = 0
+    const counters = {
+      market: createCacheStatsCounter(),
+      metadata: createCacheStatsCounter(),
+      tags: createCacheStatsCounter(),
+    }
 
     await mapWithConcurrency(selectedIndexes, Math.max(1, this.options.concurrency), async (index) => {
       if (signal.aborted) {
@@ -84,11 +125,17 @@ export class FeedEnrichmentService implements FeedEnricher {
         return
       }
 
-      const [market, metadata, trustTags] = await Promise.all([
-        this.safeFetchMarket(item.mint, signal),
-        this.safeFetchMetadata(item.mint, signal),
-        this.safeFetchTrustTags(item.mint, signal),
+      const [marketResult, metadataResult, tagsResult] = await Promise.all([
+        this.getMarketWithCache(item.mint, signal),
+        this.getMetadataWithCache(item.mint, signal),
+        this.getTrustTagsWithCache(item.mint, signal),
       ])
+      counters.market[marketResult.status] += 1
+      counters.metadata[metadataResult.status] += 1
+      counters.tags[tagsResult.status] += 1
+      const market = marketResult.value
+      const metadata = metadataResult.value
+      const trustTags = tagsResult.value
 
       const mergedTrustTags = mergeUniqueStrings([...item.tags.trust, ...trustTags])
       const discoveryLabels = resolveDiscoveryLabels(item)
@@ -130,6 +177,8 @@ export class FeedEnrichmentService implements FeedEnricher {
         labels: discoveryLabels,
         sources: {
           price: hasBirdeyePrice ? 'birdeye' : item.sources.price,
+          liquidity: item.sources.liquidity,
+          volume: item.sources.volume,
           marketCap: hasBirdeyeMarketCap ? 'birdeye' : item.sources.marketCap,
           metadata: hasHeliusMetadata ? 'helius' : item.sources.metadata,
           tags: tagsSources,
@@ -146,6 +195,16 @@ export class FeedEnrichmentService implements FeedEnricher {
         priceSourceBirdeyeCount: priceFromBirdeye,
         marketCapSourceBirdeyeCount: marketCapFromBirdeye,
         metadataSourceHeliusCount: metadataFromHelius,
+        skippedByTtl: {
+          market: counters.market.ttl_hit,
+          metadata: counters.metadata.ttl_hit,
+          tags: counters.tags.ttl_hit,
+        },
+        skippedByCooldown: {
+          market: counters.market.cooldown_skip,
+          metadata: counters.metadata.cooldown_skip,
+          tags: counters.tags.cooldown_skip,
+        },
       },
       'Feed enrichment completed',
     )
@@ -188,8 +247,8 @@ export class FeedEnrichmentService implements FeedEnricher {
       try {
         const batch = await this.chartHistoryReader.getBatchHistory(chunk, this.options.sparklineWindowMinutes, '1m')
         for (const result of batch.results) {
-          const sparkline = bucketCandlesToSparkline(
-            result.candles,
+          const sparkline = bucketPointsToSparkline(
+            result.points,
             FEED_SPARKLINE_BUCKET_SECONDS,
             this.options.sparklinePoints,
           )
@@ -214,14 +273,16 @@ export class FeedEnrichmentService implements FeedEnricher {
             points: sparkline.length,
             generatedAt: batch.generatedAt,
             historyQuality: result.historyQuality,
-            candleCount1m: result.candles.length,
+            pointCount1m: result.points.length,
+            lastPointTimeSec: result.points[result.points.length - 1]?.time,
           }
 
           output.set(result.pairAddress, {
             sparkline,
             meta,
             historyQuality: result.historyQuality,
-            candleCount1m: result.candles.length,
+            pointCount1m: result.points.length,
+            lastPointTimeSec: result.points[result.points.length - 1]?.time,
           })
         }
       } catch (error) {
@@ -237,32 +298,143 @@ export class FeedEnrichmentService implements FeedEnricher {
     return { byPair: output, stats }
   }
 
-  private async safeFetchMarket(mint: string, signal: AbortSignal): Promise<BirdeyeMarketSnapshot | null> {
+  private async getMarketWithCache(
+    mint: string,
+    signal: AbortSignal,
+  ): Promise<{ value: BirdeyeMarketSnapshot | null; status: CacheResultStatus }> {
+    return this.getWithCache(
+      this.marketCache,
+      mint,
+      this.marketTtlMs,
+      this.marketCacheMaxKeys,
+      this.failureCooldownMs,
+      async () => this.marketDataClient.fetchTokenMarket(mint, signal),
+      null,
+      'Market enrichment request failed',
+    )
+  }
+
+  private async getMetadataWithCache(
+    mint: string,
+    signal: AbortSignal,
+  ): Promise<{ value: TokenMetadataSnapshot | null; status: CacheResultStatus }> {
+    return this.getWithCache(
+      this.metadataCache,
+      mint,
+      this.metadataTtlMs,
+      this.metadataCacheMaxKeys,
+      this.failureCooldownMs,
+      async () => this.metadataClient.fetchTokenMetadata(mint, signal),
+      null,
+      'Metadata enrichment request failed',
+    )
+  }
+
+  private async getTrustTagsWithCache(
+    mint: string,
+    signal: AbortSignal,
+  ): Promise<{ value: string[]; status: CacheResultStatus }> {
+    return this.getWithCache(
+      this.trustTagsCache,
+      mint,
+      this.trustTagsTtlMs,
+      this.trustTagsCacheMaxKeys,
+      this.failureCooldownMs,
+      async () => this.trustTagsClient.fetchTrustTags(mint, signal),
+      [],
+      'Trust tag enrichment request failed',
+    )
+  }
+
+  private async getWithCache<T>(
+    cache: Map<string, MintCacheEntry<T>>,
+    mint: string,
+    ttlMs: number,
+    maxKeys: number,
+    cooldownMs: number,
+    fetcher: () => Promise<T>,
+    fallback: T,
+    errorLogMessage: string,
+  ): Promise<{ value: T; status: CacheResultStatus }> {
+    const key = mint.trim()
+    if (key.length === 0) {
+      return { value: fallback, status: 'fallback_on_error' }
+    }
+
+    const now = Date.now()
+    const existing = cache.get(key)
+    if (existing && existing.lastFailureAtMs !== null && now - existing.lastFailureAtMs < cooldownMs) {
+      touchCacheEntry(cache, key, existing)
+      enforceCacheCap(cache, maxKeys, now)
+      return { value: existing.value, status: 'cooldown_skip' }
+    }
+
+    if (existing && existing.expiresAtMs > now) {
+      touchCacheEntry(cache, key, existing)
+      enforceCacheCap(cache, maxKeys, now)
+      return { value: existing.value, status: 'ttl_hit' }
+    }
+
     try {
-      return await this.marketDataClient.fetchTokenMarket(mint, signal)
+      const value = await fetcher()
+      writeCacheEntry(cache, key, {
+        value,
+        expiresAtMs: now + ttlMs,
+        lastFailureAtMs: null,
+      }, maxKeys, now)
+      return { value, status: 'fetched' }
     } catch (error) {
-      this.logger.warn({ error, mint }, 'Market enrichment request failed')
-      return null
+      this.logger.warn({ error, mint: key }, errorLogMessage)
+      const staleValue = existing ? existing.value : fallback
+      writeCacheEntry(cache, key, {
+        value: staleValue,
+        expiresAtMs: now + Math.max(1000, cooldownMs),
+        lastFailureAtMs: now,
+      }, maxKeys, now)
+      return { value: staleValue, status: existing ? 'stale_on_error' : 'fallback_on_error' }
+    }
+  }
+}
+
+function touchCacheEntry<T>(cache: Map<string, MintCacheEntry<T>>, key: string, entry: MintCacheEntry<T>): void {
+  cache.delete(key)
+  cache.set(key, entry)
+}
+
+function writeCacheEntry<T>(
+  cache: Map<string, MintCacheEntry<T>>,
+  key: string,
+  entry: MintCacheEntry<T>,
+  maxKeys: number,
+  now: number,
+): void {
+  cache.delete(key)
+  cache.set(key, entry)
+  enforceCacheCap(cache, maxKeys, now)
+}
+
+function enforceCacheCap<T>(cache: Map<string, MintCacheEntry<T>>, maxKeys: number, now: number): void {
+  for (const [key, entry] of cache) {
+    if (entry.expiresAtMs <= now) {
+      cache.delete(key)
     }
   }
 
-  private async safeFetchMetadata(mint: string, signal: AbortSignal): Promise<TokenMetadataSnapshot | null> {
-    try {
-      return await this.metadataClient.fetchTokenMetadata(mint, signal)
-    } catch (error) {
-      this.logger.warn({ error, mint }, 'Metadata enrichment request failed')
-      return null
+  while (cache.size > maxKeys) {
+    const oldestKey = cache.keys().next().value
+    if (oldestKey === undefined) {
+      break
     }
+    cache.delete(oldestKey)
+  }
+}
+
+function normalizeCacheMaxKeys(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
+    return fallback
   }
 
-  private async safeFetchTrustTags(mint: string, signal: AbortSignal): Promise<string[]> {
-    try {
-      return await this.trustTagsClient.fetchTrustTags(mint, signal)
-    } catch (error) {
-      this.logger.warn({ error, mint }, 'Trust tag enrichment request failed')
-      return []
-    }
-  }
+  return Math.floor(value)
 }
 
 interface BirdeyeClientOptions {
@@ -302,49 +474,45 @@ export class BirdeyeMarketDataClient implements TokenMarketDataClient {
       return null
     }
 
-    try {
-      const url = new URL('https://public-api.birdeye.so/defi/token_overview')
-      url.searchParams.set('address', mint)
+    const url = new URL('https://public-api.birdeye.so/defi/token_overview')
+    url.searchParams.set('address', mint)
 
-      const response = await this.httpClient.request(url, {
-        method: 'GET',
-        signal,
-        headers: {
-          accept: 'application/json',
-          'x-api-key': this.options.apiKey ?? '',
-          'x-chain': 'solana',
-        },
-      })
+    const response = await this.httpClient.request(url, {
+      method: 'GET',
+      signal,
+      headers: {
+        accept: 'application/json',
+        'x-api-key': this.options.apiKey ?? '',
+        'x-chain': 'solana',
+      },
+    })
 
-      if (!response.ok) {
-        throw new Error(`Birdeye request failed with status ${response.status}`)
-      }
+    if (!response.ok) {
+      throw new Error(`Birdeye request failed with status ${response.status}`)
+    }
 
-      const payload = (await response.json()) as unknown
-      const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null
-      if (!data) {
-        return null
-      }
-
-      return {
-        priceUsd: firstFiniteNumber(data.price, data.priceUsd, data.current_price, data.value),
-        priceChange24h: firstFiniteNumber(
-          data.priceChange24h,
-          data.price_change_24h,
-          data.price_change_24h_percent,
-          data.v24hChangePercent,
-        ),
-        marketCap: firstFiniteNumber(data.marketCap, data.market_cap, data.mc),
-      }
-    } catch (error) {
-      this.logger.warn({ error, mint }, 'Birdeye fetch failed')
+    const payload = (await response.json()) as unknown
+    const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null
+    if (!data) {
       return null
+    }
+
+    return {
+      priceUsd: firstFiniteNumber(data.price, data.priceUsd, data.current_price, data.value),
+      priceChange24h: firstFiniteNumber(
+        data.priceChange24h,
+        data.price_change_24h,
+        data.price_change_24h_percent,
+        data.v24hChangePercent,
+      ),
+      marketCap: firstFiniteNumber(data.marketCap, data.market_cap, data.mc),
     }
   }
 }
 
 interface HeliusClientOptions {
   apiKey?: string
+  enabled?: boolean
   timeoutMs: number
   dasUrl: string
   onRequestComplete?: (event: UpstreamRequestEvent) => void
@@ -358,7 +526,8 @@ export class HeliusMetadataClient implements TokenMetadataClient {
     private readonly options: HeliusClientOptions,
     private readonly logger: Logger,
   ) {
-    this.enabled = typeof options.apiKey === 'string' && options.apiKey.trim().length > 0
+    const enabledByConfig = options.enabled ?? true
+    this.enabled = enabledByConfig && typeof options.apiKey === 'string' && options.apiKey.trim().length > 0
     this.httpClient = new ResilientHttpClient({
       upstream: 'helius_metadata',
       timeoutMs: options.timeoutMs,
@@ -381,58 +550,53 @@ export class HeliusMetadataClient implements TokenMetadataClient {
       return null
     }
 
-    try {
-      const endpoint = buildHeliusRpcUrl(this.options.dasUrl, this.options.apiKey)
-      const response = await this.httpClient.request(endpoint, {
-        method: 'POST',
-        signal,
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: `feed-${mint}`,
-          method: 'getAsset',
-          params: {
-            id: mint,
-            displayOptions: {
-              showFungible: true,
-            },
+    const endpoint = buildHeliusRpcUrl(this.options.dasUrl, this.options.apiKey)
+    const response = await this.httpClient.request(endpoint, {
+      method: 'POST',
+      signal,
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: `feed-${mint}`,
+        method: 'getAsset',
+        params: {
+          id: mint,
+          displayOptions: {
+            showFungible: true,
           },
-        }),
-      })
+        },
+      }),
+    })
 
-      if (!response.ok) {
-        throw new Error(`Helius request failed with status ${response.status}`)
-      }
+    if (!response.ok) {
+      throw new Error(`Helius request failed with status ${response.status}`)
+    }
 
-      const payload = (await response.json()) as unknown
-      const result = isRecord(payload) && isRecord(payload.result) ? payload.result : null
-      if (!result) {
-        return null
-      }
-
-      const content = isRecord(result.content) ? result.content : null
-      const metadata = content && isRecord(content.metadata) ? content.metadata : null
-      const links = content && isRecord(content.links) ? content.links : null
-
-      const description = stringOrNull(metadata?.description)
-      const name = stringOrNull(metadata?.name)
-      const imageUri = stringOrNull(links?.image) ?? firstFileUri(content)
-
-      if (!name && !description && !imageUri) {
-        return null
-      }
-
-      return {
-        name,
-        description,
-        imageUri,
-      }
-    } catch (error) {
-      this.logger.warn({ error, mint }, 'Helius metadata fetch failed')
+    const payload = (await response.json()) as unknown
+    const result = isRecord(payload) && isRecord(payload.result) ? payload.result : null
+    if (!result) {
       return null
+    }
+
+    const content = isRecord(result.content) ? result.content : null
+    const metadata = content && isRecord(content.metadata) ? content.metadata : null
+    const links = content && isRecord(content.links) ? content.links : null
+
+    const description = stringOrNull(metadata?.description)
+    const name = stringOrNull(metadata?.name)
+    const imageUri = stringOrNull(links?.image) ?? firstFileUri(content)
+
+    if (!name && !description && !imageUri) {
+      return null
+    }
+
+    return {
+      name,
+      description,
+      imageUri,
     }
   }
 }
@@ -537,7 +701,8 @@ interface SparklinePayload {
   sparkline: number[]
   meta: TokenFeedSparklineMeta
   historyQuality: ChartHistoryQuality
-  candleCount1m: number
+  pointCount1m: number
+  lastPointTimeSec?: number
 }
 
 interface SparklineBuildStats {
@@ -586,8 +751,8 @@ function pickIndexesForEnrichment(items: TokenFeedItem[], maxItems: number): num
   return scored.slice(0, Math.max(1, maxItems)).map((entry) => entry.index)
 }
 
-function bucketCandlesToSparkline(
-  candles: Array<{ time: number; close: number }>,
+function bucketPointsToSparkline(
+  points: Array<{ time: number; value: number }>,
   bucketSeconds: number,
   targetPoints: number,
   nowSec: number = Math.floor(Date.now() / 1000),
@@ -608,22 +773,22 @@ function bucketCandlesToSparkline(
   const anchorSec = Math.floor(normalizedNowSec / bucketSeconds) * bucketSeconds
   const windowStartSec = anchorSec - (normalizedTargetPoints - 1) * bucketSeconds
 
-  const sorted = candles
-    .map((candle) => ({
-      time: Number(candle.time),
-      close: Number(candle.close),
+  const sorted = points
+    .map((point) => ({
+      time: Number(point.time),
+      value: Number(point.value),
     }))
-    .filter((candle) => Number.isFinite(candle.time) && candle.time > 0 && Number.isFinite(candle.close) && candle.close > 0)
+    .filter((point) => Number.isFinite(point.time) && point.time > 0 && Number.isFinite(point.value) && point.value > 0)
     .sort((left, right) => left.time - right.time)
 
   if (sorted.length === 0) {
     return []
   }
 
-  const closeByBucketIndex = new Map<number, number>()
+  const valueByBucketIndex = new Map<number, number>()
 
-  for (const candle of sorted) {
-    const bucketTime = Math.floor(candle.time / bucketSeconds) * bucketSeconds
+  for (const point of sorted) {
+    const bucketTime = Math.floor(point.time / bucketSeconds) * bucketSeconds
     if (bucketTime < windowStartSec || bucketTime > anchorSec) {
       continue
     }
@@ -632,14 +797,14 @@ function bucketCandlesToSparkline(
     if (bucketIndex < 0 || bucketIndex >= normalizedTargetPoints) {
       continue
     }
-    closeByBucketIndex.set(bucketIndex, candle.close)
+    valueByBucketIndex.set(bucketIndex, point.value)
   }
 
-  if (closeByBucketIndex.size === 0) {
+  if (valueByBucketIndex.size === 0) {
     return []
   }
 
-  const output = Array.from({ length: normalizedTargetPoints }, (_entry, index) => closeByBucketIndex.get(index) ?? Number.NaN)
+  const output = Array.from({ length: normalizedTargetPoints }, (_entry, index) => valueByBucketIndex.get(index) ?? Number.NaN)
   const firstKnownClose = output.find((value) => Number.isFinite(value) && value > 0)
   if (firstKnownClose === undefined || !Number.isFinite(firstKnownClose) || firstKnownClose <= 0) {
     return []
@@ -687,6 +852,24 @@ async function mapWithConcurrency<TInput>(
   })
 
   await Promise.all(workers)
+}
+
+function createCacheStatsCounter(): CacheStatsCounter {
+  return {
+    fetched: 0,
+    ttl_hit: 0,
+    cooldown_skip: 0,
+    stale_on_error: 0,
+    fallback_on_error: 0,
+  }
+}
+
+function normalizeDurationMs(input: number | undefined, fallbackMs: number): number {
+  if (typeof input !== 'number' || !Number.isFinite(input) || input <= 0) {
+    return fallbackMs
+  }
+
+  return Math.max(1, Math.floor(input))
 }
 
 function parseJupiterTagMints(payload: unknown): Set<string> {

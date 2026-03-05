@@ -111,14 +111,33 @@ export class SupabaseClient {
     })
   }
 
+  async invokeRpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+    if (!this.isEnabled()) {
+      return undefined as T
+    }
+
+    return this.requestAtPath<T>('POST', `/rest/v1/rpc/${encodeURIComponent(fn)}`, `rpc/${fn}`, {
+      body: args,
+    })
+  }
+
   async request<T>(method: 'GET' | 'POST' | 'DELETE', tableOrView: string, options: RequestOptions = {}): Promise<T> {
+    return this.requestAtPath<T>(method, `/rest/v1/${encodeURIComponent(tableOrView)}`, tableOrView, options)
+  }
+
+  private async requestAtPath<T>(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    tableOrView: string,
+    options: RequestOptions = {},
+  ): Promise<T> {
     const url = this.options.url
     const serviceRoleKey = this.options.serviceRoleKey
     if (!url || !serviceRoleKey) {
       throw new SupabaseClientError('Supabase client is not configured', 0)
     }
 
-    const requestUrl = new URL(`/rest/v1/${encodeURIComponent(tableOrView)}`, url)
+    const requestUrl = new URL(path, url)
     if (options.query) {
       for (const [key, value] of Object.entries(options.query)) {
         if (value === undefined) {

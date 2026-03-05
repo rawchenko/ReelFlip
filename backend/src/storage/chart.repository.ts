@@ -13,7 +13,7 @@ interface ChartRepositoryOptions {
 
 interface CandleSelectRow {
   pair_address: string
-  bucket_start: string
+  time_sec: number | string
   open: number | string
   high: number | string
   low: number | string
@@ -44,11 +44,28 @@ export class ChartRepository {
       return
     }
 
-    await this.supabase.upsertRows('token_candles_1m', candles as unknown as Record<string, unknown>[], [
-      'pair_address',
-      'bucket_start',
-    ])
-    this.options.onRowsWritten?.('token_candles_1m', candles.length)
+    try {
+      await this.supabase.upsertRows('token_candles_1m', candles as unknown as Record<string, unknown>[], [
+        'pair_address',
+        'time_sec',
+      ])
+      this.options.onRowsWritten?.('token_candles_1m', candles.length)
+    } catch (error) {
+      if (isCandlePairForeignKeyViolation(error)) {
+        const distinctPairs = new Set(candles.map((candle) => candle.pair_address))
+        this.logger.warn(
+          {
+            error,
+            candleCount: candles.length,
+            pairCount: distinctPairs.size,
+            pairSample: Array.from(distinctPairs).slice(0, 5),
+          },
+          'Skipped candle upsert due to missing token_pairs parent row',
+        )
+        return
+      }
+      throw error
+    }
   }
 
   async getCandles(pairAddress: string, limit: number): Promise<OhlcCandle[]> {
@@ -58,9 +75,9 @@ export class ChartRepository {
 
     try {
       const rows = await this.supabase.selectRows<CandleSelectRow>('token_candles_1m', {
-        select: 'pair_address,bucket_start,open,high,low,close,volume,sample_count',
+        select: 'pair_address,time_sec,open,high,low,close,volume,sample_count',
         pair_address: `eq.${pairAddress}`,
-        order: 'bucket_start.desc',
+        order: 'time_sec.desc',
         limit: String(Math.max(1, Math.min(limit, 1000))),
       })
 
@@ -83,17 +100,19 @@ export class ChartRepository {
 
     try {
       const query: Record<string, string | undefined> = {
-        select: 'pair_address,bucket_start,open,high,low,close,volume,sample_count',
+        select: 'pair_address,time_sec,open,high,low,close,volume,sample_count',
         pair_address: `eq.${pairAddress}`,
-        order: 'bucket_start.asc',
+        order: 'time_sec.asc',
         limit: String(Math.max(1, Math.min(range.limit ?? 1000, 1000))),
       }
-      if (range.fromIso && range.toIso) {
-        query.and = `(bucket_start.gte.${range.fromIso},bucket_start.lte.${range.toIso})`
-      } else if (range.fromIso) {
-        query.bucket_start = `gte.${range.fromIso}`
-      } else if (range.toIso) {
-        query.bucket_start = `lte.${range.toIso}`
+      const fromTimeSec = parseIsoToEpochSec(range.fromIso)
+      const toTimeSec = parseIsoToEpochSec(range.toIso)
+      if (fromTimeSec !== null && toTimeSec !== null) {
+        query.and = `(time_sec.gte.${fromTimeSec},time_sec.lte.${toTimeSec})`
+      } else if (fromTimeSec !== null) {
+        query.time_sec = `gte.${fromTimeSec}`
+      } else if (toTimeSec !== null) {
+        query.time_sec = `lte.${toTimeSec}`
       }
 
       const rows = await this.supabase.selectRows<CandleSelectRow>('token_candles_1m', {
@@ -111,12 +130,17 @@ export class ChartRepository {
     if (!this.supabase.isEnabled()) {
       return 0
     }
+    const cutoffTimeSec = parseIsoToEpochSec(cutoffIso)
+    if (cutoffTimeSec === null) {
+      this.logger.warn({ cutoffIso }, 'Skipping candle prune due to invalid cutoff ISO')
+      return 0
+    }
 
     try {
       const deleted = await this.supabase.deleteRows<Record<string, unknown>>(
         'token_candles_1m',
         {
-          bucket_start: `lt.${cutoffIso}`,
+          time_sec: `lt.${cutoffTimeSec}`,
         },
         'representation',
       )
@@ -134,6 +158,7 @@ export function toPersistedCandles(pairAddress: string, candles: OhlcCandle[]): 
   if (normalizedPair.length === 0) {
     return []
   }
+  const persistedAt = new Date().toISOString()
 
   const output: PersistedCandleRow[] = []
   for (const candle of candles) {
@@ -143,13 +168,16 @@ export function toPersistedCandles(pairAddress: string, candles: OhlcCandle[]): 
 
     output.push({
       pair_address: normalizedPair,
-      bucket_start: new Date(Math.floor(candle.timeSec) * 1000).toISOString(),
+      time_sec: Math.floor(candle.timeSec),
       open: finiteOrZero(candle.open),
       high: finiteOrZero(candle.high),
       low: finiteOrZero(candle.low),
       close: finiteOrZero(candle.close),
       volume: finiteOrZero(candle.volume),
       sample_count: 1,
+      source: 'runtime_aggregator',
+      updated_at: persistedAt,
+      ingested_at: persistedAt,
     })
   }
 
@@ -157,13 +185,13 @@ export function toPersistedCandles(pairAddress: string, candles: OhlcCandle[]): 
 }
 
 function toCandle(row: CandleSelectRow): OhlcCandle | null {
-  const date = Date.parse(row.bucket_start)
-  if (!Number.isFinite(date) || date <= 0) {
+  const timeSec = readEpochSeconds(row.time_sec)
+  if (timeSec === null) {
     return null
   }
 
   return {
-    timeSec: Math.floor(date / 1000),
+    timeSec,
     open: finiteOrZero(row.open),
     high: finiteOrZero(row.high),
     low: finiteOrZero(row.low),
@@ -189,4 +217,46 @@ function finiteOrZero(input: unknown): number {
   }
 
   return 0
+}
+
+function parseIsoToEpochSec(input: string | undefined): number | null {
+  if (!input) {
+    return null
+  }
+  const millis = Date.parse(input)
+  if (!Number.isFinite(millis) || millis <= 0) {
+    return null
+  }
+  return Math.floor(millis / 1000)
+}
+
+function readEpochSeconds(input: unknown): number | null {
+  if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
+    return Math.floor(input)
+  }
+
+  if (typeof input === 'string') {
+    const parsed = Number.parseInt(input, 10)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function isCandlePairForeignKeyViolation(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return (
+    message.includes('token_candles_1m_pair_address_fkey') ||
+    message.includes('sqlstate 23503') ||
+    message.includes('sqlstate: 23503') ||
+    (message.includes('foreign key') &&
+      message.includes('token_candles_1m') &&
+      message.includes('pair_address'))
+  )
 }

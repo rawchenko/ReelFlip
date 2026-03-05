@@ -8,8 +8,25 @@ Run `performance_checks.sql` in the Supabase SQL editor after token data has bee
 
 Acceptance targets:
 - `v_token_feed` top-N query returns quickly for feed pagination workloads.
-- `token_candles_1m` query uses `idx_token_candles_1m_bucket_start_desc`.
+- `token_candles_1m` query uses `idx_token_candles_1m_pair_time_sec_desc`.
 - `feed_snapshot_items` query uses `idx_feed_snapshot_items_snapshot_id_position`.
+
+## Stage 2 Schema Checks
+
+Run `stage2_schema_checks.sql` in the Supabase SQL editor after applying Stage 2 migrations.
+
+Checks include:
+- required Stage 2 tables/columns and canonical keys
+- required PK/FK/check constraints
+- expected read indexes
+- absence of deprecated legacy columns
+- view-only read-surface enforcement for anon/authenticated:
+  - no direct base-table `SELECT` grants
+  - `SELECT` grant on `v_token_feed` only
+  - permissive base-table public-read policies removed
+- `v_token_feed` backward-compatible output shape
+
+Run `stage2_timestamp_semantics_checks.sql` to verify that idempotent writes preserve `updated_at` while still advancing `ingested_at`.
 
 ## Automated Checks
 

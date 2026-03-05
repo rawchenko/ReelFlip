@@ -1,12 +1,12 @@
 import { ChartAggregator } from './chart.aggregator.js'
 import {
-  ChartCandleDto,
   ChartInterval,
+  ChartPointDto,
   ChartProvider,
   ChartStreamEvent,
   ChartStreamStatus,
   OhlcCandle,
-  toChartCandleDto,
+  toChartPointDto,
 } from './chart.types.js'
 import { ChartPollLock } from './chart.stream.service.js'
 
@@ -52,13 +52,13 @@ interface PairRuntimeState {
 interface FetchAndApplyStats {
   requestedPairCount: number
   sampleCount: number
-  emittedCandleUpdateCount: number
+  emittedPointUpdateCount: number
   missingPairCount: number
 }
 
 export interface ChartPairSnapshot {
   pairAddress: string
-  candles: ChartCandleDto[]
+  points: ChartPointDto[]
   delayed: boolean
   status: ChartStreamStatus
   statusReason?: string
@@ -70,7 +70,7 @@ export class ChartRegistry {
   private readonly pairListeners = new Map<string, Map<ChartInterval, Set<ChartStreamListener>>>()
   private readonly seedPromises = new Map<string, Promise<void>>()
   private pollCycleCount = 0
-  private emittedCandleUpdateCount = 0
+  private emittedPointUpdateCount = 0
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private pollInFlight = false
   private closed = false
@@ -192,11 +192,11 @@ export class ChartRegistry {
     this.updatePairFreshnessState(pairAddress, now)
 
     const state = this.getOrCreatePairState(pairAddress)
-    const candles = this.aggregators[interval].getCandles(pairAddress, limit).map(toChartCandleDto)
+    const points = this.aggregators[interval].getCandles(pairAddress, limit).map(toChartPointDto)
 
     return {
       pairAddress,
-      candles,
+      points,
       delayed: this.isPairDelayed(pairAddress, now),
       status: state.status,
       ...(state.statusReason ? { statusReason: state.statusReason } : {}),
@@ -205,7 +205,7 @@ export class ChartRegistry {
 
   buildSnapshotEvent(pairAddress: string, limit: number, interval: ChartInterval = '1m'): ChartStreamEvent | null {
     const snapshot = this.getPairSnapshot(pairAddress, limit, interval)
-    if (snapshot.candles.length === 0) {
+    if (snapshot.points.length === 0) {
       return null
     }
 
@@ -214,7 +214,7 @@ export class ChartRegistry {
       pairAddress,
       interval,
       delayed: snapshot.delayed,
-      candles: snapshot.candles,
+      points: snapshot.points,
       serverTime: new Date().toISOString(),
     }
   }
@@ -262,7 +262,7 @@ export class ChartRegistry {
         pollPairCount: lockedPollPairs.length,
         skippedByLockCount: Math.max(0, pollPairs.length - lockedPollPairs.length),
         sampleCount: stats.sampleCount,
-        emittedCandleUpdateCount: stats.emittedCandleUpdateCount,
+        emittedPointUpdateCount: stats.emittedPointUpdateCount,
         missingPairCount: stats.missingPairCount,
       }
       if (durationMs > Math.max(this.options.pollIntervalMs * 2, 1_500) || stats.missingPairCount > 0) {
@@ -291,7 +291,7 @@ export class ChartRegistry {
 
     const samples = await this.provider.fetchPairSnapshots(pairAddresses, controller.signal)
     const seenPairs = new Set<string>()
-    let emittedCandleUpdateCount = 0
+    let emittedPointUpdateCount = 0
 
     for (const sample of samples) {
       seenPairs.add(sample.pairAddress)
@@ -312,19 +312,19 @@ export class ChartRegistry {
           )
 
         const event: ChartStreamEvent = {
-          type: 'candle_update',
+          type: 'point_update',
           pairAddress: sample.pairAddress,
           interval,
           delayed: this.isPairDelayed(sample.pairAddress, sample.observedAtMs),
-          candle: toChartCandleDto(update.candle),
-          isNewCandle: update.isNewCandle,
+          point: toChartPointDto(update.candle),
+          isNewPoint: update.isNewCandle,
           observedAtMs: sample.observedAtMs,
           serverTime: new Date().toISOString(),
         }
         this.emitToPairInterval(sample.pairAddress, interval, event)
         void this.publishStreamEvent(event)
-        emittedCandleUpdateCount += 1
-        this.emittedCandleUpdateCount += 1
+        emittedPointUpdateCount += 1
+        this.emittedPointUpdateCount += 1
       }
 
       if (!acceptedAny) {
@@ -335,7 +335,7 @@ export class ChartRegistry {
       this.updateStatus(sample.pairAddress, 'live')
 
       const observedAgeMs = Math.max(0, Date.now() - sample.observedAtMs)
-      if (observedAgeMs >= 2_000 || shouldSample(this.emittedCandleUpdateCount, 50)) {
+      if (observedAgeMs >= 2_000 || shouldSample(this.emittedPointUpdateCount, 50)) {
         this.logger.debug?.(
           {
             pairAddress: sample.pairAddress,
@@ -343,7 +343,7 @@ export class ChartRegistry {
             reason,
             sampleAgeAtPollStartMs: Math.max(0, startedAt - sample.observedAtMs),
           },
-          'Chart candle update emitted',
+          'Chart point update emitted',
         )
       }
     }
@@ -363,7 +363,7 @@ export class ChartRegistry {
     return {
       requestedPairCount: pairAddresses.length,
       sampleCount: samples.length,
-      emittedCandleUpdateCount,
+      emittedPointUpdateCount,
       missingPairCount: Math.max(0, pairAddresses.length - seenPairs.size),
     }
   }

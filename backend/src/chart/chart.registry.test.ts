@@ -36,7 +36,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 250): Promise<void>
   }
 }
 
-test('subscribers receive live status and candle updates, and snapshot can be built', async () => {
+test('subscribers receive live status and point updates, and snapshot can be built', async () => {
   const pairAddress = 'pair-live'
   const sample: ChartTickSample = {
     pairAddress,
@@ -66,7 +66,7 @@ test('subscribers receive live status and candle updates, and snapshot can be bu
   await waitFor(
     () =>
       events.some((event) => event.type === 'status' && event.pairAddress === pairAddress && event.status === 'live') &&
-      events.some((event) => event.type === 'candle_update' && event.pairAddress === pairAddress),
+      events.some((event) => event.type === 'point_update' && event.pairAddress === pairAddress),
   )
 
   const snapshot = registry.buildSnapshotEvent(pairAddress, 10, '1m')
@@ -74,7 +74,7 @@ test('subscribers receive live status and candle updates, and snapshot can be bu
   assert.equal(snapshot?.type, 'snapshot')
   assert.equal(snapshot?.pairAddress, pairAddress)
   assert.equal(snapshot?.interval, '1m')
-  assert.equal(snapshot?.candles.length, 1)
+  assert.equal(snapshot?.points.length, 1)
 
   unsubscribe()
   await registry.close()

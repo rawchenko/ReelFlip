@@ -25,6 +25,11 @@ export interface ChartCandleDto {
   volume?: number
 }
 
+export interface ChartPointDto {
+  time: number
+  value: number
+}
+
 export type ChartStreamStatus = 'live' | 'delayed' | 'reconnecting' | 'fallback_polling'
 export type ChartHistoryQuality = 'real_backfill' | 'runtime_only' | 'partial' | 'unavailable'
 
@@ -35,7 +40,7 @@ export interface ChartHistoryResponse {
   source: string
   delayed: boolean
   historyQuality?: ChartHistoryQuality
-  candles: ChartCandleDto[]
+  points: ChartPointDto[]
 }
 
 export interface ChartBatchHistoryPairResult {
@@ -44,7 +49,7 @@ export interface ChartBatchHistoryPairResult {
   status: ChartStreamStatus
   source: string
   historyQuality: ChartHistoryQuality
-  candles: ChartCandleDto[]
+  points: ChartPointDto[]
 }
 
 export interface ChartBatchHistoryResponse {
@@ -59,12 +64,12 @@ export interface ChartProvider {
 
 export type ChartStreamEvent =
   | {
-      type: 'candle_update'
+      type: 'point_update'
       pairAddress: string
       interval: ChartInterval
       delayed: boolean
-      candle: ChartCandleDto
-      isNewCandle: boolean
+      point: ChartPointDto
+      isNewPoint: boolean
       serverTime: string
       streamId?: string
       sequence?: number
@@ -86,7 +91,7 @@ export type ChartStreamEvent =
       pairAddress: string
       interval: ChartInterval
       delayed: boolean
-      candles: ChartCandleDto[]
+      points: ChartPointDto[]
       serverTime: string
       streamId?: string
       sequence?: number
@@ -119,5 +124,12 @@ export function fromChartCandleDto(candle: ChartCandleDto): OhlcCandle {
     low: candle.low,
     close: candle.close,
     ...(candle.volume !== undefined ? { volume: candle.volume } : {}),
+  }
+}
+
+export function toChartPointDto(candle: OhlcCandle): ChartPointDto {
+  return {
+    time: candle.timeSec,
+    value: candle.close,
   }
 }
