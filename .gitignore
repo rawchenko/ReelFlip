@@ -30,6 +30,7 @@ yarn-error.*
 .DS_Store
 *.pem
 docs/.obsidian/
+backend/supabase/verification/reports/*.json
 
 # local env files
 .env
