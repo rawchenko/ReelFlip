@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mobile Design"
+  short_description: "Guidance for mobile UI and UX design"
+  default_prompt: "Use $mobile-design to shape mobile UI, UX, and design-system work."

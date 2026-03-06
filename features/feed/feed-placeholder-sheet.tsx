@@ -1,10 +1,10 @@
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
-import { FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
+import { FeedCardAction, TokenFeedItem } from '@/features/feed/types'
 import React, { useMemo } from 'react'
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 
-export type FeedPlaceholderSheetType = FeedCardAction | FeedTradeSide
+export type FeedPlaceholderSheetType = FeedCardAction
 
 export interface FeedPlaceholderSheetPayload {
   type: FeedPlaceholderSheetType
@@ -23,16 +23,6 @@ interface SheetCopy {
 
 function getSheetCopy(type: FeedPlaceholderSheetType): SheetCopy {
   switch (type) {
-    case 'buy':
-      return {
-        title: 'Buy',
-        description: 'Quick-buy flow will be connected in a future iteration.',
-      }
-    case 'sell':
-      return {
-        title: 'Sell',
-        description: 'Quick-sell flow will be connected in a future iteration.',
-      }
     case 'like':
       return {
         title: 'Like / Watchlist',

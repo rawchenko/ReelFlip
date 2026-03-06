@@ -5,10 +5,10 @@ import { FeedResponse, fetchFeed } from '@/features/feed/api/feed-client'
 import { getFeedInfiniteQueryKey, useFeedQuery, useInfiniteFeedQuery } from '@/features/feed/api/use-feed-query'
 import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import {
-  FeedPlaceholderSheet,
   FeedPlaceholderSheetPayload,
   FeedPlaceholderSheetType,
 } from '@/features/feed/feed-placeholder-sheet'
+import { SwapFlowPayload } from '@/features/swap/types'
 import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { FeedCategory, FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import { InfiniteData, useQueryClient } from '@tanstack/react-query'
@@ -32,6 +32,8 @@ const FEED_TABS: FeedTabConfig[] = [
   { key: 'watchlist', label: 'Watchlist' },
 ]
 const FEED_PAGE_LIMIT = 20
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { FeedInteractionOverlays } = require('@/features/swap/swap-flow') as typeof import('@/features/swap/swap-flow')
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync().catch(() => { })
@@ -49,7 +51,8 @@ export default function FeedScreen() {
   const queryClient = useQueryClient()
   const [uiTab, setUiTab] = useState<FeedUiTab>('for_you')
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
-  const [activeSheet, setActiveSheet] = useState<FeedPlaceholderSheetPayload | null>(null)
+  const [activeActionSheet, setActiveActionSheet] = useState<FeedPlaceholderSheetPayload | null>(null)
+  const [activeSwapFlow, setActiveSwapFlow] = useState<SwapFlowPayload | null>(null)
   const [hiddenTrendingCardKeys, setHiddenTrendingCardKeys] = useState<Set<string>>(() => new Set())
   const isTrendingTab = uiTab === 'trending'
   const strictTrendingCharts = isTrendingTab && process.env.EXPO_PUBLIC_ENABLE_TV_CHART !== 'false'
@@ -113,7 +116,7 @@ export default function FeedScreen() {
   }, [])
 
   const openSheet = useCallback((type: FeedPlaceholderSheetType, item: TokenFeedItem) => {
-    setActiveSheet({ type, item })
+    setActiveActionSheet({ type, item })
   }, [])
 
   const handleActionPress = useCallback((action: FeedCardAction, item: TokenFeedItem) => {
@@ -121,8 +124,12 @@ export default function FeedScreen() {
   }, [openSheet])
 
   const handleTradePress = useCallback((side: FeedTradeSide, item: TokenFeedItem) => {
-    openSheet(side, item)
-  }, [openSheet])
+    setActiveSwapFlow({
+      item,
+      origin: 'feed',
+      side,
+    })
+  }, [])
 
   const handleSearchPress = useCallback(() => {
     triggerSelectionHaptic()
@@ -273,7 +280,12 @@ export default function FeedScreen() {
         </LinearGradient>
       </SafeAreaView>
 
-      <FeedPlaceholderSheet payload={activeSheet} onClose={() => setActiveSheet(null)} />
+      <FeedInteractionOverlays
+        actionPayload={activeActionSheet}
+        onCloseActionSheet={() => setActiveActionSheet(null)}
+        onCloseSwapFlow={() => setActiveSwapFlow(null)}
+        swapPayload={activeSwapFlow}
+      />
     </View>
   )
 }
