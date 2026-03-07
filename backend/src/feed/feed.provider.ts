@@ -675,11 +675,11 @@ function deriveLabels(input: {
 }
 
 function deriveRiskTier(input: { liquidity: number; volume24h: number; priceChange24h: number }): RiskTier {
-  if (input.liquidity < 1_000_000 || input.volume24h < 5_000_000) {
+  if (input.liquidity < 10_000 || input.volume24h < 50_000) {
     return 'block'
   }
 
-  if (Math.abs(input.priceChange24h) >= 20 || input.liquidity < 10_000_000) {
+  if (Math.abs(input.priceChange24h) >= 50 || input.liquidity < 100_000) {
     return 'warn'
   }
 

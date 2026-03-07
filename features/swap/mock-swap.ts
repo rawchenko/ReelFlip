@@ -2,13 +2,15 @@ import type {
   SwapAssetOption,
   SwapCounterAssetSymbol,
   SwapDraft,
-  SwapExecutionPlan,
   SwapFlowPayload,
-  SwapProgressStep,
   SwapQuoteAdapter,
   SwapQuoteAssetView,
   SwapQuotePreview,
+  TradeBuildResponse,
+  TradeStatusResponse,
+  TradeSubmitResponse,
 } from '@/features/swap/types'
+import { isSwapAssetEnabled } from '@/features/swap/swap-config'
 
 const QUOTE_REFRESH_WINDOW_SEC = 12
 const DEFAULT_QUOTE_NOTIONAL_USD = 200
@@ -45,33 +47,6 @@ const COUNTER_ASSET_OPTIONS: Record<SwapCounterAssetSymbol, SwapAssetOption> = {
     symbol: 'USDC',
   },
 }
-
-const PROCESSING_STEPS: SwapProgressStep[] = [
-  {
-    description: 'Best route found via Jupiter',
-    durationMs: 700,
-    id: 'quote_locked',
-    title: 'Quote locked',
-  },
-  {
-    description: 'Transaction signed successfully',
-    durationMs: 850,
-    id: 'wallet_approved',
-    title: 'Wallet approved',
-  },
-  {
-    description: 'Submitting to Solana network...',
-    durationMs: 950,
-    id: 'broadcasting',
-    title: 'Broadcasting',
-  },
-  {
-    description: 'Waiting for network finality',
-    durationMs: 1_100,
-    id: 'confirmation',
-    title: 'Confirmation',
-  },
-]
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -170,7 +145,7 @@ export function createSwapDraft(payload: SwapFlowPayload): SwapDraft {
 }
 
 export function getCounterAssetOptions(): SwapAssetOption[] {
-  return Object.values(COUNTER_ASSET_OPTIONS)
+  return Object.values(COUNTER_ASSET_OPTIONS).filter((option) => isSwapAssetEnabled(option.symbol as SwapCounterAssetSymbol))
 }
 
 export function parseAmountInput(value: string): number {
@@ -260,46 +235,47 @@ export function buildMockQuote(draft: SwapDraft): SwapQuotePreview {
   }
 }
 
-export function buildMockExecutionPlan(draft: SwapDraft, quote: SwapQuotePreview): SwapExecutionPlan {
-  const shouldFailForSlippage = draft.side === 'sell' && draft.slippageBps < 100
-
-  if (shouldFailForSlippage) {
-    return {
-      result: {
-        attemptedPathLabel: `${quote.inputAsset.symbol} -> ${quote.outputAsset.symbol}`,
-        kind: 'failure',
-        message: 'The transaction could not be completed. No funds were deducted.',
-        reason: 'slippage_exceeded',
-        suggestedSlippageBps: 100,
-        suggestion: 'Increase slippage to 1% and retry the swap.',
-        title: 'Slippage exceeded',
-      },
-      steps: PROCESSING_STEPS,
-    }
-  }
-
-  return {
-    result: {
-      kind: 'success',
-      receivedAmount: quote.outputAsset.amount,
-      receivedSymbol: quote.outputAsset.symbol,
-      sentAmount: quote.inputAsset.amount,
-      sentSymbol: quote.inputAsset.symbol,
-      shareText: createSuccessShareText(quote),
-      signature: buildSignature(draft),
-      statusLabel: 'Confirmed',
-    },
-    steps: PROCESSING_STEPS,
-  }
-}
-
 export const mockSwapQuoteAdapter: SwapQuoteAdapter = {
-  async getExecutionPlan({ draft, quote }) {
+  async buildTrade(): Promise<TradeBuildResponse> {
     await new Promise((resolve) => setTimeout(resolve, 240))
-    return buildMockExecutionPlan(draft, quote)
+    return {
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      tradeIntentId: 'ti_mock',
+      unsignedTxBase64: 'bW9jaw==',
+    }
   },
-  async getQuote(draft) {
+  async getQuote({ draft }) {
     await new Promise((resolve) => setTimeout(resolve, 180))
     return buildMockQuote(draft)
   },
+  async getTradeStatus(): Promise<TradeStatusResponse> {
+    await new Promise((resolve) => setTimeout(resolve, 240))
+    return {
+      signature: 'MOCKSIG',
+      status: 'confirmed',
+      tradeId: 'tr_mock',
+    }
+  },
+  async submitTrade(): Promise<TradeSubmitResponse> {
+    await new Promise((resolve) => setTimeout(resolve, 240))
+    return {
+      signature: 'MOCKSIG',
+      status: 'submitted',
+      tradeId: 'tr_mock',
+    }
+  },
+}
+
+export function buildMockSuccessResult(draft: SwapDraft, quote: SwapQuotePreview) {
+  return {
+    kind: 'success' as const,
+    receivedAmount: quote.outputAsset.amount,
+    receivedSymbol: quote.outputAsset.symbol,
+    sentAmount: quote.inputAsset.amount,
+    sentSymbol: quote.inputAsset.symbol,
+    shareText: createSuccessShareText(quote),
+    signature: buildSignature(draft),
+    statusLabel: 'Confirmed',
+    tradeId: 'tr_mock',
+  }
 }

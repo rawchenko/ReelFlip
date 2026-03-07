@@ -43,6 +43,18 @@ import { ChartRepository } from './storage/chart.repository.js'
 import { FeedRepository } from './storage/feed.repository.js'
 import { SupabaseClient } from './storage/supabase.client.js'
 import { TokenRepository } from './storage/token.repository.js'
+import {
+  FeedRiskService,
+  HeliusMintInfoClient,
+  JupiterQuoteClient,
+  QuoteService,
+  SolanaRpcClient,
+  TradeBuildService,
+  TradeStatusService,
+  TradeSubmitService,
+} from './trade/trade.jupiter.js'
+import { registerTradeRoutes } from './trade/trade.route.js'
+import { TradeAssetRegistry } from './trade/trade.assets.js'
 
 const env = loadEnv()
 
@@ -465,6 +477,76 @@ await registerChartRoutes(app, {
   onStreamQueueSample: (pairAddress, interval, queueSize) => {
     metrics.recordChartStreamQueueSize(pairAddress, interval, queueSize)
   },
+})
+
+const tradeAssetRegistry = new TradeAssetRegistry({
+  skrMint: env.tradeSkrMint,
+})
+const tradeMintInfoClient = new HeliusMintInfoClient(
+  {
+    apiKey: env.heliusApiKey,
+    dasUrl: env.heliusDasUrl,
+    timeoutMs: env.heliusTimeoutMs,
+  },
+  cacheStore,
+  app.log,
+)
+const resolvedTradeRpcUrl =
+  env.tradeRpcUrl ??
+  (env.heliusApiKey && env.heliusApiKey.trim().length > 0
+    ? `${env.heliusDasUrl}${env.heliusDasUrl.includes('?') ? '&' : '?'}api-key=${encodeURIComponent(env.heliusApiKey)}`
+    : env.heliusDasUrl)
+if (!env.tradeRpcUrl) {
+  app.log.info('tradeRpcUrl not configured – falling back to Helius DAS URL')
+}
+const jupiterBaseUrl =
+  env.tradeJupiterBaseUrl === 'https://api.jup.ag' && (!env.tradeJupiterApiKey || env.tradeJupiterApiKey.trim().length === 0)
+    ? 'https://lite-api.jup.ag'
+    : env.tradeJupiterBaseUrl
+if (jupiterBaseUrl !== env.tradeJupiterBaseUrl) {
+  app.log.info(`Jupiter base URL resolved to ${jupiterBaseUrl} (no API key configured)`)
+}
+const jupiterQuoteClient = new JupiterQuoteClient(
+  {
+    apiKey: env.tradeJupiterApiKey,
+    baseUrl: jupiterBaseUrl,
+    timeoutMs: env.heliusTimeoutMs,
+  },
+  app.log,
+)
+const quoteService = new QuoteService(
+  tradeAssetRegistry,
+  cacheStore,
+  jupiterQuoteClient,
+  tradeMintInfoClient,
+  new FeedRiskService(feedService, env.feedMaxLimit),
+  {
+    feedLookupLimit: env.feedMaxLimit,
+    quoteTtlSeconds: env.tradeQuoteTtlSeconds,
+  },
+)
+const tradeBuildService = new TradeBuildService(
+  cacheStore,
+  jupiterQuoteClient,
+  {
+    intentTtlSeconds: env.tradeIntentTtlSeconds,
+  },
+)
+const tradeRpcClient = new SolanaRpcClient(resolvedTradeRpcUrl)
+const tradeSubmitService = new TradeSubmitService(cacheStore, tradeRpcClient, {
+  statusTtlSeconds: env.tradeStatusTtlSeconds,
+})
+const tradeStatusService = new TradeStatusService(cacheStore, tradeRpcClient, {
+  confirmTimeoutMs: env.tradeConfirmTimeoutMs,
+  statusTtlSeconds: env.tradeStatusTtlSeconds,
+})
+
+await registerTradeRoutes(app, {
+  quoteService,
+  rateLimitTradesPerMinute: env.rateLimitTradesPerMinute,
+  tradeBuildService,
+  tradeStatusService,
+  tradeSubmitService,
 })
 
 app.get('/health', async () => {

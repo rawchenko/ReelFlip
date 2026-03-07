@@ -46,6 +46,15 @@ export interface BackendEnv {
   heliusApiKey?: string
   heliusDasUrl: string
   heliusTimeoutMs: number
+  tradeRpcUrl?: string
+  tradeConfirmPollIntervalMs: number
+  tradeConfirmTimeoutMs: number
+  tradeIntentTtlSeconds: number
+  tradeQuoteTtlSeconds: number
+  tradeStatusTtlSeconds: number
+  tradeJupiterApiKey?: string
+  tradeJupiterBaseUrl: string
+  tradeSkrMint?: string
   jupiterTagsTtlMs: number
   feedEnrichmentMaxItems: number
   feedEnrichmentConcurrency: number
@@ -79,6 +88,7 @@ export interface BackendEnv {
   rateLimitFeedPerMinute: number
   rateLimitChartHistoryPerMinute: number
   rateLimitChartStreamPerMinute: number
+  rateLimitTradesPerMinute: number
   rateLimitImageProxyPerMinute: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 }
@@ -162,6 +172,12 @@ const DEFAULTS = {
   birdeyeTimeoutMs: 2500,
   heliusDasUrl: 'https://mainnet.helius-rpc.com',
   heliusTimeoutMs: 2500,
+  tradeConfirmPollIntervalMs: 1_000,
+  tradeConfirmTimeoutMs: 45_000,
+  tradeIntentTtlSeconds: 120,
+  tradeQuoteTtlSeconds: 15,
+  tradeStatusTtlSeconds: 86_400,
+  tradeJupiterBaseUrl: 'https://api.jup.ag',
   jupiterTagsTtlMs: 900000,
   feedEnrichmentMaxItems: 20,
   feedEnrichmentConcurrency: 4,
@@ -195,6 +211,7 @@ const DEFAULTS = {
   rateLimitFeedPerMinute: 120,
   rateLimitChartHistoryPerMinute: 240,
   rateLimitChartStreamPerMinute: 30,
+  rateLimitTradesPerMinute: 60,
   rateLimitImageProxyPerMinute: 60,
   logLevel: 'info',
 } as const
@@ -364,6 +381,19 @@ export function loadEnv(): BackendEnv {
     heliusApiKey: process.env.HELIUS_API_KEY,
     heliusDasUrl: process.env.HELIUS_DAS_URL ?? DEFAULTS.heliusDasUrl,
     heliusTimeoutMs: parseIntEnv('HELIUS_TIMEOUT_MS', DEFAULTS.heliusTimeoutMs, 200),
+    tradeRpcUrl: process.env.TRADE_RPC_URL,
+    tradeConfirmPollIntervalMs: parseIntEnv(
+      'TRADE_CONFIRM_POLL_INTERVAL_MS',
+      DEFAULTS.tradeConfirmPollIntervalMs,
+      100,
+    ),
+    tradeConfirmTimeoutMs: parseIntEnv('TRADE_CONFIRM_TIMEOUT_MS', DEFAULTS.tradeConfirmTimeoutMs, 1_000),
+    tradeIntentTtlSeconds: parseIntEnv('TRADE_INTENT_TTL_SECONDS', DEFAULTS.tradeIntentTtlSeconds, 5),
+    tradeQuoteTtlSeconds: parseIntEnv('TRADE_QUOTE_TTL_SECONDS', DEFAULTS.tradeQuoteTtlSeconds, 5),
+    tradeStatusTtlSeconds: parseIntEnv('TRADE_STATUS_TTL_SECONDS', DEFAULTS.tradeStatusTtlSeconds, 30),
+    tradeJupiterApiKey: process.env.JUPITER_API_KEY,
+    tradeJupiterBaseUrl: process.env.JUPITER_API_BASE_URL ?? DEFAULTS.tradeJupiterBaseUrl,
+    tradeSkrMint: process.env.TRADE_SKR_MINT,
     jupiterTagsTtlMs: parseIntEnv('JUPITER_TAGS_TTL_MS', DEFAULTS.jupiterTagsTtlMs, 1),
     feedEnrichmentMaxItems: parseIntEnv('FEED_ENRICHMENT_MAX_ITEMS', DEFAULTS.feedEnrichmentMaxItems, 1),
     feedEnrichmentConcurrency: parseIntEnv('FEED_ENRICHMENT_CONCURRENCY', DEFAULTS.feedEnrichmentConcurrency, 1),
@@ -446,6 +476,11 @@ export function loadEnv(): BackendEnv {
     rateLimitChartStreamPerMinute: parseIntEnv(
       'RATE_LIMIT_CHART_STREAM_PER_MINUTE',
       DEFAULTS.rateLimitChartStreamPerMinute,
+      1,
+    ),
+    rateLimitTradesPerMinute: parseIntEnv(
+      'RATE_LIMIT_TRADES_PER_MINUTE',
+      DEFAULTS.rateLimitTradesPerMinute,
       1,
     ),
     rateLimitImageProxyPerMinute: parseIntEnv(

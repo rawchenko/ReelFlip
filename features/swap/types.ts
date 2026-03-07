@@ -4,6 +4,17 @@ export type SwapFlowOrigin = 'feed'
 export type SwapCounterAssetSymbol = 'USDC' | 'SOL' | 'SKR'
 export type SwapProgressStepId = 'quote_locked' | 'wallet_approved' | 'broadcasting' | 'confirmation'
 export type SwapFailureReason = 'slippage_exceeded' | 'routing_unavailable'
+export type TradeStatus = 'pending' | 'simulating' | 'submitted' | 'confirmed' | 'failed'
+export type TradeFailureCode =
+  | 'BAD_REQUEST'
+  | 'QUOTE_EXPIRED'
+  | 'ROUTE_UNAVAILABLE'
+  | 'RISK_BLOCKED'
+  | 'SIMULATION_FAILED'
+  | 'BROADCAST_FAILED'
+  | 'SIGNATURE_MISMATCH'
+  | 'STATUS_TIMEOUT'
+  | 'NOT_FOUND'
 
 export interface SwapFlowPayload {
   item: TokenFeedItem
@@ -75,10 +86,12 @@ export interface SwapSuccessResult {
   shareText: string
   signature: string
   statusLabel: string
+  tradeId?: string
 }
 
 export interface SwapFailureResult {
   attemptedPathLabel: string
+  failureCode?: TradeFailureCode
   kind: 'failure'
   message: string
   reason: SwapFailureReason
@@ -87,14 +100,40 @@ export interface SwapFailureResult {
   title: string
 }
 
-export type SwapResult = SwapFailureResult | SwapSuccessResult
+export interface SwapPendingResult {
+  kind: 'pending'
+  message: string
+  signature: string
+  statusLabel: string
+  tradeId: string
+}
 
-export interface SwapExecutionPlan {
-  result: SwapResult
-  steps: SwapProgressStep[]
+export type SwapResult = SwapFailureResult | SwapPendingResult | SwapSuccessResult
+
+export interface TradeBuildResponse {
+  expiresAt: string
+  tradeIntentId: string
+  unsignedTxBase64: string
+}
+
+export interface TradeSubmitResponse {
+  signature: string
+  status: TradeStatus
+  tradeId: string
+}
+
+export interface TradeStatusResponse {
+  confirmedAt?: string
+  failureCode?: TradeFailureCode
+  failureMessage?: string
+  signature?: string
+  status: TradeStatus
+  tradeId: string
 }
 
 export interface SwapQuoteAdapter {
-  getExecutionPlan(input: { draft: SwapDraft; quote: SwapQuotePreview }): Promise<SwapExecutionPlan>
-  getQuote(draft: SwapDraft): Promise<SwapQuotePreview>
+  buildTrade(input: { quoteId: string; walletAddress: string }): Promise<TradeBuildResponse>
+  getQuote(input: { draft: SwapDraft; walletAddress: string }): Promise<SwapQuotePreview>
+  getTradeStatus(tradeId: string): Promise<TradeStatusResponse>
+  submitTrade(input: { idempotencyKey: string; signedTxBase64: string; tradeIntentId: string }): Promise<TradeSubmitResponse>
 }

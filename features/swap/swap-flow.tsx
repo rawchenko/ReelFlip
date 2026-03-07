@@ -1,17 +1,19 @@
+import { useAccountTokenBalances } from '@/features/account/use-account-token-balances'
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { FeedPlaceholderSheet, FeedPlaceholderSheetPayload } from '@/features/feed/feed-placeholder-sheet'
+import { apiSwapQuoteAdapter } from '@/features/swap/api/swap-client'
 import {
-  buildMockQuote,
   clampSlippageBps,
   createSwapDraft,
   getCounterAssetOptions,
-  mockSwapQuoteAdapter,
   normalizeAmountInput,
   parseAmountInput,
 } from '@/features/swap/mock-swap'
+import { isSwapAssetEnabled, isSwapChainSupported } from '@/features/swap/swap-config'
 import type {
   SwapDraft,
+  SwapFailureReason,
   SwapFlowPayload,
   SwapProgressStep,
   SwapQuoteAdapter,
@@ -21,13 +23,16 @@ import type {
 import Clipboard from '@react-native-clipboard/clipboard'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
-import { useRouter } from 'expo-router'
+import { getBase64EncodedWireTransaction, getTransactionDecoder } from '@solana/transactions'
+import { useMobileWallet } from '@wallet-ui/react-native-kit'
+import { Base64 } from 'js-base64'
 import { LinearGradient } from 'expo-linear-gradient'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Animated,
   Image,
+  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -39,11 +44,44 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useNetwork } from '@/features/network/use-network'
 
-type SwapStage = 'entry' | 'confirm' | 'processing' | 'success' | 'failure'
+type SwapStage = 'entry' | 'confirm' | 'processing' | 'success' | 'failure' | 'pending'
 
 const ENTRY_PRESET_USD_VALUES = [25, 50, 100, 200]
 const SLIPPAGE_CHIPS = [50, 100, 200]
+const COUNTER_ASSET_MINTS: Record<string, { mint: string; decimals: number }> = {
+  SOL: { mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
+  USDC: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+}
+const STATUS_POLL_INTERVAL_MS = 1_000
+const STATUS_POLL_TIMEOUT_MS = 45_000
+const LIVE_PROCESSING_STEPS: SwapProgressStep[] = [
+  {
+    description: 'Latest quote refreshed from Jupiter',
+    durationMs: 0,
+    id: 'quote_locked',
+    title: 'Quote locked',
+  },
+  {
+    description: 'Approve the transaction in your wallet',
+    durationMs: 0,
+    id: 'wallet_approved',
+    title: 'Wallet approval',
+  },
+  {
+    description: 'Submitting your signed transaction',
+    durationMs: 0,
+    id: 'broadcasting',
+    title: 'Broadcasting',
+  },
+  {
+    description: 'Waiting for on-chain confirmation',
+    durationMs: 0,
+    id: 'confirmation',
+    title: 'Confirmation',
+  },
+]
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync().catch(() => { })
@@ -140,6 +178,10 @@ function getStageTitle(stage: SwapStage, draft: SwapDraft | null): string {
     return 'Processing Swap'
   }
 
+  if (stage === 'pending') {
+    return 'Swap Pending'
+  }
+
   return stage === 'success' ? 'Swap Complete' : 'Swap Failed'
 }
 
@@ -164,6 +206,62 @@ function sanitizeDraftAmount(amountText: string): string {
   }
 
   return `${parts[0]}.${parts.slice(1).join('')}`
+}
+
+function createSubmitIdempotencyKey(): string {
+  return `swap_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function isDraftAmountComplete(draft: SwapDraft): boolean {
+  const amountText = draft.amountText.trim()
+  if (amountText.length === 0) {
+    return false
+  }
+
+  if (amountText === '.' || amountText.endsWith('.')) {
+    return false
+  }
+
+  return draft.amount > 0
+}
+
+function isQuoteExpired(quote: SwapQuotePreview): boolean {
+  return Date.now() >= new Date(quote.expiresAt).getTime()
+}
+
+function createFailureResult(input: {
+  attemptedPathLabel: string
+  message: string
+  failureCode?: string
+  reason?: SwapFailureReason
+  suggestedSlippageBps?: number
+  suggestion?: string
+  title?: string
+}): Extract<SwapResult, { kind: 'failure' }> {
+  return {
+    attemptedPathLabel: input.attemptedPathLabel,
+    ...(input.failureCode ? { failureCode: input.failureCode as Extract<SwapResult, { kind: 'failure' }>['failureCode'] } : {}),
+    kind: 'failure',
+    message: input.message,
+    reason: input.reason ?? 'routing_unavailable',
+    suggestedSlippageBps: input.suggestedSlippageBps ?? 50,
+    suggestion: input.suggestion ?? 'Refresh the quote and try again.',
+    title: input.title ?? 'Swap unavailable',
+  }
+}
+
+function createPendingResult(
+  tradeId: string,
+  signature: string,
+  overrides?: Partial<Pick<Extract<SwapResult, { kind: 'pending' }>, 'message' | 'statusLabel'>>,
+): Extract<SwapResult, { kind: 'pending' }> {
+  return {
+    kind: 'pending',
+    message: overrides?.message ?? 'The transaction was submitted, but final confirmation is taking longer than expected.',
+    signature,
+    statusLabel: overrides?.statusLabel ?? 'Pending confirmation',
+    tradeId,
+  }
 }
 
 function Avatar({
@@ -427,7 +525,9 @@ function SecondaryButton({
 }
 
 function EntryScreen({
+  canContinue,
   draft,
+  footerMessage,
   isQuoteLoading,
   nowMs,
   onAmountTextChange,
@@ -436,8 +536,11 @@ function EntryScreen({
   onPresetSelect,
   onSlippageSelect,
   quote,
+  walletBalance,
 }: {
+  canContinue?: boolean
   draft: SwapDraft
+  footerMessage?: string | null
   isQuoteLoading: boolean
   nowMs: number
   onAmountTextChange: (nextValue: string) => void
@@ -446,11 +549,13 @@ function EntryScreen({
   onPresetSelect: (usdValue: number) => void
   onSlippageSelect: (slippageBps: number) => void
   quote: SwapQuotePreview | null
+  walletBalance?: number | null
 }) {
-  const canContinue = Boolean(quote && draft.amount > 0)
+  const isContinueEnabled = typeof canContinue === 'boolean' ? canContinue : Boolean(quote && draft.amount > 0)
   const canCycleOnPayCard = draft.side === 'buy'
   const inputAsset = quote?.inputAsset
   const outputAsset = quote?.outputAsset
+  const displayBalance = inputAsset?.balance ?? walletBalance ?? 0
   const quoteCountdown =
     quote
       ? Math.max(0, Math.ceil((new Date(quote.expiresAt).getTime() - nowMs) / 1_000))
@@ -477,7 +582,7 @@ function EntryScreen({
         <View style={styles.cardTopRow}>
           <Text style={styles.cardEyebrow}>YOU PAY</Text>
           <Text style={styles.cardBalance}>
-            Balance: {formatAmount(inputAsset?.balance ?? 0, inputAsset?.symbol)} {inputAsset?.symbol ?? draft.counterAssetSymbol}
+            Balance: {formatAmount(displayBalance, inputAsset?.symbol ?? draft.counterAssetSymbol)} {inputAsset?.symbol ?? draft.counterAssetSymbol}
           </Text>
         </View>
         <View style={styles.amountRow}>
@@ -570,13 +675,13 @@ function EntryScreen({
       <View style={styles.entryFooter}>
         <Pressable
           accessibilityRole="button"
-          disabled={!canContinue}
+          disabled={!isContinueEnabled}
           onPress={onContinue}
           style={({ pressed }) => [pressed ? styles.pressableDown : null]}
         >
           <LinearGradient
-            colors={canContinue ? ['#E8DB00', '#FFF433'] : ['#525252', '#3F3F46']}
-            style={[styles.primaryButton, !canContinue ? styles.primaryButtonDisabled : null]}
+            colors={isContinueEnabled ? ['#E8DB00', '#FFF433'] : ['#525252', '#3F3F46']}
+            style={[styles.primaryButton, !isContinueEnabled ? styles.primaryButtonDisabled : null]}
           >
             <Text style={styles.primaryButtonText}>
               {draft.side === 'buy' ? 'Swap' : 'Sell'} {formatAmount(draft.amount, inputAsset?.symbol)} {inputAsset?.symbol ?? ''}{' '}
@@ -585,7 +690,7 @@ function EntryScreen({
           </LinearGradient>
         </Pressable>
         <Text style={styles.footerCaption}>
-          {isQuoteLoading ? 'Refreshing quote...' : `Quote refreshes in ${quoteCountdown}s`}
+          {footerMessage ?? (isQuoteLoading ? 'Refreshing quote...' : `Quote refreshes in ${quoteCountdown}s`)}
         </Text>
       </View>
     </View>
@@ -745,14 +850,14 @@ function SuccessScreen({
   onBackToFeed,
   onCopyShare,
   onCopySignature,
-  onViewActivity,
+  onViewExplorer,
   quote,
   result,
 }: {
   onBackToFeed: () => void
   onCopyShare: () => void
   onCopySignature: () => void
-  onViewActivity: () => void
+  onViewExplorer: () => void
   quote: SwapQuotePreview
   result: Extract<SwapResult, { kind: 'success' }>
 }) {
@@ -786,8 +891,54 @@ function SuccessScreen({
       <View style={styles.resultActions}>
         <SecondaryButton icon="share-social-outline" label="Share Trade" onPress={onCopyShare} />
         <PrimaryButton label="Back to Feed" onPress={onBackToFeed} />
-        <Pressable accessibilityRole="button" onPress={onViewActivity} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
-          <Text style={styles.textAction}>View in Activity</Text>
+        <Pressable accessibilityRole="button" onPress={onViewExplorer} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
+          <Text style={styles.textAction}>View on Explorer</Text>
+        </Pressable>
+      </View>
+    </View>
+  )
+}
+
+function PendingScreen({
+  onBackToFeed,
+  onCopySignature,
+  onRefreshStatus,
+  onViewExplorer,
+  result,
+}: {
+  onBackToFeed: () => void
+  onCopySignature: () => void
+  onRefreshStatus: () => void
+  onViewExplorer: () => void
+  result: Extract<SwapResult, { kind: 'pending' }>
+}) {
+  return (
+    <View style={styles.resultStageBody}>
+      <View style={styles.resultHero}>
+        <View style={styles.resultHeroIconSuccess}>
+          <Ionicons color="#000000" name="time-outline" size={40} />
+        </View>
+        <Text style={styles.resultTitle}>Awaiting Confirmation</Text>
+        <Text style={styles.resultSubtitle}>{result.message}</Text>
+      </View>
+
+      <View style={styles.metricsCard}>
+        <SummaryRow label="Status" value={result.statusLabel} valueTone="accent" />
+        <SummaryRow label="Trade ID" value={result.tradeId} />
+        <Pressable accessibilityRole="button" onPress={onCopySignature} style={({ pressed }) => [styles.summaryRow, pressed ? styles.pressableDown : null]}>
+          <Text style={styles.summaryLabel}>TX Hash</Text>
+          <View style={styles.txHashRow}>
+            <Text style={styles.summaryValue}>{result.signature}</Text>
+            <Ionicons color="rgba(255,255,255,0.66)" name="copy-outline" size={14} />
+          </View>
+        </Pressable>
+      </View>
+
+      <View style={styles.resultActions}>
+        <SecondaryButton icon="refresh" label="Refresh Status" onPress={onRefreshStatus} />
+        <PrimaryButton label="Back to Feed" onPress={onBackToFeed} />
+        <Pressable accessibilityRole="button" onPress={onViewExplorer} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
+          <Text style={styles.textAction}>View on Explorer</Text>
         </Pressable>
       </View>
     </View>
@@ -825,7 +976,9 @@ function FailureScreen({
 
       <View style={styles.resultActions}>
         <SecondaryButton icon="refresh" label="Try Again" onPress={onRetry} tone="danger" />
-        <SecondaryButton icon="options-outline" label="Adjust Slippage & Retry" onPress={onAdjustSlippageAndRetry} />
+        {result.reason === 'slippage_exceeded' ? (
+          <SecondaryButton icon="options-outline" label="Adjust Slippage" onPress={onAdjustSlippageAndRetry} />
+        ) : null}
         <Pressable accessibilityRole="button" onPress={onBackToFeed} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
           <Text style={styles.textAction}>Back to Feed</Text>
         </Pressable>
@@ -841,13 +994,16 @@ export interface SwapFlowModalProps {
 }
 
 export function SwapFlowModal({
-  adapter = mockSwapQuoteAdapter,
+  adapter = apiSwapQuoteAdapter,
   onClose,
   payload,
 }: SwapFlowModalProps) {
-  const router = useRouter()
+  const { account, chain, signTransaction } = useMobileWallet()
+  const { getExplorerUrl } = useNetwork()
+  const { data: tokenBalances } = useAccountTokenBalances()
   const flowIdRef = useRef(0)
   const requestIdRef = useRef(0)
+  const submitIdempotencyKeyRef = useRef(createSubmitIdempotencyKey())
   const [draft, setDraft] = useState<SwapDraft | null>(null)
   const [quote, setQuote] = useState<SwapQuotePreview | null>(null)
   const [stage, setStage] = useState<SwapStage>('entry')
@@ -857,6 +1013,34 @@ export function SwapFlowModal({
   const [executionSteps, setExecutionSteps] = useState<SwapProgressStep[]>([])
   const [activeProgressIndex, setActiveProgressIndex] = useState(0)
   const [nowMs, setNowMs] = useState(Date.now())
+  const [quoteErrorMessage, setQuoteErrorMessage] = useState<string | null>(null)
+  const stageRef = useRef<SwapStage>(stage)
+
+  useEffect(() => {
+    stageRef.current = stage
+  }, [stage])
+
+  const walletAddress = useMemo(() => account?.address.toString() ?? null, [account])
+  const chainSupported = isSwapChainSupported(chain)
+  const activeAssetEnabled = draft ? isSwapAssetEnabled(draft.counterAssetSymbol) : true
+
+  const inputWalletBalance = useMemo(() => {
+    if (!tokenBalances || !draft) {
+      return null
+    }
+    const inputSymbol = draft.side === 'buy' ? draft.counterAssetSymbol : draft.token.symbol
+    const assetInfo = COUNTER_ASSET_MINTS[inputSymbol]
+    const mint = draft.side === 'buy' ? assetInfo?.mint : draft.token.mint
+    if (!mint) {
+      return null
+    }
+    const rawAmount = tokenBalances[mint]
+    if (rawAmount == null || rawAmount <= 0n) {
+      return 0
+    }
+    const decimals = assetInfo?.decimals ?? 6
+    return Number(rawAmount) / 10 ** decimals
+  }, [tokenBalances, draft])
 
   useEffect(() => {
     if (!payload) {
@@ -867,19 +1051,23 @@ export function SwapFlowModal({
       setExecutionResult(null)
       setExecutionSteps([])
       setActiveProgressIndex(0)
+      setQuoteErrorMessage(null)
       setStage('entry')
       setIsQuoteLoading(false)
       setIsConfirming(false)
+      submitIdempotencyKeyRef.current = createSubmitIdempotencyKey()
       return
     }
 
     flowIdRef.current += 1
+    submitIdempotencyKeyRef.current = createSubmitIdempotencyKey()
     const nextDraft = createSwapDraft(payload)
     setDraft(nextDraft)
-    setQuote(buildMockQuote(nextDraft))
+    setQuote(null)
     setExecutionResult(null)
     setExecutionSteps([])
     setActiveProgressIndex(0)
+    setQuoteErrorMessage(null)
     setStage('entry')
     setIsConfirming(false)
   }, [payload])
@@ -899,25 +1087,71 @@ export function SwapFlowModal({
 
   const requestQuote = useCallback(
     async (nextDraft: SwapDraft): Promise<SwapQuotePreview | null> => {
+      if (!walletAddress) {
+        setQuote(null)
+        setQuoteErrorMessage('Connect your wallet to fetch a live swap quote.')
+        if (stageRef.current === 'confirm') {
+          setStage('entry')
+        }
+        return null
+      }
+      if (!chainSupported) {
+        setQuote(null)
+        setQuoteErrorMessage('Live swaps are only available when your wallet is on Mainnet.')
+        if (stageRef.current === 'confirm') {
+          setStage('entry')
+        }
+        return null
+      }
+      if (!isSwapAssetEnabled(nextDraft.counterAssetSymbol)) {
+        setQuote(null)
+        setQuoteErrorMessage(`${nextDraft.counterAssetSymbol} is not configured for live swaps yet.`)
+        if (stageRef.current === 'confirm') {
+          setStage('entry')
+        }
+        return null
+      }
+      if (!isDraftAmountComplete(nextDraft)) {
+        setQuote(null)
+        setQuoteErrorMessage(null)
+        if (stageRef.current === 'confirm') {
+          setStage('entry')
+        }
+        return null
+      }
+
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       setIsQuoteLoading(true)
 
       try {
-        const nextQuote = await adapter.getQuote(nextDraft)
+        const nextQuote = await adapter.getQuote({
+          draft: nextDraft,
+          walletAddress,
+        })
         if (requestIdRef.current !== requestId) {
           return null
         }
 
         setQuote(nextQuote)
+        setQuoteErrorMessage(null)
         return nextQuote
+      } catch (error) {
+        if (requestIdRef.current === requestId) {
+          setQuote(null)
+          setQuoteErrorMessage(error instanceof Error ? error.message : 'Unable to fetch a live swap quote.')
+          if (stageRef.current === 'confirm') {
+            setStage('entry')
+          }
+        }
+        return null
       } finally {
         if (requestIdRef.current === requestId) {
           setIsQuoteLoading(false)
         }
       }
     },
-    [adapter],
+    [adapter, chainSupported, walletAddress],
   )
 
   useEffect(() => {
@@ -942,34 +1176,6 @@ export function SwapFlowModal({
 
     return () => clearInterval(timer)
   }, [draft, isQuoteLoading, quote, requestQuote, stage])
-
-  useEffect(() => {
-    if (stage !== 'processing' || executionSteps.length === 0) {
-      return
-    }
-
-    setActiveProgressIndex(0)
-    const timers = executionSteps.map((step, index) =>
-      setTimeout(() => {
-        setActiveProgressIndex(index + 1)
-        triggerSelectionHaptic()
-      }, executionSteps.slice(0, index + 1).reduce((total, current) => total + current.durationMs, 0)),
-    )
-
-    const totalDuration = executionSteps.reduce((total, current) => total + current.durationMs, 0)
-    const finalizer = setTimeout(() => {
-      if (!executionResult) {
-        return
-      }
-
-      setStage(executionResult.kind === 'success' ? 'success' : 'failure')
-    }, totalDuration + 120)
-
-    return () => {
-      timers.forEach((timer) => clearTimeout(timer))
-      clearTimeout(finalizer)
-    }
-  }, [executionResult, executionSteps, stage])
 
   const updateDraft = useCallback((updater: (current: SwapDraft) => SwapDraft) => {
     setDraft((current) => (current ? updater(current) : current))
@@ -1029,67 +1235,239 @@ export function SwapFlowModal({
   )
 
   const runExecution = useCallback(
-    async (nextDraft: SwapDraft) => {
-      const flowId = flowIdRef.current
-      setIsConfirming(true)
-      const nextQuote = await requestQuote(nextDraft)
-      if (!nextQuote || flowIdRef.current !== flowId) {
-        setIsConfirming(false)
+    async (nextDraft: SwapDraft, reviewedQuote: SwapQuotePreview | null) => {
+      if (!walletAddress) {
+        setExecutionResult(
+          createFailureResult({
+            attemptedPathLabel: `${nextDraft.counterAssetSymbol} -> ${nextDraft.token.symbol}`,
+            message: 'Connect your wallet before confirming the swap.',
+            suggestion: 'Reconnect your wallet and try again.',
+            title: 'Wallet required',
+          }),
+        )
+        setStage('failure')
+        return
+      }
+      if (!chainSupported) {
+        setExecutionResult(
+          createFailureResult({
+            attemptedPathLabel: `${nextDraft.counterAssetSymbol} -> ${nextDraft.token.symbol}`,
+            message: 'Live swaps are only available when your wallet is on Mainnet.',
+            suggestion: 'Switch your wallet cluster to Mainnet and try again.',
+            title: 'Unsupported network',
+          }),
+        )
+        setStage('failure')
+        return
+      }
+      if (!activeAssetEnabled) {
+        setExecutionResult(
+          createFailureResult({
+            attemptedPathLabel: `${nextDraft.counterAssetSymbol} -> ${nextDraft.token.symbol}`,
+            message: `${nextDraft.counterAssetSymbol} is not configured for live swaps yet.`,
+            suggestion: 'Choose a different pay asset and try again.',
+            title: 'Asset unavailable',
+          }),
+        )
+        setStage('failure')
+        return
+      }
+      if (!reviewedQuote || isQuoteExpired(reviewedQuote)) {
+        setExecutionResult(null)
+        setStage('entry')
         return
       }
 
-      const executionDraft = {
-        ...nextDraft,
-        attemptCount: nextDraft.attemptCount + 1,
-      }
-
-      setDraft(executionDraft)
+      const flowId = flowIdRef.current
+      let didStartSubmit = false
+      let submittedTrade: { signature: string; tradeId: string } | null = null
+      setIsConfirming(true)
       setStage('processing')
-      setExecutionSteps([])
+      setExecutionSteps(LIVE_PROCESSING_STEPS)
       setExecutionResult(null)
       setActiveProgressIndex(0)
+      setQuoteErrorMessage(null)
 
-      const executionPlan = await adapter.getExecutionPlan({
-        draft: executionDraft,
-        quote: nextQuote,
-      })
+      try {
+        const executionDraft = {
+          ...nextDraft,
+          attemptCount: nextDraft.attemptCount + 1,
+        }
+        setDraft(executionDraft)
+        setActiveProgressIndex(1)
 
-      if (flowIdRef.current !== flowId) {
-        setIsConfirming(false)
-        return
+        const buildResponse = await adapter.buildTrade({
+          quoteId: reviewedQuote.quoteId,
+          walletAddress,
+        })
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
+        const unsignedTransaction = getTransactionDecoder().decode(Base64.toUint8Array(buildResponse.unsignedTxBase64))
+        const signedTransaction = await signTransaction(unsignedTransaction)
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
+        setActiveProgressIndex(2)
+        didStartSubmit = true
+        const submitResponse = await adapter.submitTrade({
+          idempotencyKey: submitIdempotencyKeyRef.current,
+          signedTxBase64: getBase64EncodedWireTransaction(signedTransaction),
+          tradeIntentId: buildResponse.tradeIntentId,
+        })
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
+        submittedTrade = {
+          signature: submitResponse.signature,
+          tradeId: submitResponse.tradeId,
+        }
+        setActiveProgressIndex(3)
+        const startedAt = Date.now()
+        let latestStatus = await adapter.getTradeStatus(submitResponse.tradeId)
+        while (
+          flowIdRef.current === flowId &&
+          latestStatus.status !== 'confirmed' &&
+          latestStatus.status !== 'failed' &&
+          Date.now() - startedAt < STATUS_POLL_TIMEOUT_MS
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_INTERVAL_MS))
+          latestStatus = await adapter.getTradeStatus(submitResponse.tradeId)
+        }
+
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
+        if (latestStatus.status === 'confirmed') {
+          setExecutionResult({
+            kind: 'success',
+            receivedAmount: reviewedQuote.outputAsset.amount,
+            receivedSymbol: reviewedQuote.outputAsset.symbol,
+            sentAmount: reviewedQuote.inputAsset.amount,
+            sentSymbol: reviewedQuote.inputAsset.symbol,
+            shareText: `Swapped ${formatAmount(reviewedQuote.inputAsset.amount, reviewedQuote.inputAsset.symbol)} ${reviewedQuote.inputAsset.symbol} for ${formatAmount(reviewedQuote.outputAsset.amount, reviewedQuote.outputAsset.symbol)} ${reviewedQuote.outputAsset.symbol} on ReelFlip.`,
+            signature: latestStatus.signature ?? submitResponse.signature,
+            statusLabel: 'Confirmed',
+            tradeId: submitResponse.tradeId,
+          })
+          setStage('success')
+          return
+        }
+
+        if (latestStatus.status === 'failed') {
+          setExecutionResult(
+            createFailureResult({
+              attemptedPathLabel: `${reviewedQuote.inputAsset.symbol} -> ${reviewedQuote.outputAsset.symbol}`,
+              ...(latestStatus.failureCode ? { failureCode: latestStatus.failureCode } : {}),
+              message: latestStatus.failureMessage ?? 'The transaction could not be completed. No funds were deducted.',
+              reason: latestStatus.failureCode === 'SIMULATION_FAILED' ? 'slippage_exceeded' : 'routing_unavailable',
+              suggestion:
+                latestStatus.failureCode === 'SIMULATION_FAILED'
+                  ? 'Increase slippage tolerance and try again.'
+                  : latestStatus.failureCode === 'QUOTE_EXPIRED'
+                    ? 'Refresh the quote and retry the swap.'
+                    : 'Wait a moment, then retry the swap.',
+              title: latestStatus.failureCode === 'QUOTE_EXPIRED' ? 'Quote expired' : 'Swap failed',
+            }),
+          )
+          setStage('failure')
+          return
+        }
+
+        setExecutionResult(createPendingResult(submitResponse.tradeId, latestStatus.signature ?? submitResponse.signature))
+        setStage('pending')
+      } catch (error) {
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
+        if (submittedTrade) {
+          setExecutionResult(
+            createPendingResult(submittedTrade.tradeId, submittedTrade.signature, {
+              message: 'The transaction was submitted, but we could not refresh its status right now.',
+              statusLabel: 'Status refresh unavailable',
+            }),
+          )
+          setStage('pending')
+          return
+        }
+        if (didStartSubmit) {
+          setExecutionResult(
+            createFailureResult({
+              attemptedPathLabel: `${reviewedQuote.inputAsset.symbol} -> ${reviewedQuote.outputAsset.symbol}`,
+              failureCode: 'STATUS_TIMEOUT',
+              message: 'We could not confirm whether the submit request completed. Retry will reuse the same request safely.',
+              suggestion: 'Retry to resume this submission, or wait a moment and try again.',
+              title: 'Submission status unknown',
+            }),
+          )
+          setStage('failure')
+          return
+        }
+
+        const message = error instanceof Error ? error.message : 'Swap execution failed.'
+        const lowered = message.toLowerCase()
+        const title =
+          lowered.includes('reject') || lowered.includes('declin') || lowered.includes('cancel')
+            ? 'Wallet approval rejected'
+            : lowered.includes('quote')
+              ? 'Quote expired'
+              : 'Swap failed'
+        setExecutionResult(
+          createFailureResult({
+            attemptedPathLabel: `${nextDraft.counterAssetSymbol} -> ${nextDraft.token.symbol}`,
+            message,
+            suggestion:
+              title === 'Quote expired'
+                ? 'Refresh the quote and retry.'
+                : title === 'Wallet approval rejected'
+                  ? 'Approve the transaction in your wallet to continue.'
+                  : 'Try again in a few seconds.',
+            title,
+          }),
+        )
+        setStage('failure')
+      } finally {
+        if (flowIdRef.current === flowId) {
+          setIsConfirming(false)
+        }
       }
-
-      setExecutionSteps(executionPlan.steps)
-      setExecutionResult(executionPlan.result)
-      setIsConfirming(false)
     },
-    [adapter, requestQuote],
+    [activeAssetEnabled, adapter, chainSupported, signTransaction, walletAddress],
   )
 
   const handleContinueToConfirm = useCallback(() => {
-    if (!quote || !draft || draft.amount <= 0) {
+    if (!quote || !draft || draft.amount <= 0 || isQuoteLoading || quoteErrorMessage) {
       return
     }
 
     setStage('confirm')
     triggerImpactHaptic()
-  }, [draft, quote])
+  }, [draft, isQuoteLoading, quote, quoteErrorMessage])
 
   const handleConfirm = useCallback(() => {
-    if (!draft) {
+    if (!draft || !quote) {
       return
     }
 
-    void runExecution(draft)
-  }, [draft, runExecution])
+    void runExecution(draft, quote)
+  }, [draft, quote, runExecution])
 
   const handleRetry = useCallback(() => {
-    if (!draft) {
+    if (!draft || !quote) {
       return
     }
 
-    void runExecution(draft)
-  }, [draft, runExecution])
+    if (executionResult?.kind === 'failure' && executionResult.failureCode !== 'STATUS_TIMEOUT') {
+      submitIdempotencyKeyRef.current = createSubmitIdempotencyKey()
+    }
+
+    void runExecution(draft, quote)
+  }, [draft, executionResult, quote, runExecution])
 
   const handleAdjustSlippageAndRetry = useCallback(() => {
     if (!draft) {
@@ -1100,9 +1478,11 @@ export function SwapFlowModal({
       ...draft,
       slippageBps: Math.max(draft.slippageBps, 100),
     }
+    submitIdempotencyKeyRef.current = createSubmitIdempotencyKey()
     setDraft(nextDraft)
-    void runExecution(nextDraft)
-  }, [draft, runExecution])
+    setExecutionResult(null)
+    setStage('entry')
+  }, [draft])
 
   const handleBackToEntry = useCallback(() => {
     setStage('entry')
@@ -1113,10 +1493,17 @@ export function SwapFlowModal({
     onClose()
   }, [onClose])
 
-  const handleViewActivity = useCallback(() => {
-    onClose()
-    router.push('/(tabs)/activity')
-  }, [onClose, router])
+  const handleViewExplorer = useCallback(async () => {
+    const signature =
+      executionResult?.kind === 'success' || executionResult?.kind === 'pending'
+        ? executionResult.signature
+        : null
+    if (!signature) {
+      return
+    }
+
+    await Linking.openURL(getExplorerUrl(`/tx/${signature}`))
+  }, [executionResult, getExplorerUrl])
 
   const handleCopyShare = useCallback(() => {
     if (executionResult?.kind !== 'success') {
@@ -1128,7 +1515,7 @@ export function SwapFlowModal({
   }, [executionResult])
 
   const handleCopySignature = useCallback(() => {
-    if (executionResult?.kind !== 'success') {
+    if (executionResult?.kind !== 'success' && executionResult?.kind !== 'pending') {
       return
     }
 
@@ -1136,12 +1523,80 @@ export function SwapFlowModal({
     triggerSelectionHaptic()
   }, [executionResult])
 
+  const handleRefreshPending = useCallback(async () => {
+    if (executionResult?.kind !== 'pending') {
+      return
+    }
+
+    try {
+      setIsConfirming(true)
+      const status = await adapter.getTradeStatus(executionResult.tradeId)
+      if (status.status === 'confirmed' && quote) {
+        setExecutionResult({
+          kind: 'success',
+          receivedAmount: quote.outputAsset.amount,
+          receivedSymbol: quote.outputAsset.symbol,
+          sentAmount: quote.inputAsset.amount,
+          sentSymbol: quote.inputAsset.symbol,
+          shareText: `Swapped ${formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)} ${quote.inputAsset.symbol} for ${formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)} ${quote.outputAsset.symbol} on ReelFlip.`,
+          signature: status.signature ?? executionResult.signature,
+          statusLabel: 'Confirmed',
+          tradeId: status.tradeId,
+        })
+        setStage('success')
+        return
+      }
+      if (status.status === 'failed') {
+        setExecutionResult(
+          createFailureResult({
+            attemptedPathLabel: quote ? `${quote.inputAsset.symbol} -> ${quote.outputAsset.symbol}` : executionResult.tradeId,
+            ...(status.failureCode ? { failureCode: status.failureCode } : {}),
+            message: status.failureMessage ?? 'The transaction failed on-chain.',
+            suggestion: 'Retry the swap if the transaction did not settle.',
+            title: 'Swap failed',
+          }),
+        )
+        setStage('failure')
+        return
+      }
+      setExecutionResult(createPendingResult(status.tradeId, status.signature ?? executionResult.signature))
+      setStage('pending')
+    } catch (error) {
+      setExecutionResult(
+        createPendingResult(executionResult.tradeId, executionResult.signature, {
+          message: error instanceof Error ? error.message : 'Unable to refresh trade status right now. Try again shortly.',
+          statusLabel: 'Refresh failed',
+        }),
+      )
+      setStage('pending')
+    } finally {
+      setIsConfirming(false)
+    }
+  }, [adapter, executionResult, quote])
+
   if (!payload || !draft) {
     return null
   }
 
   const stageTitle = getStageTitle(stage, draft)
-  const shouldShowClose = stage === 'entry' || stage === 'confirm' || stage === 'success' || stage === 'failure'
+  const shouldShowClose =
+    stage === 'entry' || stage === 'confirm' || stage === 'success' || stage === 'failure' || stage === 'pending'
+  const entryFooterMessage =
+    quoteErrorMessage ??
+    (!walletAddress
+      ? 'Connect your wallet to fetch a live quote.'
+      : !chainSupported
+        ? 'Switch your wallet to Mainnet to enable live swaps.'
+        : !activeAssetEnabled
+          ? `${draft.counterAssetSymbol} is not configured for live swaps yet.`
+          : null)
+  const canContinue =
+    Boolean(quote && draft.amount > 0) &&
+    Boolean(walletAddress) &&
+    chainSupported &&
+    activeAssetEnabled &&
+    !quoteErrorMessage &&
+    !isQuoteLoading
 
   return (
     <Modal
@@ -1173,6 +1628,8 @@ export function SwapFlowModal({
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <EntryScreen
               draft={draft}
+              canContinue={canContinue}
+              footerMessage={entryFooterMessage}
               isQuoteLoading={isQuoteLoading}
               nowMs={nowMs}
               onAmountTextChange={handleAmountTextChange}
@@ -1181,6 +1638,7 @@ export function SwapFlowModal({
               onPresetSelect={handlePresetSelect}
               onSlippageSelect={handleSlippageSelect}
               quote={quote}
+              walletBalance={inputWalletBalance}
             />
           </ScrollView>
         ) : null}
@@ -1204,8 +1662,18 @@ export function SwapFlowModal({
             onBackToFeed={handleBackToFeed}
             onCopyShare={handleCopyShare}
             onCopySignature={handleCopySignature}
-            onViewActivity={handleViewActivity}
+            onViewExplorer={() => void handleViewExplorer()}
             quote={quote}
+            result={executionResult}
+          />
+        ) : null}
+
+        {stage === 'pending' && executionResult?.kind === 'pending' ? (
+          <PendingScreen
+            onBackToFeed={handleBackToFeed}
+            onCopySignature={handleCopySignature}
+            onRefreshStatus={() => void handleRefreshPending()}
+            onViewExplorer={() => void handleViewExplorer()}
             result={executionResult}
           />
         ) : null}
