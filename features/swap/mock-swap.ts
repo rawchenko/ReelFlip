@@ -22,6 +22,12 @@ const DEFAULT_NETWORK_FEE_SOL = 0.003
 const TOKEN_BALANCE_MIN = 4_000
 const TOKEN_BALANCE_RANGE = 14_000
 
+const COUNTER_ASSET_IMAGE_URIS: Record<SwapCounterAssetSymbol, string> = {
+  SKR: 'https://raw.githubusercontent.com/nicksenger/solana-token-list/master/assets/mainnet/skrkVDTozAeRMvEEGacVoaTVBAv3v5VpbJ5MFaBZe5u/logo.png',
+  SOL: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+  USDC: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+}
+
 const COUNTER_ASSET_OPTIONS: Record<SwapCounterAssetSymbol, SwapAssetOption> = {
   SKR: {
     badgeColor: semanticColors.assetBadge.skr,
@@ -91,6 +97,7 @@ function getTokenAssetView(
     badgeColor: semanticColors.assetBadge.default,
     badgeText: draft.token.symbol.slice(0, 1).toUpperCase(),
     balance: getMockTokenBalance(draft.token.symbol, draft.token.mint, draft.token.priceUsd),
+    imageUri: draft.token.imageUri ?? `https://tokens.jup.ag/token/${draft.token.mint}/icon`,
     name: draft.token.name,
     priceUsd: normalizeTokenPrice(draft.token.priceUsd),
     symbol: draft.token.symbol,
@@ -197,6 +204,7 @@ export function buildMockQuote(draft: SwapDraft): SwapQuotePreview {
         badgeColor: counterAsset.badgeColor,
         badgeText: counterAsset.badgeText,
         balance: counterAsset.balance,
+        imageUri: COUNTER_ASSET_IMAGE_URIS[draft.counterAssetSymbol],
         name: counterAsset.name,
         priceUsd: counterAsset.priceUsd,
         symbol: counterAsset.symbol,
@@ -212,6 +220,7 @@ export function buildMockQuote(draft: SwapDraft): SwapQuotePreview {
         badgeColor: counterAsset.badgeColor,
         badgeText: counterAsset.badgeText,
         balance: counterAsset.balance,
+        imageUri: COUNTER_ASSET_IMAGE_URIS[draft.counterAssetSymbol],
         name: counterAsset.name,
         priceUsd: counterAsset.priceUsd,
         symbol: counterAsset.symbol,

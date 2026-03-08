@@ -6,6 +6,11 @@ import {
   Inter_900Black,
   useFonts,
 } from '@expo-google-fonts/inter'
+import {
+  SpaceGrotesk_500Medium,
+  SpaceGrotesk_600SemiBold,
+  SpaceGrotesk_700Bold,
+} from '@expo-google-fonts/space-grotesk'
 import { Stack } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
@@ -13,6 +18,7 @@ import { useEffect } from 'react'
 import { Text } from 'react-native'
 import 'react-native-reanimated'
 import { AppProviders } from '@/components/app-providers'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 
 type TextWithDefaultProps = {
@@ -47,6 +53,9 @@ export default function RootLayout() {
     Inter_700Bold,
     Inter_800ExtraBold,
     Inter_900Black,
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
   })
 
   useEffect(() => {
@@ -78,7 +87,7 @@ export default function RootLayout() {
         <Stack.Screen name="tx-details" options={{ headerShown: false }} />
         <Stack.Screen name="debug" options={{ title: 'Debug' }} />
       </Stack>
-      <StatusBar style="light" />
+      <StatusBar style="light" backgroundColor={semanticColors.app.background} translucent={false} />
     </AppProviders>
   )
 }

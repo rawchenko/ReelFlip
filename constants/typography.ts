@@ -5,3 +5,9 @@ export const interFontFamily = {
   extraBold: 'Inter_800ExtraBold',
   black: 'Inter_900Black',
 } as const
+
+export const spaceGroteskFamily = {
+  medium: 'SpaceGrotesk_500Medium',
+  semiBold: 'SpaceGrotesk_600SemiBold',
+  bold: 'SpaceGrotesk_700Bold',
+} as const

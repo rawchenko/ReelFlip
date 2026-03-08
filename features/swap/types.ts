@@ -47,6 +47,7 @@ export interface SwapQuoteAssetView {
   badgeColor: string
   badgeText: string
   balance: number
+  imageUri?: string
   name: string
   priceUsd: number
   symbol: string
