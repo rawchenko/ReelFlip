@@ -2,6 +2,8 @@ import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { activityDesignSpec } from '@/features/activity/activity-design-spec'
 import type { ActivityEvent, ActivityLeg } from '@/features/activity/types'
+import { legInitial } from '@/features/activity/utils'
+import { useNetwork } from '@/features/network/use-network'
 import { Ionicons } from '@expo/vector-icons'
 import Clipboard from '@react-native-clipboard/clipboard'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -26,14 +28,6 @@ function formatTimestamp(iso: string): string {
     month: 'short',
     year: 'numeric',
   })
-}
-
-function legInitial(leg: ActivityLeg): string {
-  if (leg.symbol.length === 0) {
-    return '?'
-  }
-
-  return leg.symbol.slice(0, 1).toUpperCase()
 }
 
 function LegBadge({ leg, size = 40 }: { leg: ActivityLeg; size?: number }) {
@@ -66,6 +60,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export default function TxDetailsScreen() {
   const router = useRouter()
+  const { getExplorerUrl } = useNetwork()
   const params = useLocalSearchParams<{ event: string }>()
   const event: ActivityEvent | null = useMemo(() => {
     if (!params.event) {
@@ -92,7 +87,7 @@ export default function TxDetailsScreen() {
       return
     }
 
-    void Linking.openURL(`https://solscan.io/tx/${event.txSignature}`)
+    void Linking.openURL(getExplorerUrl(`/tx/${event.txSignature}`))
   }, [event])
 
   if (!event) {
@@ -228,7 +223,7 @@ export default function TxDetailsScreen() {
 
         {event.txSignature ? (
           <Pressable
-            accessibilityLabel="View on Solscan explorer"
+            accessibilityLabel="View on block explorer"
             accessibilityRole="button"
             onPress={handleViewExplorer}
             style={({ pressed }) => [styles.explorerButton, pressed ? styles.pressed : null]}
