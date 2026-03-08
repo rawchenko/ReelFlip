@@ -30,9 +30,10 @@ function ActivityBadge({ leg, shifted = false }: { leg: ActivityLeg; shifted?: b
 
 export function ActivityRow({ item }: ActivityRowProps) {
   const isTransfer = item.type === 'transfer'
+  const isFailed = item.status === 'failed'
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isFailed ? styles.containerFailed : null]}>
       <View style={styles.badgesWrap}>
         {isTransfer ? (
           <ActivityBadge leg={item.receivedLeg} />
@@ -45,23 +46,29 @@ export function ActivityRow({ item }: ActivityRowProps) {
       </View>
 
       <View style={styles.mainCopy}>
-        <Text style={styles.primaryText} numberOfLines={1}>
+        <Text style={[styles.primaryText, isFailed ? styles.failedText : null]} numberOfLines={1}>
           {item.primaryText}
         </Text>
-        <Text style={styles.secondaryText} numberOfLines={1}>
-          {item.secondaryText}
+        <Text style={[styles.secondaryText, isFailed ? styles.failedText : null]} numberOfLines={1}>
+          {isFailed ? 'Failed' : item.secondaryText}
         </Text>
       </View>
 
       <View style={styles.amountsWrap}>
         <Text
-          style={item.receivedLeg.direction === 'receive' ? styles.receivedAmount : styles.sentAmount}
+          style={
+            isFailed
+              ? styles.failedText
+              : item.receivedLeg.direction === 'receive'
+                ? styles.receivedAmount
+                : styles.sentAmount
+          }
           numberOfLines={1}
         >
           {item.receivedLeg.amountDisplay}
         </Text>
         {!isTransfer && item.sentLeg && (
-          <Text style={styles.sentAmount} numberOfLines={1}>
+          <Text style={isFailed ? styles.failedText : styles.sentAmount} numberOfLines={1}>
             {item.sentLeg.amountDisplay}
           </Text>
         )}
@@ -112,6 +119,9 @@ const styles = StyleSheet.create({
     height: activityDesignSpec.row.height,
     paddingHorizontal: activityDesignSpec.row.horizontalPadding,
   },
+  containerFailed: {
+    opacity: 0.6,
+  },
   mainCopy: {
     flex: 1,
     justifyContent: 'center',
@@ -142,5 +152,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'right',
+  },
+  failedText: {
+    color: activityDesignSpec.colors.failedText,
   },
 })

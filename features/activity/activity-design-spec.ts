@@ -8,6 +8,7 @@ export const activityDesignSpec = {
     primaryText: '#FFFFFF',
     secondaryText: 'rgba(255, 255, 255, 0.60)',
     receivedAmount: '#4ADE80',
+    failedText: 'rgba(255, 255, 255, 0.35)',
   },
   header: {
     horizontalPadding: 20,

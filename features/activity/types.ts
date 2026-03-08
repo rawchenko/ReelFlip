@@ -9,11 +9,14 @@ export interface ActivityLeg {
   iconUri?: string
 }
 
+export type ActivityEventStatus = 'confirmed' | 'failed'
+
 export interface ActivityEvent {
   id: string
   timestampIso: string
   source: ActivityEventSource
   type: ActivityEventType
+  status: ActivityEventStatus
   primaryText: string
   secondaryText: string
   receivedLeg: ActivityLeg

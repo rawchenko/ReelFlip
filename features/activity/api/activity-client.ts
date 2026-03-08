@@ -118,16 +118,18 @@ function mapApiEventToActivityEvent(apiEvent: ActivityEventApiResponse): Activit
 
   if (apiEvent.kind === 'transfer') {
     const direction = apiEvent.primary.direction === 'in' ? ('receive' as const) : ('send' as const)
+    const sign = direction === 'receive' ? '+' : '-'
     return {
       id: apiEvent.id,
       timestampIso: apiEvent.timestamp,
       source: 'jupiter',
       type: 'transfer',
+      status: apiEvent.status,
       primaryText,
       secondaryText,
       receivedLeg: {
         symbol: apiEvent.primary.symbol,
-        amountDisplay: formatAmount(apiEvent.primary.amount),
+        amountDisplay: `${sign}${formatAmount(apiEvent.primary.amount)} ${apiEvent.primary.symbol}`,
         direction,
       },
       txSignature: apiEvent.txid,
@@ -142,6 +144,7 @@ function mapApiEventToActivityEvent(apiEvent: ActivityEventApiResponse): Activit
     timestampIso: apiEvent.timestamp,
     source: 'jupiter',
     type: 'swap',
+    status: apiEvent.status,
     primaryText,
     secondaryText,
     receivedLeg,
@@ -160,7 +163,7 @@ function resolveReceivedLeg(apiEvent: ActivityEventApiResponse) {
 
   return {
     symbol: inLeg.symbol,
-    amountDisplay: formatAmount(inLeg.amount),
+    amountDisplay: `+${formatAmount(inLeg.amount)} ${inLeg.symbol}`,
     direction: 'receive' as const,
   }
 }
@@ -177,7 +180,7 @@ function resolveSentLeg(apiEvent: ActivityEventApiResponse) {
 
   return {
     symbol: outLeg.symbol,
-    amountDisplay: formatAmount(outLeg.amount),
+    amountDisplay: `-${formatAmount(outLeg.amount)} ${outLeg.symbol}`,
     direction: 'send' as const,
   }
 }

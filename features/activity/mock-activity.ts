@@ -21,6 +21,7 @@ function toSwapEvent(id: string, timestampIso: string, config: MockSwapConfig): 
     timestampIso,
     source: config.source ?? 'jupiter',
     type: 'swap',
+    status: 'confirmed',
     primaryText: 'Swapped',
     secondaryText: config.source === 'unknown' ? 'Unknown source' : 'Jupiter',
     receivedLeg: {
