@@ -840,7 +840,7 @@ export function TokenCard({
       <View style={styles.chartLoadingGridLine} />
       <View style={styles.chartLoadingGridLine} />
       <LinearGradient
-        colors={['rgba(71, 85, 105, 0.12)', 'rgba(71, 85, 105, 0.28)', 'rgba(71, 85, 105, 0.08)']}
+        colors={semanticColors.chart.skeletonLoadColors}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
         style={styles.chartLoadingBand}
@@ -941,7 +941,7 @@ export function TokenCard({
             </View>
             <View style={styles.metricCol}>
               <Text style={styles.metricLabel}>24h</Text>
-              <Text style={[styles.metricValue, { color: isUp24h ? semanticColors.text.success : '#E74837' }]}>
+              <Text style={[styles.metricValue, { color: isUp24h ? semanticColors.text.success : semanticColors.text.danger }]}>
                 {priceChange24hFormatted}
               </Text>
             </View>
@@ -986,7 +986,7 @@ export function TokenCard({
 
 const styles = StyleSheet.create({
   avatarFallbackText: {
-    color: '#FFFFFF',
+    color: semanticColors.avatar.fallbackText,
     fontFamily: interFontFamily.extraBold,
     fontSize: 18,
   },
@@ -997,8 +997,8 @@ const styles = StyleSheet.create({
   },
   avatarOuter: {
     alignItems: 'center',
-    backgroundColor: '#5B5BD6',
-    borderColor: 'rgba(196, 181, 253, 0.9)',
+    backgroundColor: semanticColors.avatar.fallbackBackground,
+    borderColor: semanticColors.avatar.fallbackBorder,
     borderWidth: 2,
     justifyContent: 'center',
     overflow: 'hidden',
@@ -1006,15 +1006,15 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   badge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.20)',
-    borderColor: 'rgba(255, 255, 255, 0.40)',
+    backgroundColor: semanticColors.button.sellBackground,
+    borderColor: semanticColors.button.sellBorder,
     borderRadius: homeDesignSpec.card.badgeRadius,
     borderWidth: 1,
     paddingHorizontal: homeDesignSpec.card.badgeHorizontalPadding,
     paddingVertical: homeDesignSpec.card.badgeVerticalPadding,
   },
   badgeText: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.regular,
     fontSize: 14,
     lineHeight: 18,
@@ -1035,7 +1035,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   card: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
     justifyContent: 'flex-end',
     overflow: 'hidden',
@@ -1044,7 +1044,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   chartViewport: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     left: 0,
     overflow: 'hidden',
     position: 'absolute',
@@ -1060,12 +1060,12 @@ const styles = StyleSheet.create({
     top: '38%',
   },
   chartLoadingGridLine: {
-    backgroundColor: 'rgba(120, 130, 150, 0.16)',
+    backgroundColor: semanticColors.chart.skeleton,
     height: 1,
     width: '100%',
   },
   chartLoadingSkeleton: {
-    backgroundColor: '#05070b',
+    backgroundColor: semanticColors.chart.feedBackground,
     gap: 72,
     height: '100%',
     justifyContent: 'flex-start',
@@ -1092,7 +1092,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   descriptionText: {
-    color: '#FFFFFF99',
+    color: semanticColors.text.dimmed,
     fontFamily: interFontFamily.regular,
     fontSize: 14,
     lineHeight: 20,
@@ -1107,13 +1107,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   metricLabel: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
   },
   metricValue: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.regular,
     fontSize: 20,
     letterSpacing: -0.5,
@@ -1125,7 +1125,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sellButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.20)',
+    backgroundColor: semanticColors.button.sellBackground,
   },
   sellLabel: {
     color: semanticColors.button.sellText,
@@ -1139,21 +1139,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   symbolText: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.regular,
     fontSize: 24,
     lineHeight: 30,
   },
   trustBadge: {
-    backgroundColor: 'rgba(111, 239, 180, 0.18)',
-    borderColor: 'rgba(111, 239, 180, 0.55)',
+    backgroundColor: semanticColors.trust.background,
+    borderColor: semanticColors.trust.border,
     borderRadius: homeDesignSpec.card.badgeRadius,
     borderWidth: 1,
     paddingHorizontal: homeDesignSpec.card.badgeHorizontalPadding,
     paddingVertical: homeDesignSpec.card.badgeVerticalPadding,
   },
   trustBadgeText: {
-    color: '#D7FFE9',
+    color: semanticColors.trust.text,
     fontFamily: interFontFamily.regular,
     fontSize: 12,
     lineHeight: 16,

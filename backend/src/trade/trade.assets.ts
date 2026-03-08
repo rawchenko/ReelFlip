@@ -1,5 +1,20 @@
 import { TradeAssetSymbol } from './trade.types.js'
 
+/**
+ * Centralised asset badge color map — single source of truth for all trade paths.
+ */
+export const ASSET_BADGE_COLORS: Record<string, string> = {
+  SKR: '#4ADE80',
+  SOL: '#8B5CF6',
+  USDC: '#2F80ED',
+} as const
+
+export const DEFAULT_BADGE_COLOR = '#FACC15' as const
+
+export function badgeColorForSymbol(symbol: string): string {
+  return ASSET_BADGE_COLORS[symbol] ?? DEFAULT_BADGE_COLOR
+}
+
 interface TradeAssetRegistryOptions {
   skrMint?: string
 }
@@ -16,14 +31,14 @@ interface TradeAssetConfig {
 
 const TRADE_ASSET_CONFIGS: Record<TradeAssetSymbol, TradeAssetConfig> = {
   SKR: {
-    badgeColor: '#4ADE80',
+    badgeColor: ASSET_BADGE_COLORS.SKR,
     badgeText: 'K',
     defaultPriceUsd: 0,
     name: 'Shark',
     symbol: 'SKR',
   },
   SOL: {
-    badgeColor: '#8B5CF6',
+    badgeColor: ASSET_BADGE_COLORS.SOL,
     badgeText: 'S',
     decimals: 9,
     defaultPriceUsd: 0,
@@ -32,7 +47,7 @@ const TRADE_ASSET_CONFIGS: Record<TradeAssetSymbol, TradeAssetConfig> = {
     symbol: 'SOL',
   },
   USDC: {
-    badgeColor: '#2F80ED',
+    badgeColor: ASSET_BADGE_COLORS.USDC,
     badgeText: '$',
     decimals: 6,
     defaultPriceUsd: 1,

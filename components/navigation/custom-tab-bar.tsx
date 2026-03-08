@@ -1,3 +1,4 @@
+import { semanticColors } from '@/constants/semantic-colors'
 import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import { interFontFamily } from '@/constants/typography'
 import { Ionicons } from '@expo/vector-icons'
@@ -43,7 +44,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           pointerEvents="none"
         />
         <LinearGradient
-          colors={['rgba(0, 0, 0, 0.22)', 'rgba(0, 0, 0, 0.52)']}
+          colors={[semanticColors.tabBar.backdropGradientTop, semanticColors.tabBar.backdropGradientBottom]}
           style={styles.backdropGradient}
           pointerEvents="none"
         />
@@ -92,7 +93,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               {isFocused ? (
                 <>
                   <LinearGradient
-                    colors={['rgba(255, 255, 255, 0.06)', 'rgba(255, 255, 255, 0.00)']}
+                    colors={[semanticColors.tabBar.activeGradientTop, semanticColors.tabBar.activeGradientBottom]}
                     style={styles.activeGradient}
                     pointerEvents="none"
                   />
@@ -102,7 +103,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               <Ionicons
                 name={getTabIconName(route.name, isFocused)}
                 size={24}
-                color="#FFFFFF"
+                color={semanticColors.icon.primary}
               />
               <Text style={styles.label}>{label}</Text>
             </Pressable>
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   activeTopBorder: {
-    borderTopColor: '#FFFFFF',
+    borderTopColor: semanticColors.tabBar.activeIndicator,
     borderTopWidth: 1,
     left: 0,
     position: 'absolute',
@@ -133,12 +134,12 @@ const styles = StyleSheet.create({
   },
   backdropLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.30)',
+    backgroundColor: semanticColors.tabBar.backdropLayer,
   },
   container: {
     backgroundColor: 'transparent',
     bottom: 0,
-    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    borderTopColor: semanticColors.tabBar.border,
     borderTopWidth: 1,
     left: 0,
     overflow: 'hidden',
@@ -155,7 +156,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   label: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.medium,
     fontSize: 12,
     lineHeight: 16,

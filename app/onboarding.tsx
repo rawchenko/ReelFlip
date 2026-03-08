@@ -4,6 +4,8 @@ import { Redirect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { alpha } from '@/constants/palette'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { DEFAULT_ONBOARDING_PROFILE, useOnboarding } from '@/features/onboarding/onboarding-provider'
 
@@ -109,7 +111,7 @@ export default function OnboardingScreen() {
             style={({ pressed }) => [styles.termsRow, pressed ? styles.pressed : null]}
           >
             <View style={[styles.checkbox, hasAcceptedTerms ? styles.checkboxChecked : null]}>
-              {hasAcceptedTerms ? <Ionicons color="#FFFFFF" name="checkmark" size={14} /> : null}
+              {hasAcceptedTerms ? <Ionicons color={semanticColors.icon.primary} name="checkmark" size={14} /> : null}
             </View>
             <Text style={styles.termsText}>
               I agree to the <Text style={styles.termsLinkText}>Terms of Service</Text>
@@ -139,14 +141,14 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   avatarDot: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.text.headingOnDark,
     borderRadius: 12,
     height: 24,
     width: 24,
   },
   cardBackOne: {
-    backgroundColor: '#111111',
-    borderColor: '#333333',
+    backgroundColor: semanticColors.app.backgroundPanel,
+    borderColor: semanticColors.border.subtle,
     borderRadius: 12,
     borderWidth: 1,
     height: 140,
@@ -156,8 +158,8 @@ const styles = StyleSheet.create({
     width: 100,
   },
   cardBackTwo: {
-    backgroundColor: '#1A1A1A',
-    borderColor: '#444444',
+    backgroundColor: semanticColors.app.backgroundPanelAlt,
+    borderColor: semanticColors.border.subtleMid,
     borderRadius: 12,
     borderWidth: 1,
     height: 140,
@@ -167,17 +169,17 @@ const styles = StyleSheet.create({
     width: 100,
   },
   cardFooterBar: {
-    backgroundColor: '#222222',
+    backgroundColor: semanticColors.app.backgroundDark,
     borderRadius: 6,
     height: 40,
     width: '100%',
   },
   cardFront: {
-    backgroundColor: '#000000',
-    borderColor: '#FFFFFF',
+    backgroundColor: semanticColors.app.background,
+    borderColor: semanticColors.text.headingOnDark,
     borderRadius: 12,
     borderWidth: 1,
-    boxShadow: '0px 8px 24px #FFFFFF1A',
+    boxShadow: `0px 8px 24px ${alpha.white10}`,
     gap: 12,
     height: 150,
     justifyContent: 'space-between',
@@ -191,8 +193,8 @@ const styles = StyleSheet.create({
   },
   cardStackWrap: {
     alignItems: 'center',
-    backgroundColor: '#0A0A0A',
-    borderColor: '#444444',
+    backgroundColor: semanticColors.app.backgroundDeep,
+    borderColor: semanticColors.border.subtleMid,
     borderRadius: 120,
     borderStyle: 'dashed',
     borderWidth: 1,
@@ -202,8 +204,8 @@ const styles = StyleSheet.create({
   },
   checkbox: {
     alignItems: 'center',
-    backgroundColor: '#000000',
-    borderColor: '#555555',
+    backgroundColor: semanticColors.app.background,
+    borderColor: semanticColors.border.checkboxMuted,
     borderRadius: 6,
     borderWidth: 2,
     height: 24,
@@ -211,7 +213,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   checkboxChecked: {
-    borderColor: '#FFFFFF',
+    borderColor: semanticColors.text.headingOnDark,
   },
   content: {
     flex: 1,
@@ -225,7 +227,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   errorText: {
-    color: '#D77C7C',
+    color: semanticColors.text.errorSoft,
     fontFamily: interFontFamily.medium,
     fontSize: 13,
     lineHeight: 18,
@@ -236,7 +238,7 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   headerBar: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.text.headingOnDark,
     borderRadius: 3,
     height: 6,
     width: 40,
@@ -252,26 +254,26 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 28,
     height: 56,
     justifyContent: 'center',
   },
   primaryButtonDisabled: {
-    backgroundColor: '#5A5A5A',
+    backgroundColor: semanticColors.button.disabledBackground,
   },
   primaryButtonText: {
-    color: '#000000',
+    color: semanticColors.button.buyText,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 22,
   },
   screen: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   subtitle: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
@@ -280,7 +282,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   termsLinkText: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.medium,
     textDecorationLine: 'underline',
   },
@@ -291,13 +293,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   termsText: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 14,
     lineHeight: 18,
   },
   title: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.extraBold,
     fontSize: 32,
     letterSpacing: -0.5,

@@ -27,7 +27,7 @@ import {
   TradeStatusResponse,
   TradeSubmitResponse,
 } from './trade.types.js'
-import { TradeAssetRegistry } from './trade.assets.js'
+import { TradeAssetRegistry, badgeColorForSymbol } from './trade.assets.js'
 
 interface Logger {
   info?: (obj: unknown, msg?: string) => void
@@ -845,19 +845,6 @@ function buildQuotePreview(input: {
     refreshWindowSec: input.refreshWindowSec,
     routeLabel: routeLabels.length > 0 ? routeLabels.join(' + ') : 'Best route via Jupiter',
     slippageBps: input.quoteResponse.slippageBps,
-  }
-}
-
-function badgeColorForSymbol(symbol: string): string {
-  switch (symbol) {
-    case 'USDC':
-      return '#2F80ED'
-    case 'SOL':
-      return '#8B5CF6'
-    case 'SKR':
-      return '#4ADE80'
-    default:
-      return '#FACC15'
   }
 }
 

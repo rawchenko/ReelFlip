@@ -1,14 +1,17 @@
+import { alpha } from '@/constants/palette'
+import { semanticColors } from '@/constants/semantic-colors'
+
 export const activityDesignSpec = {
   colors: {
-    background: '#000000',
-    rowBackground: 'rgba(255, 255, 255, 0.10)',
-    badgeBackground: '#1A1A1A',
-    heading: '#FFFFFF',
-    sectionLabel: 'rgba(255, 255, 255, 0.60)',
-    primaryText: '#FFFFFF',
-    secondaryText: 'rgba(255, 255, 255, 0.60)',
-    receivedAmount: '#4ADE80',
-    failedText: 'rgba(255, 255, 255, 0.35)',
+    background: semanticColors.app.background,
+    rowBackground: semanticColors.tabBar.background,
+    badgeBackground: semanticColors.app.backgroundPanel,
+    heading: semanticColors.text.headingOnDark,
+    sectionLabel: semanticColors.text.dimmed,
+    primaryText: semanticColors.text.headingOnDark,
+    secondaryText: semanticColors.text.dimmed,
+    receivedAmount: semanticColors.text.success,
+    failedText: alpha.white35,
   },
   header: {
     horizontalPadding: 20,

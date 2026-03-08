@@ -11,6 +11,7 @@ import {
   parseAmountInput,
 } from '@/features/swap/mock-swap'
 import { isSwapAssetEnabled, isSwapChainSupported } from '@/features/swap/swap-config'
+import { swapDesignSpec } from '@/features/swap/swap-design-spec'
 import type {
   SwapDraft,
   SwapFailureReason,
@@ -360,7 +361,7 @@ function AssetPill({
         <Text style={styles.assetPillBadgeText}>{badgeText}</Text>
       </View>
       <Text style={styles.assetPillLabel}>{label}</Text>
-      {chevron ? <Ionicons color="#FFFFFF" name="chevron-down" size={16} /> : null}
+      {chevron ? <Ionicons color={swapDesignSpec.colors.iconPrimary} name="chevron-down" size={16} /> : null}
     </View>
   )
 
@@ -464,7 +465,7 @@ function SlideToConfirm({
       onPress={confirm}
       style={[styles.sliderTrack, disabled ? styles.sliderTrackDisabled : null, { width: trackWidth }]}
     >
-      <LinearGradient colors={['rgba(250, 204, 21, 0.18)', 'rgba(250, 204, 21, 0.04)']} style={styles.sliderTrackGlow} />
+      <LinearGradient colors={[swapDesignSpec.colors.sliderGlowTop, swapDesignSpec.colors.sliderGlowBottom]} style={styles.sliderTrackGlow} />
       <Text style={[styles.sliderTrackLabel, isBusy ? styles.sliderTrackLabelBusy : null]}>{label}</Text>
       <Animated.View
         {...panResponder.panHandlers}
@@ -475,7 +476,7 @@ function SlideToConfirm({
           },
         ]}
       >
-        {isBusy ? <ActivityIndicator color="#000000" size="small" /> : <Ionicons color="#000000" name="arrow-forward" size={22} />}
+        {isBusy ? <ActivityIndicator color={swapDesignSpec.colors.iconOnLight} size="small" /> : <Ionicons color={swapDesignSpec.colors.iconOnLight} name="arrow-forward" size={22} />}
       </Animated.View>
     </Pressable>
   )
@@ -490,7 +491,7 @@ function PrimaryButton({
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
-      <LinearGradient colors={['#E8DB00', '#FFF433']} style={styles.primaryButton}>
+      <LinearGradient colors={[semanticColors.accent.gradientStart, semanticColors.accent.gradientEnd]} style={styles.primaryButton}>
         <Text style={styles.primaryButtonText}>{label}</Text>
       </LinearGradient>
     </Pressable>
@@ -518,7 +519,7 @@ function SecondaryButton({
         pressed ? styles.pressableDown : null,
       ]}
     >
-      {icon ? <Ionicons color="#FFFFFF" name={icon} size={18} /> : null}
+      {icon ? <Ionicons color={swapDesignSpec.colors.iconPrimary} name={icon} size={18} /> : null}
       <Text style={styles.secondaryButtonText}>{label}</Text>
     </Pressable>
   )
@@ -564,7 +565,7 @@ function EntryScreen({
   return (
     <View style={styles.stageBody}>
       <View style={styles.tokenSummary}>
-        <Avatar badgeColor="#FACC15" badgeText={draft.token.symbol.slice(0, 1).toUpperCase()} imageUri={draft.token.imageUri} size={54} />
+        <Avatar badgeColor={swapDesignSpec.colors.sliderThumbBackground} badgeText={draft.token.symbol.slice(0, 1).toUpperCase()} imageUri={draft.token.imageUri} size={54} />
         <View style={styles.tokenSummaryCopy}>
           <View style={styles.tokenSummaryHeadingRow}>
             <Text style={styles.tokenSummarySymbol}>{draft.token.symbol}</Text>
@@ -591,8 +592,8 @@ function EntryScreen({
             keyboardType="decimal-pad"
             onChangeText={onAmountTextChange}
             placeholder="0"
-            placeholderTextColor="rgba(255, 255, 255, 0.18)"
-            selectionColor="#E8DB00"
+            placeholderTextColor={swapDesignSpec.colors.inputPlaceholder}
+            selectionColor={swapDesignSpec.colors.accentPrimary}
             style={styles.amountInput}
             value={draft.amountText}
           />
@@ -618,7 +619,7 @@ function EntryScreen({
       </View>
 
       <View style={styles.swapDirectionBadge}>
-        <Ionicons color="#9CA3AF" name="swap-vertical" size={18} />
+        <Ionicons color={semanticColors.text.quaternary} name="swap-vertical" size={18} />
       </View>
 
       <View style={[styles.quoteCard, styles.quoteCardReceive]}>
@@ -680,7 +681,7 @@ function EntryScreen({
           style={({ pressed }) => [pressed ? styles.pressableDown : null]}
         >
           <LinearGradient
-            colors={isContinueEnabled ? ['#E8DB00', '#FFF433'] : ['#525252', '#3F3F46']}
+            colors={isContinueEnabled ? [semanticColors.accent.gradientStart, semanticColors.accent.gradientEnd] : [semanticColors.disabled.gradientStart, semanticColors.disabled.gradientEnd]}
             style={[styles.primaryButton, !isContinueEnabled ? styles.primaryButtonDisabled : null]}
           >
             <Text style={styles.primaryButtonText}>
@@ -720,7 +721,7 @@ function ConfirmScreen({
           <Text style={styles.confirmHeroAmount}>{formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)}</Text>
           <Text style={styles.confirmHeroSymbol}>{quote.inputAsset.symbol}</Text>
         </View>
-        <Ionicons color="#4ADE80" name="arrow-forward" size={28} />
+        <Ionicons color={swapDesignSpec.colors.success} name="arrow-forward" size={28} />
         <View style={styles.confirmTokenBlock}>
           <Avatar badgeColor={quote.outputAsset.badgeColor} badgeText={quote.outputAsset.badgeText} />
           <Text style={styles.confirmHeroAmount}>{formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)}</Text>
@@ -784,9 +785,9 @@ function ProgressItem({
         ]}
       >
         {isComplete ? (
-          <Ionicons color="#000000" name="checkmark" size={16} />
+          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={16} />
         ) : isActive ? (
-          <ActivityIndicator color="#E8DB00" size="small" />
+          <ActivityIndicator color={swapDesignSpec.colors.accentPrimary} size="small" />
         ) : (
           <Text style={styles.progressBadgeText}>{index + 1}</Text>
         )}
@@ -816,7 +817,7 @@ function ProcessingScreen({
         <View style={styles.processingOuterRing}>
           <View style={styles.processingMiddleRing}>
             <View style={styles.processingInnerRing}>
-              <ActivityIndicator color="#000000" size="small" />
+              <ActivityIndicator color={swapDesignSpec.colors.iconOnLight} size="small" />
             </View>
           </View>
         </View>
@@ -837,7 +838,7 @@ function ProcessingScreen({
       </View>
 
       <View style={styles.processingNotice}>
-        <Ionicons color="rgba(255,255,255,0.42)" name="information-circle-outline" size={18} />
+        <Ionicons color={swapDesignSpec.colors.iconMuted} name="information-circle-outline" size={18} />
         <Text style={styles.processingNoticeText}>
           Solana transactions usually confirm in under 1 second. Do not close this screen.
         </Text>
@@ -865,7 +866,7 @@ function SuccessScreen({
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
         <View style={styles.resultHeroIconSuccess}>
-          <Ionicons color="#000000" name="checkmark" size={44} />
+          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={44} />
         </View>
         <Text style={styles.resultTitle}>Swap Complete!</Text>
         <Text style={styles.resultSubtitle}>Your {quote.outputAsset.symbol} tokens have been added to your wallet.</Text>
@@ -883,7 +884,7 @@ function SuccessScreen({
           <Text style={styles.summaryLabel}>TX Hash</Text>
           <View style={styles.txHashRow}>
             <Text style={styles.summaryValue}>{result.signature}</Text>
-            <Ionicons color="rgba(255,255,255,0.66)" name="copy-outline" size={14} />
+            <Ionicons color={swapDesignSpec.colors.iconSecondary} name="copy-outline" size={14} />
           </View>
         </Pressable>
       </View>
@@ -916,7 +917,7 @@ function PendingScreen({
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
         <View style={styles.resultHeroIconSuccess}>
-          <Ionicons color="#000000" name="time-outline" size={40} />
+          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="time-outline" size={40} />
         </View>
         <Text style={styles.resultTitle}>Awaiting Confirmation</Text>
         <Text style={styles.resultSubtitle}>{result.message}</Text>
@@ -929,7 +930,7 @@ function PendingScreen({
           <Text style={styles.summaryLabel}>TX Hash</Text>
           <View style={styles.txHashRow}>
             <Text style={styles.summaryValue}>{result.signature}</Text>
-            <Ionicons color="rgba(255,255,255,0.66)" name="copy-outline" size={14} />
+            <Ionicons color={swapDesignSpec.colors.iconSecondary} name="copy-outline" size={14} />
           </View>
         </Pressable>
       </View>
@@ -962,7 +963,7 @@ function FailureScreen({
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
         <View style={styles.resultHeroIconFailure}>
-          <Ionicons color="#000000" name="close" size={42} />
+          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="close" size={42} />
         </View>
         <Text style={styles.resultTitle}>Swap Failed</Text>
         <Text style={styles.resultSubtitle}>{result.message}</Text>
@@ -1615,7 +1616,7 @@ export function SwapFlowModal({
             onPress={stage === 'confirm' ? handleBackToEntry : onClose}
             style={({ pressed }) => [styles.iconButton, pressed ? styles.pressableDown : null]}
           >
-            <Ionicons color="#FFFFFF" name="chevron-back" size={22} />
+            <Ionicons color={swapDesignSpec.colors.iconPrimary} name="chevron-back" size={22} />
           </Pressable>
           <Text style={styles.headerTitle}>{stageTitle}</Text>
           <View style={styles.providerBadge}>
@@ -1715,7 +1716,7 @@ export function FeedInteractionOverlays({
 
 const styles = StyleSheet.create({
   amountInput: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     flex: 1,
     fontFamily: interFontFamily.black,
     fontSize: 52,
@@ -1729,15 +1730,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   amountSubtext: {
-    color: 'rgba(255,255,255,0.48)',
+    color: swapDesignSpec.colors.bodyMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 15,
     marginTop: 6,
   },
   assetPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: swapDesignSpec.colors.pillBackground,
+    borderColor: swapDesignSpec.colors.pillBorder,
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1753,12 +1754,12 @@ const styles = StyleSheet.create({
     width: 24,
   },
   assetPillBadgeText: {
-    color: '#000000',
+    color: swapDesignSpec.colors.bodyOnLight,
     fontFamily: interFontFamily.bold,
     fontSize: 12,
   },
   assetPillLabel: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
   },
@@ -1768,21 +1769,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarFallbackText: {
-    color: '#000000',
+    color: swapDesignSpec.colors.bodyOnLight,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
   },
   avatarImage: {
-    backgroundColor: '#111111',
+    backgroundColor: swapDesignSpec.colors.panelBackground,
     borderRadius: 999,
   },
   cardBalance: {
-    color: 'rgba(255,255,255,0.42)',
+    color: swapDesignSpec.colors.textFaint,
     fontFamily: interFontFamily.medium,
     fontSize: 15,
   },
   cardEyebrow: {
-    color: '#D4C532',
+    color: swapDesignSpec.colors.accentMuted,
     fontFamily: interFontFamily.bold,
     fontSize: 13,
     letterSpacing: 0.6,
@@ -1795,8 +1796,8 @@ const styles = StyleSheet.create({
   },
   chip: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 225, 0, 0.10)',
-    borderColor: 'rgba(255, 225, 0, 0.24)',
+    backgroundColor: swapDesignSpec.colors.chipBackground,
+    borderColor: swapDesignSpec.colors.chipBorder,
     borderRadius: 18,
     borderWidth: 1,
     minWidth: 68,
@@ -1804,20 +1805,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   chipDanger: {
-    backgroundColor: 'rgba(239, 68, 68, 0.14)',
-    borderColor: 'rgba(239, 68, 68, 0.26)',
+    backgroundColor: swapDesignSpec.colors.chipDangerBackground,
+    borderColor: swapDesignSpec.colors.chipDangerBorder,
   },
   chipSelected: {
-    backgroundColor: 'rgba(255, 225, 0, 0.22)',
-    borderColor: '#FACC15',
+    backgroundColor: swapDesignSpec.colors.chipSelectedBackground,
+    borderColor: swapDesignSpec.colors.chipSelectedBorder,
   },
   chipText: {
-    color: '#F7E957',
+    color: swapDesignSpec.colors.accentSoft,
     fontFamily: interFontFamily.bold,
     fontSize: 15,
   },
   chipTextSelected: {
-    color: '#FFFDEE',
+    color: swapDesignSpec.colors.accentTint,
   },
   confirmActions: {
     alignItems: 'center',
@@ -1832,13 +1833,13 @@ const styles = StyleSheet.create({
     marginTop: 36,
   },
   confirmHeroAmount: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.black,
     fontSize: 24,
     marginTop: 12,
   },
   confirmHeroSymbol: {
-    color: 'rgba(255,255,255,0.48)',
+    color: swapDesignSpec.colors.bodyMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 18,
     marginTop: 4,
@@ -1852,11 +1853,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   failureCard: {
-    backgroundColor: 'rgba(75, 5, 10, 0.44)',
-    borderColor: 'rgba(239, 68, 68, 0.18)',
+    backgroundColor: swapDesignSpec.colors.failureCardBackground,
+    borderColor: swapDesignSpec.colors.failureCardBorder,
   },
   footerCaption: {
-    color: 'rgba(255,255,255,0.36)',
+    color: swapDesignSpec.colors.captionMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 13,
     textAlign: 'center',
@@ -1870,7 +1871,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     flex: 1,
     fontFamily: interFontFamily.bold,
     fontSize: 26,
@@ -1878,28 +1879,28 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: swapDesignSpec.colors.pillBackground,
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
     width: 36,
   },
   labelBadge: {
-    backgroundColor: 'rgba(250, 204, 21, 0.14)',
-    borderColor: 'rgba(250, 204, 21, 0.22)',
+    backgroundColor: swapDesignSpec.colors.labelBadgeBackground,
+    borderColor: swapDesignSpec.colors.labelBadgeBorder,
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   labelBadgeText: {
-    color: '#E8DB00',
+    color: swapDesignSpec.colors.accentPrimary,
     fontFamily: interFontFamily.medium,
     fontSize: 13,
   },
   metricsCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: swapDesignSpec.colors.cardBackground,
+    borderColor: swapDesignSpec.colors.cardBorder,
     borderRadius: 22,
     borderWidth: 1,
     gap: 14,
@@ -1930,7 +1931,7 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   primaryButtonText: {
-    color: '#09090B',
+    color: swapDesignSpec.colors.bodyOnLightSubtle,
     fontFamily: interFontFamily.black,
     fontSize: 18,
     textAlign: 'center',
@@ -1945,7 +1946,7 @@ const styles = StyleSheet.create({
   },
   processingInnerRing: {
     alignItems: 'center',
-    backgroundColor: '#FACC15',
+    backgroundColor: swapDesignSpec.colors.processingInnerRing,
     borderRadius: 999,
     height: 72,
     justifyContent: 'center',
@@ -1953,7 +1954,7 @@ const styles = StyleSheet.create({
   },
   processingMiddleRing: {
     alignItems: 'center',
-    backgroundColor: 'rgba(250, 204, 21, 0.15)',
+    backgroundColor: swapDesignSpec.colors.processingMiddleRing,
     borderRadius: 999,
     height: 108,
     justifyContent: 'center',
@@ -1961,8 +1962,8 @@ const styles = StyleSheet.create({
   },
   processingNotice: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: swapDesignSpec.colors.processingNoticeBackground,
+    borderColor: swapDesignSpec.colors.processingNoticeBorder,
     borderRadius: 20,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1972,7 +1973,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   processingNoticeText: {
-    color: 'rgba(255,255,255,0.48)',
+    color: swapDesignSpec.colors.bodyMuted,
     flex: 1,
     fontFamily: interFontFamily.medium,
     fontSize: 14,
@@ -1980,7 +1981,7 @@ const styles = StyleSheet.create({
   },
   processingOuterRing: {
     alignItems: 'center',
-    backgroundColor: 'rgba(250, 204, 21, 0.08)',
+    backgroundColor: swapDesignSpec.colors.processingOuterRing,
     borderRadius: 999,
     height: 138,
     justifyContent: 'center',
@@ -1993,14 +1994,14 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   processingSubtitle: {
-    color: 'rgba(255,255,255,0.44)',
+    color: swapDesignSpec.colors.subtitleMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 18,
     marginTop: 6,
     textAlign: 'center',
   },
   processingTitle: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.black,
     fontSize: 38,
     lineHeight: 42,
@@ -2009,27 +2010,27 @@ const styles = StyleSheet.create({
   },
   progressBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: swapDesignSpec.colors.progressBadgeBackground,
     borderRadius: 999,
     height: 34,
     justifyContent: 'center',
     width: 34,
   },
   progressBadgeActive: {
-    borderColor: 'rgba(250, 204, 21, 0.52)',
+    borderColor: swapDesignSpec.colors.progressBadgeActiveBorder,
     borderWidth: 1,
   },
   progressBadgeComplete: {
-    backgroundColor: '#FACC15',
+    backgroundColor: swapDesignSpec.colors.processingInnerRing,
   },
   progressBadgeText: {
-    color: 'rgba(255,255,255,0.42)',
+    color: swapDesignSpec.colors.textFaint,
     fontFamily: interFontFamily.bold,
     fontSize: 14,
   },
   progressCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: swapDesignSpec.colors.cardBackground,
+    borderColor: swapDesignSpec.colors.cardBorder,
     borderRadius: 22,
     borderWidth: 1,
     gap: 2,
@@ -2040,13 +2041,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   progressDescription: {
-    color: 'rgba(255,255,255,0.46)',
+    color: swapDesignSpec.colors.progressDescription,
     fontFamily: interFontFamily.regular,
     fontSize: 14,
     lineHeight: 18,
   },
   progressDescriptionPending: {
-    color: 'rgba(255,255,255,0.22)',
+    color: swapDesignSpec.colors.textDisabled,
   },
   progressRow: {
     alignItems: 'center',
@@ -2057,20 +2058,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   progressRowActive: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: swapDesignSpec.colors.cardBackground,
   },
   progressTitle: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.bold,
     fontSize: 17,
   },
   progressTitlePending: {
-    color: 'rgba(255,255,255,0.32)',
+    color: swapDesignSpec.colors.textGhost,
   },
   providerBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: swapDesignSpec.colors.pillBackground,
+    borderColor: swapDesignSpec.colors.pillBorder,
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2081,29 +2082,29 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   providerBadgeText: {
-    color: '#D4D4D8',
+    color: swapDesignSpec.colors.tintedLight,
     fontFamily: interFontFamily.medium,
     fontSize: 14,
   },
   providerDot: {
-    backgroundColor: '#E8DB00',
+    backgroundColor: swapDesignSpec.colors.providerDot,
     borderRadius: 999,
     height: 7,
     width: 7,
   },
   quoteCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: swapDesignSpec.colors.cardBackground,
+    borderColor: swapDesignSpec.colors.cardBorder,
     borderRadius: 22,
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
   quoteCardReceive: {
-    backgroundColor: 'rgba(255, 225, 0, 0.05)',
+    backgroundColor: swapDesignSpec.colors.quoteCardReceiveBackground,
   },
   receiveAmount: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.black,
     fontSize: 46,
     lineHeight: 52,
@@ -2119,7 +2120,7 @@ const styles = StyleSheet.create({
   },
   resultHeroIconFailure: {
     alignItems: 'center',
-    backgroundColor: '#FF4747',
+    backgroundColor: swapDesignSpec.colors.resultHeroFailure,
     borderRadius: 999,
     height: 124,
     justifyContent: 'center',
@@ -2128,7 +2129,7 @@ const styles = StyleSheet.create({
   },
   resultHeroIconSuccess: {
     alignItems: 'center',
-    backgroundColor: '#E8DB00',
+    backgroundColor: swapDesignSpec.colors.providerDot,
     borderRadius: 999,
     height: 124,
     justifyContent: 'center',
@@ -2142,14 +2143,14 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   resultSubtitle: {
-    color: 'rgba(255,255,255,0.42)',
+    color: swapDesignSpec.colors.textFaint,
     fontFamily: interFontFamily.medium,
     fontSize: 20,
     lineHeight: 26,
     textAlign: 'center',
   },
   resultTitle: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.black,
     fontSize: 44,
     lineHeight: 48,
@@ -2164,8 +2165,8 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: swapDesignSpec.colors.cardBackground,
+    borderColor: swapDesignSpec.colors.cardBorder,
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2176,17 +2177,17 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
   },
   secondaryButtonDanger: {
-    backgroundColor: '#FF4545',
-    borderColor: 'rgba(255, 69, 69, 0.6)',
+    backgroundColor: swapDesignSpec.colors.secondaryButtonDangerBackground,
+    borderColor: swapDesignSpec.colors.secondaryButtonDangerBorder,
   },
   secondaryButtonText: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.bold,
     fontSize: 17,
   },
   sliderThumb: {
     alignItems: 'center',
-    backgroundColor: '#FACC15',
+    backgroundColor: swapDesignSpec.colors.processingInnerRing,
     borderRadius: 18,
     height: 52,
     justifyContent: 'center',
@@ -2196,8 +2197,8 @@ const styles = StyleSheet.create({
     width: 52,
   },
   sliderTrack: {
-    backgroundColor: 'rgba(255, 225, 0, 0.08)',
-    borderColor: 'rgba(255, 225, 0, 0.18)',
+    backgroundColor: swapDesignSpec.colors.sliderTrackBackground,
+    borderColor: swapDesignSpec.colors.sliderTrackBorder,
     borderRadius: 22,
     borderWidth: 1,
     height: 64,
@@ -2212,7 +2213,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   sliderTrackLabel: {
-    color: 'rgba(255,255,255,0.54)',
+    color: swapDesignSpec.colors.sliderLabel,
     fontFamily: interFontFamily.bold,
     fontSize: 22,
     paddingLeft: 88,
@@ -2230,45 +2231,45 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   summaryLabel: {
-    color: 'rgba(255,255,255,0.36)',
+    color: swapDesignSpec.colors.captionMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 17,
   },
   summaryRow: {
     alignItems: 'center',
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    borderBottomColor: swapDesignSpec.colors.summaryRowBorder,
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingBottom: 12,
   },
   summaryValue: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.bold,
     fontSize: 17,
     flexShrink: 1,
     textAlign: 'right',
   },
   summaryValueAccent: {
-    color: '#F7E957',
+    color: swapDesignSpec.colors.accentSoft,
   },
   summaryValueDanger: {
     color: semanticColors.text.danger,
   },
   summaryValueMuted: {
-    color: 'rgba(255,255,255,0.48)',
+    color: swapDesignSpec.colors.bodyMuted,
   },
   swapDirectionBadge: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: swapDesignSpec.colors.swapDirectionBackground,
     borderRadius: 22,
     height: 44,
     justifyContent: 'center',
     width: 44,
   },
   textAction: {
-    color: 'rgba(255,255,255,0.58)',
+    color: swapDesignSpec.colors.textAction,
     fontFamily: interFontFamily.medium,
     fontSize: 17,
     textAlign: 'center',
@@ -2287,13 +2288,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tokenSummaryMeta: {
-    color: 'rgba(255,255,255,0.48)',
+    color: swapDesignSpec.colors.bodyMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 17,
     marginTop: 4,
   },
   tokenSummarySymbol: {
-    color: '#FFFFFF',
+    color: swapDesignSpec.colors.heading,
     fontFamily: interFontFamily.black,
     fontSize: 34,
     lineHeight: 38,
