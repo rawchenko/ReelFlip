@@ -3,6 +3,10 @@
   "scripts": {
     "android": "expo run:android",
     "android:build": "expo prebuild -p android",
+    "dev:check": "zsh ./scripts/dev-check.sh",
+    "dev:down": "zsh ./scripts/dev-down.sh",
+    "dev:logs": "zsh ./scripts/dev-logs.sh",
+    "dev:up": "zsh ./scripts/dev-up.sh",
     "backend:build": "npm --prefix backend run build",
     "backend:dev": "npm --prefix backend run dev",
     "backend:start": "npm --prefix backend run start",

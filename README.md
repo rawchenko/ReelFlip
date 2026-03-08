@@ -17,6 +17,39 @@ npm install
 npm run dev
 ```
 
+## Fast Daily Dev Workflow
+
+One-time setup:
+
+```bash
+npm install
+npm --prefix backend install
+cp .env.example .env
+cp backend/.env.example backend/.env
+```
+
+Daily loop:
+
+```bash
+npm run dev:up
+npm run android
+```
+
+Useful helpers:
+
+```bash
+npm run dev:check
+npm run dev:logs
+npm run dev:down
+```
+
+Notes:
+
+- `dev:up` is the long-running main terminal: it starts backend first, waits for `http://127.0.0.1:3001/health`, then starts Metro.
+- Open a second terminal for `npm run android`.
+- Press `Ctrl+C` in the `dev:up` terminal to stop Metro and the backend it started.
+- Android emulator should use `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3001` in `.env`.
+
 ### Feed Backend (Phase 1)
 
 The mobile feed now calls `GET /v1/feed` from a local Fastify backend.
