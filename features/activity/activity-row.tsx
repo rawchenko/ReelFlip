@@ -2,10 +2,11 @@ import { activityDesignSpec } from '@/features/activity/activity-design-spec'
 import { ActivityLeg, ActivityEvent } from '@/features/activity/types'
 import { interFontFamily } from '@/constants/typography'
 import React from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
 
 interface ActivityRowProps {
   item: ActivityEvent
+  onPress?: (item: ActivityEvent) => void
 }
 
 function legInitial(leg: ActivityLeg): string {
@@ -28,12 +29,16 @@ function ActivityBadge({ leg, shifted = false }: { leg: ActivityLeg; shifted?: b
   )
 }
 
-export function ActivityRow({ item }: ActivityRowProps) {
+export function ActivityRow({ item, onPress }: ActivityRowProps) {
   const isTransfer = item.type === 'transfer'
   const isFailed = item.status === 'failed'
 
   return (
-    <View style={[styles.container, isFailed ? styles.containerFailed : null]}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress ? () => onPress(item) : undefined}
+      style={({ pressed }) => [styles.container, isFailed ? styles.containerFailed : null, pressed && onPress ? styles.pressed : null]}
+    >
       <View style={styles.badgesWrap}>
         {isTransfer ? (
           <ActivityBadge leg={item.receivedLeg} />
@@ -73,7 +78,7 @@ export function ActivityRow({ item }: ActivityRowProps) {
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   )
 }
 
@@ -121,6 +126,9 @@ const styles = StyleSheet.create({
   },
   containerFailed: {
     opacity: 0.6,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   mainCopy: {
     flex: 1,

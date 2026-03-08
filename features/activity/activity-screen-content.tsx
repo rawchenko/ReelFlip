@@ -10,13 +10,14 @@ interface ActivityScreenContentProps {
   sections: ActivitySection[]
   refreshing: boolean
   onRefresh: () => void
+  onEventPress?: (event: ActivityEvent) => void
 }
 
 function keyExtractor(item: ActivityEvent): string {
   return item.id
 }
 
-export function ActivityScreenContent({ sections, refreshing, onRefresh }: ActivityScreenContentProps) {
+export function ActivityScreenContent({ sections, refreshing, onRefresh, onEventPress }: ActivityScreenContentProps) {
   const listSections = useMemo(
     () =>
       sections.map((section) => ({
@@ -39,7 +40,7 @@ export function ActivityScreenContent({ sections, refreshing, onRefresh }: Activ
       renderSectionHeader={({ section }) => <ActivitySectionHeader label={section.label} />}
       renderItem={({ item, index }) => (
         <View style={[styles.rowWrap, index > 0 ? styles.rowWrapWithGap : null]}>
-          <ActivityRow item={item} />
+          <ActivityRow item={item} onPress={onEventPress} />
         </View>
       )}
       SectionSeparatorComponent={() => <View style={styles.sectionSpacer} />}
