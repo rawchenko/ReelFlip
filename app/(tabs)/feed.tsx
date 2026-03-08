@@ -8,12 +8,14 @@ import {
   FeedPlaceholderSheetPayload,
   FeedPlaceholderSheetType,
 } from '@/features/feed/feed-placeholder-sheet'
-import { SwapFlowPayload } from '@/features/swap/types'
+import type { SwapFlowPayload, SwapQuotePreview, SwapSuccessResult } from '@/features/swap/types'
+import type { ActivityEvent } from '@/features/activity/types'
 import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { FeedCategory, FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import { InfiniteData, useQueryClient } from '@tanstack/react-query'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
+import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Button, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -48,6 +50,7 @@ function mapUiTabToCategory(tab: FeedUiTab): FeedCategory | undefined {
 }
 
 export default function FeedScreen() {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [uiTab, setUiTab] = useState<FeedUiTab>('for_you')
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
@@ -130,6 +133,31 @@ export default function FeedScreen() {
       side,
     })
   }, [])
+
+  const handleViewReceipt = useCallback((result: SwapSuccessResult, quote: SwapQuotePreview) => {
+    const event: ActivityEvent = {
+      id: result.signature,
+      timestampIso: new Date().toISOString(),
+      source: 'jupiter',
+      type: 'swap',
+      status: 'confirmed',
+      primaryText: `${quote.inputAsset.symbol} → ${quote.outputAsset.symbol}`,
+      secondaryText: 'Jupiter',
+      receivedLeg: {
+        symbol: result.receivedSymbol,
+        amountDisplay: `+${result.receivedAmount} ${result.receivedSymbol}`,
+        direction: 'receive',
+      },
+      sentLeg: {
+        symbol: result.sentSymbol,
+        amountDisplay: `-${result.sentAmount} ${result.sentSymbol}`,
+        direction: 'send',
+      },
+      txSignature: result.signature,
+    }
+    setActiveSwapFlow(null)
+    router.push({ pathname: '/tx-details', params: { event: JSON.stringify(event) } })
+  }, [router])
 
   const handleSearchPress = useCallback(() => {
     triggerSelectionHaptic()
@@ -284,6 +312,7 @@ export default function FeedScreen() {
         actionPayload={activeActionSheet}
         onCloseActionSheet={() => setActiveActionSheet(null)}
         onCloseSwapFlow={() => setActiveSwapFlow(null)}
+        onViewReceipt={handleViewReceipt}
         swapPayload={activeSwapFlow}
       />
     </View>

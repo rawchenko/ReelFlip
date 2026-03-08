@@ -1,9 +1,11 @@
 import { semanticColors } from '@/constants/semantic-colors'
 import { activityDesignSpec } from '@/features/activity/activity-design-spec'
 import { ActivityScreenContent } from '@/features/activity/activity-screen-content'
+import type { ActivityEvent } from '@/features/activity/types'
 import { useActivityQuery } from '@/features/activity/use-activity-query'
 import { interFontFamily } from '@/constants/typography'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
+import { useRouter } from 'expo-router'
 import React, { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -53,11 +55,16 @@ function ActivityState({
 }
 
 export default function ActivityScreen() {
+  const router = useRouter()
   const { account, connect } = useMobileWallet()
   const [isConnectingWallet, setIsConnectingWallet] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const walletAddress = useMemo(() => account?.address.toString() ?? null, [account])
   const activityQuery = useActivityQuery(walletAddress)
+
+  const handleEventPress = useCallback((event: ActivityEvent) => {
+    router.push({ pathname: '/tx-details', params: { event: JSON.stringify(event) } })
+  }, [router])
 
   const handleConnectWallet = useCallback(async () => {
     if (isConnectingWallet) {
@@ -146,6 +153,7 @@ export default function ActivityScreen() {
         sections={activityQuery.sections}
         refreshing={activityQuery.isRefetching}
         onRefresh={handleRefresh}
+        onEventPress={handleEventPress}
       />
     </SafeAreaView>
   )

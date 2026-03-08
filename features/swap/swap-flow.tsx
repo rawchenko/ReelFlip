@@ -20,6 +20,7 @@ import type {
   SwapQuoteAdapter,
   SwapQuotePreview,
   SwapResult,
+  SwapSuccessResult,
 } from '@/features/swap/types'
 import Clipboard from '@react-native-clipboard/clipboard'
 import { Ionicons } from '@expo/vector-icons'
@@ -852,6 +853,7 @@ function SuccessScreen({
   onCopyShare,
   onCopySignature,
   onViewExplorer,
+  onViewReceipt,
   quote,
   result,
 }: {
@@ -859,6 +861,7 @@ function SuccessScreen({
   onCopyShare: () => void
   onCopySignature: () => void
   onViewExplorer: () => void
+  onViewReceipt?: () => void
   quote: SwapQuotePreview
   result: Extract<SwapResult, { kind: 'success' }>
 }) {
@@ -892,6 +895,11 @@ function SuccessScreen({
       <View style={styles.resultActions}>
         <SecondaryButton icon="share-social-outline" label="Share Trade" onPress={onCopyShare} />
         <PrimaryButton label="Back to Feed" onPress={onBackToFeed} />
+        {onViewReceipt ? (
+          <Pressable accessibilityRole="button" onPress={onViewReceipt} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
+            <Text style={styles.textAction}>View Receipt</Text>
+          </Pressable>
+        ) : null}
         <Pressable accessibilityRole="button" onPress={onViewExplorer} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
           <Text style={styles.textAction}>View on Explorer</Text>
         </Pressable>
@@ -991,12 +999,14 @@ function FailureScreen({
 export interface SwapFlowModalProps {
   adapter?: SwapQuoteAdapter
   onClose: () => void
+  onViewReceipt?: (result: SwapSuccessResult, quote: SwapQuotePreview) => void
   payload: SwapFlowPayload | null
 }
 
 export function SwapFlowModal({
   adapter = apiSwapQuoteAdapter,
   onClose,
+  onViewReceipt,
   payload,
 }: SwapFlowModalProps) {
   const { account, chain, signTransaction } = useMobileWallet()
@@ -1524,6 +1534,14 @@ export function SwapFlowModal({
     triggerSelectionHaptic()
   }, [executionResult])
 
+  const handleViewReceipt = useCallback(() => {
+    if (!onViewReceipt || executionResult?.kind !== 'success' || !quote) {
+      return
+    }
+
+    onViewReceipt(executionResult, quote)
+  }, [executionResult, onViewReceipt, quote])
+
   const handleRefreshPending = useCallback(async () => {
     if (executionResult?.kind !== 'pending') {
       return
@@ -1664,6 +1682,7 @@ export function SwapFlowModal({
             onCopyShare={handleCopyShare}
             onCopySignature={handleCopySignature}
             onViewExplorer={() => void handleViewExplorer()}
+            onViewReceipt={onViewReceipt ? handleViewReceipt : undefined}
             quote={quote}
             result={executionResult}
           />
@@ -1697,6 +1716,7 @@ export interface FeedInteractionOverlaysProps {
   actionPayload: FeedPlaceholderSheetPayload | null
   onCloseActionSheet: () => void
   onCloseSwapFlow: () => void
+  onViewReceipt?: (result: SwapSuccessResult, quote: SwapQuotePreview) => void
   swapPayload: SwapFlowPayload | null
 }
 
@@ -1704,12 +1724,13 @@ export function FeedInteractionOverlays({
   actionPayload,
   onCloseActionSheet,
   onCloseSwapFlow,
+  onViewReceipt,
   swapPayload,
 }: FeedInteractionOverlaysProps) {
   return (
     <>
       <FeedPlaceholderSheet onClose={onCloseActionSheet} payload={actionPayload} />
-      <SwapFlowModal onClose={onCloseSwapFlow} payload={swapPayload} />
+      <SwapFlowModal onClose={onCloseSwapFlow} onViewReceipt={onViewReceipt} payload={swapPayload} />
     </>
   )
 }

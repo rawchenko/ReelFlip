@@ -1,19 +1,13 @@
 import { activityDesignSpec } from '@/features/activity/activity-design-spec'
+import { legInitial } from '@/features/activity/utils'
 import { ActivityLeg, ActivityEvent } from '@/features/activity/types'
 import { interFontFamily } from '@/constants/typography'
 import React from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
 
 interface ActivityRowProps {
   item: ActivityEvent
-}
-
-function legInitial(leg: ActivityLeg): string {
-  if (leg.symbol.length === 0) {
-    return '?'
-  }
-
-  return leg.symbol.slice(0, 1).toUpperCase()
+  onPress?: (item: ActivityEvent) => void
 }
 
 function ActivityBadge({ leg, shifted = false }: { leg: ActivityLeg; shifted?: boolean }) {
@@ -28,12 +22,16 @@ function ActivityBadge({ leg, shifted = false }: { leg: ActivityLeg; shifted?: b
   )
 }
 
-export function ActivityRow({ item }: ActivityRowProps) {
+export function ActivityRow({ item, onPress }: ActivityRowProps) {
   const isTransfer = item.type === 'transfer'
   const isFailed = item.status === 'failed'
 
   return (
-    <View style={[styles.container, isFailed ? styles.containerFailed : null]}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress ? () => onPress(item) : undefined}
+      style={({ pressed }) => [styles.container, { opacity: isFailed ? 0.6 : pressed && onPress ? 0.7 : 1 }]}
+    >
       <View style={styles.badgesWrap}>
         {isTransfer ? (
           <ActivityBadge leg={item.receivedLeg} />
@@ -73,7 +71,7 @@ export function ActivityRow({ item }: ActivityRowProps) {
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   )
 }
 
@@ -118,9 +116,6 @@ const styles = StyleSheet.create({
     gap: activityDesignSpec.row.contentGap,
     height: activityDesignSpec.row.height,
     paddingHorizontal: activityDesignSpec.row.horizontalPadding,
-  },
-  containerFailed: {
-    opacity: 0.6,
   },
   mainCopy: {
     flex: 1,

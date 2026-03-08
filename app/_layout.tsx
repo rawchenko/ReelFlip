@@ -75,6 +75,7 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding-4" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding-5" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="tx-details" options={{ headerShown: false }} />
         <Stack.Screen name="debug" options={{ title: 'Debug' }} />
       </Stack>
       <StatusBar style="light" />
