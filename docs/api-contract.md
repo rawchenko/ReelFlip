@@ -1,19 +1,21 @@
-# ReelFlip API Contract (Draft)
+# ReelFlip API Contract
 
-Date: February 25, 2026  
-Status: Draft for discussion
+Date: 2026-02-25 (updated 2026-03-08)
+Status: Living document
 
-This document defines the API contract in two scopes:
+This document defines the API contract split into two sections:
 
-1. `Implemented now` (authoritative, matches current backend code).
-2. `Planned next` (proposal aligned to `docs/system-design.md`, not yet implemented).
+1. **Implemented** — matches current backend code and is authoritative.
+2. **Planned for MVP** — proposal, not yet implemented.
 
-## 1) Conventions
+## 1. Conventions
 
 - Base path: `/v1` for product APIs.
 - Content type: `application/json`.
-- Time format: ISO 8601 UTC strings (example: `2026-02-25T19:40:00.000Z`).
+- Time format: ISO 8601 UTC strings (e.g. `2026-02-25T19:40:00.000Z`).
 - Cursor values are opaque strings (clients must not parse them).
+- Nullability: fields marked `T | null` are always present in the response but may be `null`. Optional fields (`T?`) may be omitted entirely.
+- Numeric encoding: all prices, amounts, and market values are JSON `number` in REST responses. Swap/trade amounts use decimal `string` to avoid precision loss.
 - Error envelope:
 
 ```json
@@ -25,168 +27,226 @@ This document defines the API contract in two scopes:
 }
 ```
 
+Error codes: `BAD_REQUEST`, `INTERNAL`, `NOT_FOUND`, `UNAUTHORIZED` (planned), `RATE_LIMITED`, `QUOTE_EXPIRED` (planned), `RISK_BLOCKED` (planned).
+
 ### Local development base URL rules
 
 - Android emulator: `http://10.0.2.2:3001`
 - Real Android device: `http://<your-mac-lan-ip>:3001`
 - iOS simulator / local desktop: `http://127.0.0.1:3001`
 
-## 2) Implemented Now (Source of Truth)
+---
+
+## 2. Implemented Endpoints
 
 ### 2.1 `GET /health`
 
-Purpose: liveness + cache mode check.
+Liveness + cache mode check.
 
-Response `200`:
+**Response 200:**
 
 ```json
 {
   "status": "ok",
-  "cacheMode": "redis"
+  "cacheMode": "redis" | "memory-fallback"
 }
 ```
-
-`cacheMode` enum:
-- `redis`
-- `memory-fallback`
-
-Errors:
-- `500` with error envelope on unexpected server errors.
 
 ### 2.2 `GET /v1/feed`
 
-Purpose: paginated token feed with ranking and optional category filter.
+Paginated token feed with ranking and optional category filter.
 
-Query params:
+**Query params:**
 
-- `category` (optional): `trending | gainer | new | memecoin`
-- `minLifetimeHours` (optional): integer in `[0, 8760]`. When set, only pairs with known creation time and age >= this threshold are returned.
-- `limit` (optional): integer in `[1, FEED_MAX_LIMIT]` (default from `FEED_DEFAULT_LIMIT`; current default is `10`)
-- `cursor` (optional): opaque cursor from previous page
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `category` | `trending \| gainer \| new \| memecoin` | no | all | Filter by category |
+| `minLifetimeHours` | integer 0-8760 | no | - | Min pair age filter |
+| `limit` | integer 1-20 | no | 10 | Page size |
+| `cursor` | string | no | - | Pagination cursor |
 
-Headers in successful responses:
+**Response headers:** `X-Cache: HIT | MISS | STALE`, `X-Feed-Source: providers | seed`
 
-- `X-Cache`: `HIT | MISS | STALE`
-- `X-Feed-Source`: `providers | seed`
-
-Response `200`:
+**Response 200:**
 
 ```json
 {
-  "items": [
-    {
-      "mint": "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
-      "name": "Example Token",
-      "symbol": "EXMPL",
-      "description": "Example token description",
-      "imageUri": null,
-      "priceUsd": 0.1234,
-      "priceChange24h": 12.4,
-      "volume24h": 8450000,
-      "liquidity": 2100000,
-      "marketCap": 15000000,
-      "sparkline": [0.11, 0.113, 0.119, 0.1234],
-      "sparklineMeta": {
-        "window": "6h",
-        "interval": "5m",
-        "source": "historical_provider",
-        "points": 4,
-        "generatedAt": "2026-02-25T19:40:00.000Z"
-      },
-      "pairAddress": "A1B2C3...",
-      "tags": {
-        "trust": ["verified"],
-        "discovery": ["trending", "gainer"]
-      },
-      "labels": ["trending", "gainer"],
-      "sources": {
-        "price": "birdeye",
-        "marketCap": "birdeye",
-        "metadata": "helius",
-        "tags": ["jupiter", "internal_risk"]
-      },
-      "category": "trending",
-      "riskTier": "warn"
-    }
-  ],
-  "nextCursor": "eyJzbmFwc2hvdElkIjoiLi4u",
-  "generatedAt": "2026-02-25T19:40:00.000Z"
+  "items": [TokenFeedItem],
+  "nextCursor": "string | null",
+  "generatedAt": "ISO 8601"
 }
 ```
 
-`TokenFeedItem` schema:
+**TokenFeedItem:**
 
-- `mint`: `string`
-- `name`: `string`
-- `symbol`: `string`
-- `description`: `string | null`
-- `imageUri`: `string | null`
-- `priceUsd`: `number`
-- `priceChange24h`: `number`
-- `volume24h`: `number`
-- `liquidity`: `number`
-- `marketCap`: `number | null`
-- `sparkline`: `number[]`
-- `sparklineMeta`: `{ window: "6h"; interval: "1m" | "5m"; source: string; points: number; generatedAt: string } | null`
-  - Feed cards should treat this as a 6h, card-optimized sparkline series (currently emitted as real `5m` points when available).
-- `pairAddress`: `string | null`
-- `pairCreatedAtMs`: `number | null` (Unix epoch milliseconds; may be omitted when unavailable)
-- `tags`: `{ trust: string[]; discovery: ("trending" | "gainer" | "new" | "meme")[] }`
-- `labels`: `("trending" | "gainer" | "new" | "meme")[]` (backward-compat alias of `tags.discovery`)
-- `sources`: `{ price: "birdeye" | "dexscreener" | "seed"; marketCap: "birdeye" | "dexscreener_market_cap" | "dexscreener_fdv" | "seed" | "unavailable"; metadata: "helius" | "dexscreener" | "seed"; tags: string[] }`
-- `category`: `trending | gainer | new | memecoin`
-- `riskTier`: `block | warn | allow`
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | `string` | Token mint address |
+| `name` | `string` | Token name |
+| `symbol` | `string` | Token symbol |
+| `description` | `string \| null` | Token description |
+| `imageUri` | `string \| null` | Token image URL |
+| `priceUsd` | `number` | Current USD price |
+| `priceChange24h` | `number` | 24h price change % |
+| `volume24h` | `number` | 24h volume USD |
+| `liquidity` | `number` | Liquidity USD |
+| `marketCap` | `number \| null` | Market cap USD |
+| `sparkline` | `number[]` | 6h sparkline values |
+| `sparklineMeta` | `object \| null` | `{ window, interval, source, points, generatedAt }` |
+| `pairAddress` | `string \| null` | Primary trading pair |
+| `pairCreatedAtMs` | `number \| null` | Pair creation Unix ms |
+| `tags` | `object` | `{ trust: string[], discovery: string[] }` |
+| `labels` | `string[]` | Backward-compat alias of `tags.discovery` |
+| `sources` | `object` | `{ price, marketCap, metadata, tags }` — provenance |
+| `category` | `string` | Category classification |
+| `riskTier` | `block \| warn \| allow` | Risk assessment |
 
-`nextCursor`:
-- `string` when another page exists
-- `null` when there are no more items
+**Errors:** `400 BAD_REQUEST` (invalid params), `500 INTERNAL`.
 
-Error responses:
+### 2.3 `GET /v1/activity`
 
-- `400 BAD_REQUEST` for invalid request shape/semantics.
-- `500 INTERNAL` for unexpected server errors.
+Wallet transaction history via Helius.
 
-Current `400` messages emitted by backend:
+**Query params:**
 
-- `Invalid category. Expected one of: trending, gainer, new, memecoin`
-- `limit must be an integer.`
-- `limit must be between 1 and <max>.`
-- `minLifetimeHours must be an integer.`
-- `minLifetimeHours must be between 0 and 8760.`
-- `Cursor is invalid.`
-- `Cursor and limit must match.`
-- `Cursor and category must match.`
-- `Cursor and minLifetimeHours must match.`
-- `Cursor snapshot is no longer valid. Start from the first page.`
-- `Cursor offset is out of range.`
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `walletAddress` | string (Base58, 32-44 chars) | yes | - | Wallet public key |
+| `days` | integer 1-90 | no | 30 | History window |
+| `cursor` | string | no | - | Pagination cursor |
 
-## 3) Planned Next (Not Implemented Yet)
+**Response 200:**
 
-Source: `docs/system-design.md` sections 6 and 11.
+```json
+{
+  "events": [ActivityEvent],
+  "nextCursor": "string | undefined"
+}
+```
 
-Planned endpoints:
+**ActivityEvent:**
 
-- `POST /v1/quotes`
-- `POST /v1/trades/build`
-- `POST /v1/trades/submit`
-- `GET /v1/trades/:id/status`
-- `POST /v1/auth/challenge`
-- `POST /v1/auth/verify`
-- `POST /v1/auth/refresh`
-- `POST /v1/auth/logout`
-- `GET /v1/portfolio/:wallet`
-- `GET /v1/history/:wallet`
-- `GET /v1/risk/:mint`
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique event ID (txid + index) |
+| `txid` | `string` | Solana transaction signature |
+| `timestamp` | `string` | ISO 8601 |
+| `status` | `confirmed \| failed` | Transaction status |
+| `kind` | `swap \| transfer` | Event type |
+| `primary` | `{ mint, symbol, amount, direction }` | Primary token leg |
+| `secondary` | `{ mint, symbol, amount, direction } \| undefined` | Second leg (swaps) |
+| `counterparty` | `{ address, label? } \| undefined` | Counterparty (transfers) |
 
-Trade status enum (from system design):
-- `pending | simulating | submitted | confirmed | failed`
+### 2.4 `GET /v1/chart/:pairAddress`
 
-### 3.1 Proposal Stubs For Discussion
+Historical chart data for a single pair.
 
-These are draft payload shapes to lock before implementation.
+**Path params:** `pairAddress` (required).
+
+**Query params:**
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `interval` | `1s \| 1m` | no | `1m` | Candle interval |
+| `limit` | integer 1-360 | no | 120 | Max data points |
+
+**Response 200:**
+
+```json
+{
+  "pairAddress": "string",
+  "interval": "1m",
+  "generatedAt": "ISO 8601",
+  "source": "string",
+  "delayed": false,
+  "historyQuality": "real_backfill | runtime_only | partial | unavailable",
+  "points": [{ "time": 1234567890, "value": 0.1234 }]
+}
+```
+
+### 2.5 `POST /v1/chart/batch`
+
+Batch chart history for multiple pairs.
+
+**Request body:**
+
+```json
+{
+  "pairs": ["pairAddress1", "pairAddress2"],
+  "interval": "1m",
+  "limit": 120
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "interval": "1m",
+  "generatedAt": "ISO 8601",
+  "results": [{
+    "pairAddress": "string",
+    "delayed": false,
+    "status": "live | delayed | reconnecting | fallback_polling",
+    "source": "string",
+    "historyQuality": "real_backfill | runtime_only | partial | unavailable",
+    "points": [{ "time": 1234567890, "value": 0.1234 }]
+  }]
+}
+```
+
+### 2.6 `GET /v1/chart/stream` (Server-Sent Events)
+
+Realtime chart streaming.
+
+**Query params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `pairs` | string (comma-separated) | yes | Pair addresses to subscribe |
+| `interval` | `1s \| 1m` | no | Candle interval (default: `1m`) |
+
+**Header:** `last-event-id` (optional) for stream resumption.
+
+**Event types:** `snapshot`, `point_update`, `status`, `heartbeat` (every 15s).
+
+### 2.7 `WS /v1/chart/ws` (WebSocket)
+
+Preferred realtime transport. Same event types as SSE (`snapshot`, `point_update`, `status`, `heartbeat`).
+
+Client sends subscribe messages with pair addresses; server streams chart events.
+
+### 2.8 `GET /v1/image/proxy`
+
+Proxies token images with size and content-type validation.
+
+### 2.9 `GET /metrics`
+
+Backend operational metrics (feed, supabase, ingest, chart counters).
+
+---
+
+## 3. Planned for MVP (Not Yet Implemented)
+
+### 3.1 Auth (SIWS — Sign In With Solana)
+
+- `POST /v1/auth/challenge` -> `{ messageToSign, nonce, expiresAt }`
+- `POST /v1/auth/verify` `{ address, signature, nonce }` -> `{ token }`
+
+Feed and Chart endpoints remain public. Auth required for: Watchlist, Settings, Swap.
+
+### 3.2 Swap / Trade
+
+- `POST /v1/quotes` — Get Jupiter swap quote
+- `POST /v1/trades/build` — Build unsigned transaction
+- `POST /v1/trades/submit` — Submit signed transaction
+- `GET /v1/trades/:id/status` — Poll trade status
+
+Trade status enum: `pending | simulating | submitted | confirmed | failed`
+
+**Draft payload shapes:** see [mvp.md](./mvp.md) section 7 for sequence diagram.
 
 `POST /v1/quotes` request:
-
 ```json
 {
   "wallet": "walletPubkeyBase58",
@@ -198,70 +258,45 @@ These are draft payload shapes to lock before implementation.
 ```
 
 `POST /v1/quotes` response:
-
 ```json
 {
   "quoteId": "qt_123",
-  "expiresAt": "2026-02-25T19:45:00.000Z",
+  "expiresAt": "ISO 8601",
   "route": {},
   "riskTier": "warn"
 }
 ```
 
-`POST /v1/trades/build` request:
+`POST /v1/trades/build` request: `{ "quoteId": "qt_123", "wallet": "..." }`
+`POST /v1/trades/build` response: `{ "tradeIntentId": "ti_123", "unsignedTxBase64": "..." }`
 
-```json
-{
-  "quoteId": "qt_123",
-  "wallet": "walletPubkeyBase58"
-}
-```
+`POST /v1/trades/submit` request: `{ "tradeIntentId": "ti_123", "signedTxBase64": "..." }`
+`POST /v1/trades/submit` response: `{ "tradeId": "tr_123", "signature": "...", "status": "submitted" }`
 
-`POST /v1/trades/build` response:
+`GET /v1/trades/:id/status` response: `{ "tradeId": "tr_123", "status": "confirmed", "signature": "...", "updatedAt": "..." }`
 
-```json
-{
-  "tradeIntentId": "ti_123",
-  "unsignedTxBase64": "<base64>"
-}
-```
+### 3.3 Search
 
-`POST /v1/trades/submit` request:
+- `GET /v1/search?q=...` — Token search with autocomplete
 
-```json
-{
-  "tradeIntentId": "ti_123",
-  "signedTxBase64": "<base64>"
-}
-```
+### 3.4 Watchlist (requires auth)
 
-`POST /v1/trades/submit` response:
+- `GET /v1/watchlist` — Get user's watchlist
+- `POST /v1/watchlist` `{ mint }` — Add token
+- `DELETE /v1/watchlist/:mint` — Remove token
 
-```json
-{
-  "tradeId": "tr_123",
-  "signature": "solanaTxSignature",
-  "status": "submitted"
-}
-```
+### 3.5 Settings (requires auth)
 
-`GET /v1/trades/:id/status` response:
+- `GET /v1/settings` — Get user settings
+- `PUT /v1/settings` `{ slippageBps, baseCurrency, defaultPayToken? }` — Update settings
 
-```json
-{
-  "tradeId": "tr_123",
-  "status": "confirmed",
-  "signature": "solanaTxSignature",
-  "updatedAt": "2026-02-25T19:46:00.000Z"
-}
-```
+---
 
-## 4) Decisions To Lock Before Frontend/Backend Expansion
+## 4. Decisions Locked
 
-1. Nullability contract: keep `imageUri` / `pairAddress` as nullable (`null`) or switch to optional/omitted fields.
-2. Category naming: keep `gainer` (current code) or migrate to `gainers` consistently.
-3. Numeric encoding: use JSON numbers vs decimal strings for money/amounts in quote/trade endpoints.
-4. Auth scope: confirm whether feed remains public and which endpoints require SIWS access token.
-5. Idempotency: require idempotency key on trade build/submit.
-6. Error code taxonomy: finalize canonical codes beyond `BAD_REQUEST` and `INTERNAL` (for example `UNAUTHORIZED`, `RATE_LIMITED`, `QUOTE_EXPIRED`, `RISK_BLOCKED`).
-7. Versioning rule: define how breaking changes are introduced (`/v1` discipline vs `/v2` cutover).
+1. **Nullability:** `imageUri` and `pairAddress` are nullable (`T | null`), always present in response.
+2. **Category naming:** `gainer` (singular) is canonical. Keep as-is.
+3. **Numeric encoding:** REST uses JSON numbers; swap amounts use decimal strings.
+4. **Auth scope:** Feed and Chart are public. Watchlist, Settings, and Trade require SIWS token.
+5. **Idempotency:** Required on `POST /v1/trades/submit` via `Idempotency-Key` header.
+6. **API versioning:** `/v1` prefix. Breaking changes get `/v2`; additive changes stay in `/v1`.

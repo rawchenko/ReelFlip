@@ -1,9 +1,8 @@
-# Supabase Data Schema
+# ReelFlip Data Schema
 
-Date: March 5, 2026  
-Source project: `https://fudqujptiwtvaumadymw.supabase.co`  
-Schema: `public`  
-Scope: live schema snapshot (tables, view, keys, constraints, indexes, RLS)
+Date: March 5, 2026 (updated 2026-03-08)
+Source: Supabase Postgres (`public` schema)
+Scope: live schema snapshot — tables, view, keys, constraints, indexes, RLS, field ownership
 
 ## Entity Relationship Overview
 
@@ -277,3 +276,27 @@ Applied migrations currently registered in Supabase:
 - `20260305142904 stage2_token_domain_06_read_surface_hardening`
 - `20260305144957 stage2_token_domain_05_source_provenance_fix`
 - `20260305152235 stage2_token_domain_08_read_surface_fk_index_cleanup`
+
+## Field Ownership Summary
+
+Each field has a designated owner that controls writes. Provider precedence is resolved in backend merge logic.
+
+**Data providers (5 owners):** DexScreener, Birdeye, Helius, Backend derived, Ingest system.
+
+| Table | Key fields | Primary owner | Fallback |
+|-------|-----------|---------------|----------|
+| `tokens` | `name`, `symbol` | Helius | DexScreener |
+| `tokens` | `description`, `image_uri` | Helius | DexScreener (nullable) |
+| `token_pairs` | `pair_address`, `dex` | DexScreener | - |
+| `token_market_latest` | `price_usd`, `volume_24h`, `liquidity` | Birdeye | DexScreener |
+| `token_market_latest` | `market_cap` | Birdeye | DexScreener (nullable) |
+| `token_market_latest` | `primary_pair_address` | Backend derived | null |
+| `token_labels_latest` | `category`, `risk_tier` | Backend derived | Conservative defaults |
+| `token_labels_latest` | `trust_tags` | Helius + Jupiter | Empty array |
+| `token_sparklines_latest` | `sparkline`, `*` | Backend derived | Omit row |
+| `token_candles_1m` | OHLCV fields | Chart provider | Skip malformed |
+
+**Ownership rules:**
+- Source columns (`source_price`, `source_market_cap`, etc.) track which provider was used for each value.
+- `updated_at` bumps only on business value changes; `ingested_at` bumps on every write.
+- Nullability is chosen to protect stable read contracts and handle upstream gaps gracefully.

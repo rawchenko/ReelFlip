@@ -1,14 +1,14 @@
-# ReelFlip Current Application Architecture and Workflow
+# ReelFlip Architecture
 
-Last updated: March 4, 2026  
-Scope baseline: current code in this repository (`/Users/rawchenko/Documents/GitHub/ReelFlip`)
+Last updated: March 8, 2026
+Scope: current code in this repository
 
 ## 0. Executive Summary
 
 ReelFlip is currently a **feed-first mobile app** with realtime chart updates and optional Supabase persistence.
 
 - Frontend: Expo React Native app with TikTok-style vertical token feed.
-- Backend: Fastify service (`backend/src/index.ts`) exposing feed/chart/image endpoints.
+- Backend: Fastify service (`backend/src/index.ts`) exposing feed/chart/activity/image endpoints.
 - Data providers: DexScreener (primary discovery + price snapshots), Birdeye (market enrichment), Helius DAS (metadata), Jupiter token tags (trust tags), GeckoTerminal (historical candle backfill).
 - State + storage: Redis (cache + chart streams) with in-memory fallback; optional Supabase read-through/write-through for token/feed/chart domain.
 - Realtime: backend publishes chart events to Redis Streams; frontend consumes via WebSocket (`/v1/chart/ws`) with SSE and polling fallback.
@@ -87,6 +87,7 @@ flowchart LR
 
 - **Backend API (single Fastify process)**
 - Feed route: `/v1/feed`.
+- Activity route: `/v1/activity` (Helius-backed wallet transaction history).
 - Chart routes: `/v1/chart/:pairAddress`, `/v1/chart/batch`, `/v1/chart/stream`, `/v1/chart/ws`.
 - Image proxy route for token images: `/v1/image/proxy`.
 - Health/metrics: `/health`, `/metrics`.
@@ -200,7 +201,7 @@ Feed supports additional filter `minLifetimeHours`, which rejects entries lackin
 
 ### 4.3 Planned (Documented, Not Implemented)
 
-- `docs/api-contract.md` and `docs/system-design.md` define planned quote/build/submit/status APIs and Jupiter-based routing.
+- [api-contract.md](./api-contract.md) section 3 defines planned quote/build/submit/status APIs and Jupiter-based routing.
 
 ---
 
@@ -218,6 +219,11 @@ Feed supports additional filter `minLifetimeHours`, which rejects entries lackin
 - Serves pair and batch history.
 - Streams realtime events.
 - Backfills missing historical candles.
+
+- **Activity service**
+- Fetches wallet transaction history from Helius Enhanced Transactions API.
+- Parses raw Helius responses into normalized `ActivityEvent` objects (swap/transfer).
+- Supports cursor-based pagination and configurable history window (1-90 days).
 
 - **Image proxy service**
 - Proxies token images through backend with size/content-type checks.
@@ -266,18 +272,16 @@ Current migration baseline:
 - `feed_snapshot_items`
 - `v_token_feed` (view joining token domain tables for feed reconstruction)
 
-Stage 1 canonical target contract (docs finalized, to be implemented in Stage 2 migrations):
+Stage 2 schema (applied, current live schema):
 - `tokens` (metadata only)
 - `token_pairs` (canonical many-pairs table per mint)
 - `token_market_latest` (one-row latest market projection per mint with primary pair reference)
 - `token_labels_latest`
 - `token_sparklines_latest`
 - `token_candles_1m` (canonical key: `pair_address + time_sec`)
-- `v_token_feed` compatibility mapping preserved for app shape
+- `v_token_feed` compatibility view for app feed shape
 
-Contract references:
-- [docs/supabase-token-domain-stage1-contract.md](/Users/rawchenko/Documents/GitHub/ReelFlip/docs/supabase-token-domain-stage1-contract.md)
-- [docs/supabase-token-domain-field-ownership.md](/Users/rawchenko/Documents/GitHub/ReelFlip/docs/supabase-token-domain-field-ownership.md)
+Full schema details: [data-schema.md](./data-schema.md)
 
 ### 6.3 Caching Layers
 
