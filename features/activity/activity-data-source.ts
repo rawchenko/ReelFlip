@@ -1,3 +1,4 @@
+import { fetchActivity } from '@/features/activity/api/activity-client'
 import { createMockActivityEvents } from '@/features/activity/mock-activity'
 import { ActivityDataSource, ActivityListParams } from '@/features/activity/types'
 
@@ -15,8 +16,21 @@ function createMockDataSource(): ActivityDataSource {
   }
 }
 
-export function createActivityDataSource(): ActivityDataSource {
-  const mockEnabled = process.env.EXPO_PUBLIC_ACTIVITY_DEV_MOCK === 'true'
-  return mockEnabled ? createMockDataSource() : createEmptyDataSource()
+function createLiveDataSource(): ActivityDataSource {
+  return {
+    mode: 'live',
+    list: async (params: ActivityListParams) => {
+      const response = await fetchActivity({
+        walletAddress: params.walletAddress,
+        signal: params.signal,
+      })
+      return response.events
+    },
+  }
 }
 
+export function createActivityDataSource(): ActivityDataSource {
+  const mockEnabled = process.env.EXPO_PUBLIC_ACTIVITY_DEV_MOCK === 'true'
+  if (mockEnabled) return createMockDataSource()
+  return createLiveDataSource()
+}

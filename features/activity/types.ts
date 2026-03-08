@@ -1,4 +1,4 @@
-export type ActivityEventType = 'swap'
+export type ActivityEventType = 'swap' | 'transfer'
 export type ActivityEventSource = 'jupiter' | 'unknown'
 export type ActivityLegDirection = 'receive' | 'send'
 
@@ -9,15 +9,18 @@ export interface ActivityLeg {
   iconUri?: string
 }
 
+export type ActivityEventStatus = 'confirmed' | 'failed'
+
 export interface ActivityEvent {
   id: string
   timestampIso: string
   source: ActivityEventSource
   type: ActivityEventType
+  status: ActivityEventStatus
   primaryText: string
   secondaryText: string
   receivedLeg: ActivityLeg
-  sentLeg: ActivityLeg
+  sentLeg?: ActivityLeg
   txSignature?: string
 }
 
@@ -33,6 +36,6 @@ export interface ActivityListParams {
 }
 
 export interface ActivityDataSource {
-  mode: 'empty' | 'mock'
+  mode: 'empty' | 'mock' | 'live'
   list: (params: ActivityListParams) => Promise<ActivityEvent[]>
 }

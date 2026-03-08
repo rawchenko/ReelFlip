@@ -45,6 +45,7 @@ export interface BackendEnv {
   birdeyeTimeoutMs: number
   heliusApiKey?: string
   heliusDasUrl: string
+  heliusRestApiBaseUrl?: string
   heliusTimeoutMs: number
   tradeRpcUrl?: string
   tradeConfirmPollIntervalMs: number
@@ -90,6 +91,7 @@ export interface BackendEnv {
   rateLimitChartStreamPerMinute: number
   rateLimitTradesPerMinute: number
   rateLimitImageProxyPerMinute: number
+  rateLimitActivityPerMinute: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 }
 
@@ -213,6 +215,7 @@ const DEFAULTS = {
   rateLimitChartStreamPerMinute: 30,
   rateLimitTradesPerMinute: 60,
   rateLimitImageProxyPerMinute: 60,
+  rateLimitActivityPerMinute: 60,
   logLevel: 'info',
 } as const
 
@@ -380,6 +383,7 @@ export function loadEnv(): BackendEnv {
     birdeyeTimeoutMs: parseIntEnv('BIRDEYE_TIMEOUT_MS', DEFAULTS.birdeyeTimeoutMs, 200),
     heliusApiKey: process.env.HELIUS_API_KEY,
     heliusDasUrl: process.env.HELIUS_DAS_URL ?? DEFAULTS.heliusDasUrl,
+    heliusRestApiBaseUrl: process.env.HELIUS_REST_API_BASE_URL,
     heliusTimeoutMs: parseIntEnv('HELIUS_TIMEOUT_MS', DEFAULTS.heliusTimeoutMs, 200),
     tradeRpcUrl: process.env.TRADE_RPC_URL,
     tradeConfirmPollIntervalMs: parseIntEnv(
@@ -486,6 +490,11 @@ export function loadEnv(): BackendEnv {
     rateLimitImageProxyPerMinute: parseIntEnv(
       'RATE_LIMIT_IMAGE_PROXY_PER_MINUTE',
       DEFAULTS.rateLimitImageProxyPerMinute,
+      1,
+    ),
+    rateLimitActivityPerMinute: parseIntEnv(
+      'RATE_LIMIT_ACTIVITY_PER_MINUTE',
+      DEFAULTS.rateLimitActivityPerMinute,
       1,
     ),
     logLevel: parseLogLevel(),
