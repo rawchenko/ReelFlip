@@ -1,3 +1,6 @@
+import { alpha } from '@/constants/palette'
+import { semanticColors } from '@/constants/semantic-colors'
+
 export const homeDesignSpec = {
   header: {
     horizontalPadding: 24,
@@ -6,7 +9,7 @@ export const homeDesignSpec = {
     tabGap: 16,
     selectedTabOpacity: 1,
     mutedTabOpacity: 0.6,
-    gradientColors: ['rgba(0, 0, 0, 0.80)', 'rgba(0, 0, 0, 0)'] as const,
+    gradientColors: [alpha.black80, alpha.transparent] as const,
     searchIconSize: 24,
   },
   card: {
@@ -36,10 +39,10 @@ export const homeDesignSpec = {
     contentHeight: 60,
     activeOpacity: 1,
     inactiveOpacity: 0.5,
-    background: '#161616',
-    border: '#2A2A2A',
-    activeBorder: '#FFFFFF',
-    activeGradientTop: '#242424',
-    activeGradientBottom: '#161616',
+    background: semanticColors.tabBar.feedBackground,
+    border: semanticColors.tabBar.feedBorder,
+    activeBorder: semanticColors.tabBar.activeIndicator,
+    activeGradientTop: semanticColors.tabBar.feedGradientTop,
+    activeGradientBottom: semanticColors.tabBar.feedGradientBottom,
   },
 } as const

@@ -1,3 +1,4 @@
+import { semanticColors } from '@/constants/semantic-colors'
 import { activityDesignSpec } from '@/features/activity/activity-design-spec'
 import { ActivityScreenContent } from '@/features/activity/activity-screen-content'
 import { useActivityQuery } from '@/features/activity/use-activity-query'
@@ -175,7 +176,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 24,
     height: 48,
     justifyContent: 'center',
@@ -187,7 +188,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   primaryButtonText: {
-    color: '#000000',
+    color: semanticColors.button.buyText,
     fontFamily: interFontFamily.bold,
     fontSize: 16,
     lineHeight: 20,

@@ -1,4 +1,5 @@
 import { appStyles } from '@/constants/app-styles'
+import { semanticColors } from '@/constants/semantic-colors'
 import { useAccountTokenBalances } from '@/features/account/use-account-token-balances'
 import { useFeedChartRealtime } from '@/features/feed/chart/use-feed-chart-realtime'
 import { TokenCard } from '@/features/feed/token-card'
@@ -147,7 +148,7 @@ export function VerticalFeed({
             ? (
               <View style={styles.footerContainer}>
                 {isFetchingNextPage ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={semanticColors.icon.primary} />
                 ) : (
                   <Text style={styles.footerText}>Loading more...</Text>
                 )}
@@ -187,7 +188,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   footerText: {
-    color: '#9CA3AF',
+    color: semanticColors.text.quaternary,
     fontSize: 12,
     fontWeight: '500',
   },

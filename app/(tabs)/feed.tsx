@@ -274,7 +274,7 @@ export default function FeedScreen() {
               hitSlop={8}
               style={styles.searchButton}
             >
-              <Ionicons name="search-outline" size={homeDesignSpec.header.searchIconSize} color="#FFFFFF" />
+              <Ionicons name="search-outline" size={homeDesignSpec.header.searchIconSize} color={semanticColors.icon.primary} />
             </Pressable>
           </View>
         </LinearGradient>
@@ -331,12 +331,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   tabLabelMuted: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontWeight: '500',
     opacity: homeDesignSpec.header.mutedTabOpacity,
   },
   tabLabelSelected: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontWeight: '600',
     opacity: homeDesignSpec.header.selectedTabOpacity,
   },

@@ -2,6 +2,7 @@ import { Redirect, useRouter } from 'expo-router'
 import { useEffect, useMemo, useRef } from 'react'
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
@@ -112,31 +113,31 @@ const styles = StyleSheet.create({
     gap: 32,
   },
   screen: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   spinner: {
-    borderBottomColor: '#333333',
+    borderBottomColor: semanticColors.border.subtle,
     borderBottomWidth: 4,
-    borderLeftColor: '#333333',
+    borderLeftColor: semanticColors.border.subtle,
     borderLeftWidth: 4,
     borderRadius: 40,
-    borderRightColor: '#333333',
+    borderRightColor: semanticColors.border.subtle,
     borderRightWidth: 4,
-    borderTopColor: '#FFFFFF',
+    borderTopColor: semanticColors.text.headingOnDark,
     borderTopWidth: 4,
     height: 80,
     width: 80,
   },
   subtitle: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 20,
     textAlign: 'center',
   },
   title: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.bold,
     fontSize: 24,
     lineHeight: 30,

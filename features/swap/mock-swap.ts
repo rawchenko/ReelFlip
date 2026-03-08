@@ -1,3 +1,4 @@
+import { semanticColors } from '@/constants/semantic-colors'
 import type {
   SwapAssetOption,
   SwapCounterAssetSymbol,
@@ -23,7 +24,7 @@ const TOKEN_BALANCE_RANGE = 14_000
 
 const COUNTER_ASSET_OPTIONS: Record<SwapCounterAssetSymbol, SwapAssetOption> = {
   SKR: {
-    badgeColor: '#4ADE80',
+    badgeColor: semanticColors.assetBadge.skr,
     badgeText: 'K',
     balance: 1_244,
     name: 'Shark',
@@ -31,7 +32,7 @@ const COUNTER_ASSET_OPTIONS: Record<SwapCounterAssetSymbol, SwapAssetOption> = {
     symbol: 'SKR',
   },
   SOL: {
-    badgeColor: '#8B5CF6',
+    badgeColor: semanticColors.assetBadge.sol,
     badgeText: 'S',
     balance: 4.82,
     name: 'Solana',
@@ -39,7 +40,7 @@ const COUNTER_ASSET_OPTIONS: Record<SwapCounterAssetSymbol, SwapAssetOption> = {
     symbol: 'SOL',
   },
   USDC: {
-    badgeColor: '#2F80ED',
+    badgeColor: semanticColors.assetBadge.usdc,
     badgeText: '$',
     balance: 428.12,
     name: 'USD Coin',
@@ -87,7 +88,7 @@ function getTokenAssetView(
 ): SwapQuoteAssetView {
   return {
     amount,
-    badgeColor: '#FACC15',
+    badgeColor: semanticColors.assetBadge.default,
     badgeText: draft.token.symbol.slice(0, 1).toUpperCase(),
     balance: getMockTokenBalance(draft.token.symbol, draft.token.mint, draft.token.priceUsd),
     name: draft.token.name,

@@ -3,6 +3,8 @@ import { Redirect, useRouter } from 'expo-router'
 import { useCallback } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { alpha } from '@/constants/palette'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
@@ -48,7 +50,7 @@ export default function OnboardingFiveScreen() {
       <View style={styles.content}>
         <View style={styles.heroSection}>
           <View style={styles.heroIconWrap}>
-            <Ionicons color="#000000" name="checkmark" size={64} />
+            <Ionicons color={semanticColors.icon.onLight} name="checkmark" size={64} />
           </View>
           <View style={styles.copyWrap}>
             <Text style={styles.title}>{"You're all set"}</Text>
@@ -89,9 +91,9 @@ const styles = StyleSheet.create({
   },
   heroIconWrap: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 70,
-    boxShadow: '0px 0px 60px #FFFFFF33',
+    boxShadow: `0px 0px 60px ${alpha.white20}`,
     height: 140,
     justifyContent: 'center',
     width: 140,
@@ -107,23 +109,23 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 28,
     height: 56,
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#000000',
+    color: semanticColors.button.buyText,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 22,
   },
   screen: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   subtitle: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
@@ -131,7 +133,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   title: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.extraBold,
     fontSize: 32,
     letterSpacing: -0.5,

@@ -1,3 +1,4 @@
+import { alpha } from '@/constants/palette'
 import { semanticColors } from '@/constants/semantic-colors'
 import { LIGHTWEIGHT_CHARTS_STANDALONE_SCRIPT } from '@/features/feed/lightweight-charts-standalone'
 import { ChartPoint } from '@/features/feed/chart/types'
@@ -37,19 +38,19 @@ function buildChartHtml(positiveTrend: boolean, chartScript: string, feedMode: b
   const bullWick = semanticColors.chart.bullWick
   const bearBody = semanticColors.chart.bearBody
   const bearWick = semanticColors.chart.bearWick
-  const baselineTopLine = '#22d3a5'
-  const baselineBottomLine = '#ff3b57'
-  const baselineTopFillStrong = 'rgba(34, 211, 165, 0.32)'
-  const baselineTopFillSoft = 'rgba(34, 211, 165, 0.03)'
-  const baselineBottomFillStrong = 'rgba(255, 59, 87, 0.28)'
-  const baselineBottomFillSoft = 'rgba(255, 59, 87, 0.03)'
-  const referenceLineColor = 'rgba(226, 232, 240, 0.62)'
-  const horizontalGrid = feedMode ? 'rgba(120, 130, 150, 0.24)' : semanticColors.chart.grid
-  const verticalGrid = feedMode ? 'rgba(0, 0, 0, 0)' : semanticColors.chart.grid
-  const background = feedMode ? '#05070b' : semanticColors.chart.background
-  const text = feedMode ? 'rgba(185, 192, 205, 0.65)' : semanticColors.text.chartAxis
+  const baselineTopLine = semanticColors.chart.baselineGreenLine
+  const baselineBottomLine = semanticColors.chart.baselineRedLine
+  const baselineTopFillStrong = semanticColors.chart.baselineGreenFillStrong
+  const baselineTopFillSoft = semanticColors.chart.baselineGreenFillSoft
+  const baselineBottomFillStrong = semanticColors.chart.baselineRedFillStrong
+  const baselineBottomFillSoft = semanticColors.chart.baselineRedFillSoft
+  const referenceLineColor = semanticColors.chart.refLine
+  const horizontalGrid = feedMode ? semanticColors.chart.feedGrid : semanticColors.chart.grid
+  const verticalGrid = feedMode ? alpha.transparent : semanticColors.chart.grid
+  const background = feedMode ? semanticColors.chart.feedBackground : semanticColors.chart.background
+  const text = feedMode ? semanticColors.chart.feedText : semanticColors.text.chartAxis
   const priceLine = positiveTrend ? semanticColors.chart.bullFallback : semanticColors.chart.bearFallback
-  const crosshairLine = feedMode ? 'rgba(0, 0, 0, 0)' : priceLine
+  const crosshairLine = feedMode ? alpha.transparent : priceLine
 
   return `<!doctype html>
 <html>

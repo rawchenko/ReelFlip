@@ -3,6 +3,7 @@ import { Redirect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 
@@ -76,7 +77,7 @@ export default function OnboardingThreeScreen() {
       <View style={styles.content}>
         <View style={styles.heroSection}>
           <View style={styles.iconWrap}>
-            <Ionicons color="#FFFFFF" name="notifications-outline" size={48} />
+            <Ionicons color={semanticColors.icon.primary} name="notifications-outline" size={48} />
           </View>
           <View style={styles.copyWrap}>
             <Text style={styles.title}>Catch the Pump</Text>
@@ -147,8 +148,8 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     alignItems: 'center',
-    backgroundColor: '#111111',
-    borderColor: '#333333',
+    backgroundColor: semanticColors.app.backgroundPanel,
+    borderColor: semanticColors.border.subtle,
     borderRadius: 60,
     borderWidth: 1,
     height: 120,
@@ -160,19 +161,19 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 28,
     height: 56,
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#000000',
+    color: semanticColors.button.buyText,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 22,
   },
   screen: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   secondaryButton: {
@@ -182,13 +183,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButtonText: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 22,
   },
   subtitle: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
@@ -196,7 +197,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   title: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.extraBold,
     fontSize: 32,
     letterSpacing: -0.5,

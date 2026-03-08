@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(2, 6, 23, 0.55)',
+    backgroundColor: semanticColors.overlay.sheet,
   },
   sheet: {
     backgroundColor: semanticColors.app.backgroundElevated,

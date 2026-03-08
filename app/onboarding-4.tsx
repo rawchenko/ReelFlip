@@ -3,6 +3,7 @@ import { Redirect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import {
   DEFAULT_ONBOARDING_LAUNCH,
@@ -81,7 +82,7 @@ export default function OnboardingFourScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Default Slippage</Text>
-              <Ionicons color="#666666" name="information-circle-outline" size={20} />
+              <Ionicons color={semanticColors.icon.neutralMuted} name="information-circle-outline" size={20} />
             </View>
 
             <View style={styles.segmentRow}>
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
     width: 32,
   },
   currencyBadgeSelected: {
-    backgroundColor: '#333333',
+    backgroundColor: semanticColors.border.subtle,
   },
   currencyBadgeText: {
     fontFamily: interFontFamily.medium,
@@ -191,7 +192,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   currencyBadgeUnselected: {
-    backgroundColor: '#222222',
+    backgroundColor: semanticColors.app.backgroundDark,
   },
   currencyCard: {
     alignItems: 'center',
@@ -204,12 +205,12 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   currencyCardSelected: {
-    backgroundColor: '#1A1A1A',
-    borderColor: '#333333',
+    backgroundColor: semanticColors.app.backgroundPanelAlt,
+    borderColor: semanticColors.border.subtle,
   },
   currencyCardUnselected: {
-    backgroundColor: '#0A0A0A',
-    borderColor: '#222222',
+    backgroundColor: semanticColors.app.backgroundDeep,
+    borderColor: semanticColors.border.subtleDark,
   },
   currencyLabel: {
     fontFamily: interFontFamily.medium,
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   currencyTextSelected: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
   },
   currencyLeft: {
     alignItems: 'center',
@@ -236,19 +237,19 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 28,
     height: 56,
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#000000',
+    color: semanticColors.button.buyText,
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 22,
   },
   radioInner: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: semanticColors.text.headingOnDark,
     borderRadius: 5,
     height: 10,
     width: 10,
@@ -261,15 +262,15 @@ const styles = StyleSheet.create({
     width: 20,
   },
   radioOuterSelected: {
-    borderColor: '#FFFFFF',
+    borderColor: semanticColors.text.headingOnDark,
     borderWidth: 2,
   },
   radioOuterUnselected: {
-    borderColor: '#444444',
+    borderColor: semanticColors.border.subtleMid,
     borderWidth: 2,
   },
   screen: {
-    backgroundColor: '#000000',
+    backgroundColor: semanticColors.app.background,
     flex: 1,
   },
   section: {
@@ -281,7 +282,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sectionTitle: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.bold,
     fontSize: 16,
     lineHeight: 20,
@@ -301,13 +302,13 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
   },
   segmentButtonSelected: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
+    backgroundColor: semanticColors.button.buyBackground,
+    borderColor: semanticColors.button.buyBackground,
     borderWidth: 2,
   },
   segmentButtonUnselected: {
-    backgroundColor: '#111111',
-    borderColor: '#333333',
+    backgroundColor: semanticColors.app.backgroundPanel,
+    borderColor: semanticColors.border.subtle,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -319,23 +320,23 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   segmentTextMuted: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
   },
   segmentTextSelectedOnLight: {
-    color: '#000000',
+    color: semanticColors.text.onLight,
   },
   settingsWrap: {
     flex: 1,
     gap: 32,
   },
   subtitle: {
-    color: '#888888',
+    color: semanticColors.text.neutralMuted,
     fontFamily: interFontFamily.medium,
     fontSize: 16,
     lineHeight: 24,
   },
   title: {
-    color: '#FFFFFF',
+    color: semanticColors.text.headingOnDark,
     fontFamily: interFontFamily.extraBold,
     fontSize: 32,
     letterSpacing: -0.5,
