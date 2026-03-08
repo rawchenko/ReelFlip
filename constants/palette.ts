@@ -57,6 +57,7 @@ export const yellow = {
   50: '#FFFEF0',
   75: '#FFFDEE',
   100: '#FFF9C2',
+  150: '#FFF600',
   200: '#FFF433',
   300: '#F7E957',
   400: '#FACC15',
@@ -108,6 +109,10 @@ export const green = {
 // One-off named colors (too specific for a scale)
 // ---------------------------------------------------------------------------
 export const misc = {
+  swapCardBg: '#1A1A1E',
+  swapPillBg: '#2A2A30',
+  swapEyebrow: '#6E6E76',
+  swapSecondaryText: '#4A4A52',
   purple: '#5B5BD6',
   purpleBorder: 'rgba(196, 181, 253, 0.9)',
   chartDarkBg: '#05070b',
@@ -118,6 +123,10 @@ export const misc = {
   assetSolBadge: '#8B5CF6',
   assetUsdcBadge: '#2F80ED',
   disabledButtonBg: '#5A5A5A',
+  // iOS system colors (used in swap result screens)
+  iosRed: '#FF3B30',
+  iosGreen: '#34C759',
+  iosAmber: '#FFCC00',
   checkboxBorderMuted: '#555555',
   errorTextSoft: '#D77C7C',
   feedTabBg: '#161616',

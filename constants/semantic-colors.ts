@@ -27,6 +27,8 @@ export const semanticColors = {
     glassMedium: alpha.white7,
     glassStrong: alpha.white8,
     glassStrongBorder: alpha.white6,
+    solidCard: misc.swapCardBg,          // #1A1A1E — solid dark card
+    solidPill: misc.swapPillBg,          // #2A2A30 — solid pill surface
   },
 
   // ── Tab bar ───────────────────────────────────────────────────────────
@@ -78,6 +80,7 @@ export const semanticColors = {
     /** Gradient pair for primary CTA buttons */
     gradientStart: yellow[500],    // #E8DB00
     gradientEnd: yellow[200],      // #FFF433
+    ctaSolid: yellow[150],         // #FFF600 — solid CTA button
   },
 
   // ── Text ──────────────────────────────────────────────────────────────
@@ -109,6 +112,8 @@ export const semanticColors = {
     hint: alpha.white36,
     ghost: alpha.white32,
     disabled: alpha.white22,
+    eyebrow: misc.swapEyebrow,       // #6E6E76 — muted eyebrow label
+    cardSecondary: misc.swapSecondaryText, // #4A4A52 — subdued secondary text in cards
     errorSoft: misc.errorTextSoft,   // #D77C7C — muted error (onboarding)
   },
 
@@ -168,6 +173,18 @@ export const semanticColors = {
       background: neutral[900],    // #1E293B
       text: '#93C5FD',
     },
+  },
+
+  // ── Result heroes (swap outcome screens) ─────────────────────────────
+  resultHero: {
+    success: misc.iosGreen,             // #34C759
+    successRing: '#34C75926',
+    failure: misc.iosRed,               // #FF3B30
+    failureRing: '#FF3B3026',
+    pending: misc.iosAmber,             // #FFCC00
+    pendingRing: '#FFCC0026',
+    processing: yellow[150],            // #FFF600
+    processingRing: '#FFF60026',
   },
 
   // ── Overlays ──────────────────────────────────────────────────────────

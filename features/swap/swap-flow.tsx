@@ -1,6 +1,6 @@
 import { useAccountTokenBalances } from '@/features/account/use-account-token-balances'
 import { semanticColors } from '@/constants/semantic-colors'
-import { interFontFamily } from '@/constants/typography'
+import { interFontFamily, spaceGroteskFamily } from '@/constants/typography'
 import { FeedPlaceholderSheet, FeedPlaceholderSheetPayload } from '@/features/feed/feed-placeholder-sheet'
 import { apiSwapQuoteAdapter } from '@/features/swap/api/swap-client'
 import {
@@ -18,6 +18,7 @@ import type {
   SwapFlowPayload,
   SwapProgressStep,
   SwapQuoteAdapter,
+  SwapQuoteAssetView,
   SwapQuotePreview,
   SwapResult,
   SwapSuccessResult,
@@ -50,8 +51,6 @@ import { useNetwork } from '@/features/network/use-network'
 
 type SwapStage = 'entry' | 'confirm' | 'processing' | 'success' | 'failure' | 'pending'
 
-const ENTRY_PRESET_USD_VALUES = [25, 50, 100, 200]
-const SLIPPAGE_CHIPS = [50, 100, 200]
 const COUNTER_ASSET_MINTS: Record<string, { mint: string; decimals: number }> = {
   SOL: { mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
   USDC: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
@@ -163,37 +162,44 @@ function getImpactLabel(priceImpactPct: number): string {
   return 'Elevated'
 }
 
-function getStageTitle(stage: SwapStage, draft: SwapDraft | null): string {
-  if (!draft) {
-    return 'Swap'
+function resolveAssetImageUri(asset: SwapQuoteAssetView, draft: SwapDraft): string | undefined {
+  if (asset.imageUri) return undefined // already has image
+  if (asset.symbol === draft.token.symbol) {
+    return draft.token.imageUri ?? `https://tokens.jup.ag/token/${draft.token.mint}/icon`
   }
-
-  if (stage === 'entry') {
-    return `${draft.side === 'buy' ? 'Buy' : 'Sell'} $${draft.token.symbol}`
+  const counterMint = COUNTER_ASSET_MINTS[asset.symbol]
+  if (counterMint) {
+    return `https://tokens.jup.ag/token/${counterMint.mint}/icon`
   }
-
-  if (stage === 'confirm') {
-    return 'Confirm Swap'
-  }
-
-  if (stage === 'processing') {
-    return 'Processing Swap'
-  }
-
-  if (stage === 'pending') {
-    return 'Swap Pending'
-  }
-
-  return stage === 'success' ? 'Swap Complete' : 'Swap Failed'
+  return undefined
 }
 
-function buildPresetAmountValue(draft: SwapDraft, usdValue: number): number {
-  if (draft.side === 'buy') {
-    return usdValue
+function enrichQuoteTokenImage(quote: SwapQuotePreview, draft: SwapDraft): SwapQuotePreview {
+  let inputAsset = quote.inputAsset
+  let outputAsset = quote.outputAsset
+
+  const inputFallback = resolveAssetImageUri(inputAsset, draft)
+  if (inputFallback) {
+    inputAsset = { ...inputAsset, imageUri: inputFallback }
+  }
+  const outputFallback = resolveAssetImageUri(outputAsset, draft)
+  if (outputFallback) {
+    outputAsset = { ...outputAsset, imageUri: outputFallback }
   }
 
-  const tokenPrice = draft.token.priceUsd > 0 ? draft.token.priceUsd : 0.01
-  return usdValue / tokenPrice
+  if (inputAsset === quote.inputAsset && outputAsset === quote.outputAsset) {
+    return quote
+  }
+
+  return { ...quote, inputAsset, outputAsset }
+}
+
+function getStageTitle(stage: SwapStage): string {
+  if (stage === 'entry') return 'Swap Tokens'
+  if (stage === 'confirm') return 'Confirm Swap'
+  if (stage === 'processing') return 'Processing Swap'
+  if (stage === 'pending') return 'Swap Pending'
+  return stage === 'success' ? 'Swap Complete' : 'Swap Failed'
 }
 
 function sanitizeDraftAmount(amountText: string): string {
@@ -278,9 +284,16 @@ function Avatar({
   size?: number
 }) {
   const normalizedImageUri = useMemo(() => normalizeTokenImageUri(imageUri), [imageUri])
+  const [imageError, setImageError] = useState(false)
 
-  if (normalizedImageUri) {
-    return <Image source={{ uri: normalizedImageUri }} style={[styles.avatarImage, { height: size, width: size }]} />
+  if (normalizedImageUri && !imageError) {
+    return (
+      <Image
+        onError={() => setImageError(true)}
+        source={{ uri: normalizedImageUri }}
+        style={[styles.avatarImage, { height: size, width: size }]}
+      />
+    )
   }
 
   return (
@@ -291,27 +304,37 @@ function Avatar({
 }
 
 function SummaryRow({
+  dotColor,
+  isLast = false,
   label,
   value,
   valueTone = 'default',
 }: {
+  dotColor?: string
+  isLast?: boolean
   label: string
   value: string
-  valueTone?: 'default' | 'accent' | 'muted' | 'danger'
+  valueTone?: 'default' | 'accent' | 'muted' | 'danger' | 'success'
 }) {
+  const valueStyle = [
+    styles.summaryValue,
+    valueTone === 'accent' ? styles.summaryValueAccent : null,
+    valueTone === 'muted' ? styles.summaryValueMuted : null,
+    valueTone === 'danger' ? styles.summaryValueDanger : null,
+    valueTone === 'success' ? styles.summaryValueSuccess : null,
+  ]
+
   return (
-    <View style={styles.summaryRow}>
+    <View style={[styles.summaryRow, isLast ? styles.summaryRowLast : null]}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text
-        style={[
-          styles.summaryValue,
-          valueTone === 'accent' ? styles.summaryValueAccent : null,
-          valueTone === 'muted' ? styles.summaryValueMuted : null,
-          valueTone === 'danger' ? styles.summaryValueDanger : null,
-        ]}
-      >
-        {value}
-      </Text>
+      {dotColor ? (
+        <View style={styles.summaryValueWithDot}>
+          <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
+          <Text style={valueStyle}>{value}</Text>
+        </View>
+      ) : (
+        <Text style={valueStyle}>{value}</Text>
+      )}
     </View>
   )
 }
@@ -347,20 +370,28 @@ function AssetPill({
   badgeColor,
   badgeText,
   chevron = true,
+  imageUri,
   label,
   onPress,
 }: {
   badgeColor: string
   badgeText: string
   chevron?: boolean
+  imageUri?: string | null
   label: string
   onPress?: () => void
 }) {
+  const normalizedImageUri = useMemo(() => normalizeTokenImageUri(imageUri), [imageUri])
+  const [imageError, setImageError] = useState(false)
   const content = (
     <View style={styles.assetPill}>
-      <View style={[styles.assetPillBadge, { backgroundColor: badgeColor }]}>
-        <Text style={styles.assetPillBadgeText}>{badgeText}</Text>
-      </View>
+      {normalizedImageUri && !imageError ? (
+        <Image onError={() => setImageError(true)} source={{ uri: normalizedImageUri }} style={styles.assetPillImage} />
+      ) : (
+        <View style={[styles.assetPillBadge, { backgroundColor: badgeColor }]}>
+          <Text style={styles.assetPillBadgeText}>{badgeText}</Text>
+        </View>
+      )}
       <Text style={styles.assetPillLabel}>{label}</Text>
       {chevron ? <Ionicons color={swapDesignSpec.colors.iconPrimary} name="chevron-down" size={16} /> : null}
     </View>
@@ -492,20 +523,22 @@ function PrimaryButton({
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
-      <LinearGradient colors={[semanticColors.accent.gradientStart, semanticColors.accent.gradientEnd]} style={styles.primaryButton}>
+      <View style={styles.primaryButton}>
         <Text style={styles.primaryButtonText}>{label}</Text>
-      </LinearGradient>
+      </View>
     </Pressable>
   )
 }
 
 function SecondaryButton({
   icon,
+  iconPosition = 'left',
   label,
   onPress,
   tone = 'neutral',
 }: {
   icon?: keyof typeof Ionicons.glyphMap
+  iconPosition?: 'left' | 'right'
   label: string
   onPress: () => void
   tone?: 'neutral' | 'danger'
@@ -520,9 +553,19 @@ function SecondaryButton({
         pressed ? styles.pressableDown : null,
       ]}
     >
-      {icon ? <Ionicons color={swapDesignSpec.colors.iconPrimary} name={icon} size={18} /> : null}
+      {icon && iconPosition === 'left' ? <Ionicons color={swapDesignSpec.colors.secondaryOutlineText} name={icon} size={16} /> : null}
       <Text style={styles.secondaryButtonText}>{label}</Text>
+      {icon && iconPosition === 'right' ? <Ionicons color={swapDesignSpec.colors.secondaryOutlineText} name={icon} size={14} /> : null}
     </Pressable>
+  )
+}
+
+function SlippagePill({ slippageBps }: { slippageBps: number }) {
+  return (
+    <View style={styles.slippagePill}>
+      <Ionicons color={swapDesignSpec.colors.iconMuted} name="grid-outline" size={14} />
+      <Text style={styles.slippagePillText}>{formatSlippage(slippageBps)}</Text>
+    </View>
   )
 }
 
@@ -535,8 +578,6 @@ function EntryScreen({
   onAmountTextChange,
   onContinue,
   onCycleCounterAsset,
-  onPresetSelect,
-  onSlippageSelect,
   quote,
   walletBalance,
 }: {
@@ -548,8 +589,6 @@ function EntryScreen({
   onAmountTextChange: (nextValue: string) => void
   onContinue: () => void
   onCycleCounterAsset: () => void
-  onPresetSelect: (usdValue: number) => void
-  onSlippageSelect: (slippageBps: number) => void
   quote: SwapQuotePreview | null
   walletBalance?: number | null
 }) {
@@ -564,88 +603,70 @@ function EntryScreen({
       : 0
 
   return (
-    <View style={styles.stageBody}>
-      <View style={styles.tokenSummary}>
-        <Avatar badgeColor={swapDesignSpec.colors.sliderThumbBackground} badgeText={draft.token.symbol.slice(0, 1).toUpperCase()} imageUri={draft.token.imageUri} size={54} />
-        <View style={styles.tokenSummaryCopy}>
-          <View style={styles.tokenSummaryHeadingRow}>
-            <Text style={styles.tokenSummarySymbol}>{draft.token.symbol}</Text>
-            <View style={styles.labelBadge}>
-              <Text style={styles.labelBadgeText}>Trending</Text>
-            </View>
+    <View style={styles.entryBody}>
+      <View style={styles.cardsSection}>
+        <View style={styles.quoteCard}>
+          <View style={styles.cardTopRow}>
+            <Text style={styles.cardEyebrow}>You Pay</Text>
+            <Text style={styles.cardBalance}>
+              Balance: {formatAmount(displayBalance, inputAsset?.symbol ?? draft.counterAssetSymbol)} {inputAsset?.symbol ?? draft.counterAssetSymbol}
+            </Text>
           </View>
-          <Text style={styles.tokenSummaryMeta}>
-            {formatCurrency(draft.token.priceUsd)} · M.Cap {formatCurrency(draft.token.marketCap ?? 0)}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.quoteCard}>
-        <View style={styles.cardTopRow}>
-          <Text style={styles.cardEyebrow}>YOU PAY</Text>
-          <Text style={styles.cardBalance}>
-            Balance: {formatAmount(displayBalance, inputAsset?.symbol ?? draft.counterAssetSymbol)} {inputAsset?.symbol ?? draft.counterAssetSymbol}
-          </Text>
-        </View>
-        <View style={styles.amountRow}>
-          <TextInput
-            accessibilityLabel="Swap amount"
-            keyboardType="decimal-pad"
-            onChangeText={onAmountTextChange}
-            placeholder="0"
-            placeholderTextColor={swapDesignSpec.colors.inputPlaceholder}
-            selectionColor={swapDesignSpec.colors.accentPrimary}
-            style={styles.amountInput}
-            value={draft.amountText}
-          />
-          {inputAsset ? (
-            <AssetPill
-              badgeColor={inputAsset.badgeColor}
-              badgeText={inputAsset.badgeText}
-              chevron={canCycleOnPayCard}
-              label={inputAsset.symbol}
-              onPress={canCycleOnPayCard ? onCycleCounterAsset : undefined}
+          <View style={styles.amountRow}>
+            <TextInput
+              accessibilityLabel="Swap amount"
+              keyboardType="decimal-pad"
+              onChangeText={onAmountTextChange}
+              placeholder="0"
+              placeholderTextColor={swapDesignSpec.colors.inputPlaceholder}
+              selectionColor={swapDesignSpec.colors.accentPrimary}
+              style={styles.amountInput}
+              value={draft.amountText}
             />
-          ) : null}
+            {inputAsset ? (
+              <AssetPill
+                badgeColor={inputAsset.badgeColor}
+                badgeText={inputAsset.badgeText}
+                chevron={canCycleOnPayCard}
+                imageUri={inputAsset.imageUri}
+                label={inputAsset.symbol}
+                onPress={canCycleOnPayCard ? onCycleCounterAsset : undefined}
+              />
+            ) : null}
+          </View>
+          <Text style={styles.amountSubtext}>≈ {formatCurrency(inputAsset?.usdValue ?? 0)}</Text>
         </View>
-        <Text style={styles.amountSubtext}>≈ {formatCurrency(inputAsset?.usdValue ?? 0)}</Text>
-      </View>
 
-      <View style={styles.presetRow}>
-        {ENTRY_PRESET_USD_VALUES.map((value) => {
-          const presetAmount = buildPresetAmountValue(draft, value)
-          const selected = Math.abs(draft.amount - presetAmount) < 0.01
-          return <Chip key={value} label={`$${value}`} onPress={() => onPresetSelect(value)} selected={selected} />
-        })}
-      </View>
-
-      <View style={styles.swapDirectionBadge}>
-        <Ionicons color={semanticColors.text.quaternary} name="swap-vertical" size={18} />
-      </View>
-
-      <View style={[styles.quoteCard, styles.quoteCardReceive]}>
-        <View style={styles.cardTopRow}>
-          <Text style={styles.cardEyebrow}>YOU RECEIVE</Text>
-          <Text style={styles.cardBalance}>Min {formatAmount(quote?.minimumReceived ?? 0, outputAsset?.symbol)}</Text>
-        </View>
-        <View style={styles.amountRow}>
-          <View>
+        <View style={styles.quoteCard}>
+          <View style={styles.cardTopRow}>
+            <Text style={styles.cardEyebrow}>You Receive</Text>
+            <Text style={styles.cardBalance}>Min {formatAmount(quote?.minimumReceived ?? 0, outputAsset?.symbol)}</Text>
+          </View>
+          <View style={styles.amountRow}>
             <Text style={styles.receiveAmount}>{formatAmount(outputAsset?.amount ?? 0, outputAsset?.symbol)}</Text>
-            <Text style={styles.amountSubtext}>≈ {formatCurrency(outputAsset?.usdValue ?? 0)}</Text>
+            {outputAsset ? (
+              <AssetPill
+                badgeColor={outputAsset.badgeColor}
+                badgeText={outputAsset.badgeText}
+                chevron={!canCycleOnPayCard}
+                imageUri={outputAsset.imageUri}
+                label={outputAsset.symbol}
+                onPress={!canCycleOnPayCard ? onCycleCounterAsset : undefined}
+              />
+            ) : null}
           </View>
-          {outputAsset ? (
-            <AssetPill
-              badgeColor={outputAsset.badgeColor}
-              badgeText={outputAsset.badgeText}
-              chevron={!canCycleOnPayCard}
-              label={outputAsset.symbol}
-              onPress={!canCycleOnPayCard ? onCycleCounterAsset : undefined}
-            />
-          ) : null}
+          <Text style={styles.amountSubtext}>≈ {formatCurrency(outputAsset?.usdValue ?? 0)}</Text>
+        </View>
+
+        <View style={styles.swapDirectionBadge}>
+          <View style={styles.swapDirectionCircle}>
+            <Ionicons color={swapDesignSpec.colors.iconMuted} name="arrow-down" size={14} />
+          </View>
         </View>
       </View>
 
       <View style={styles.metricsCard}>
+        <SummaryRow label="Provider" value={quote?.providerLabel ? `${quote.providerLabel} via 0x` : 'Jupiter via 0x'} />
         <SummaryRow
           label="Rate"
           value={
@@ -655,23 +676,12 @@ function EntryScreen({
           }
         />
         <SummaryRow label="Fees" value={quote ? formatCurrency(quote.platformFeeUsd) : '--'} />
-        <SummaryRow label="Slippage" value={formatSlippage(draft.slippageBps)} />
         <SummaryRow
           label="Price Impact"
           value={quote ? `${quote.priceImpactPct.toFixed(2)}% ${getImpactLabel(quote.priceImpactPct)}` : '--'}
-          valueTone="accent"
+          valueTone="success"
         />
-      </View>
-
-      <View style={styles.slippageChipsRow}>
-        {SLIPPAGE_CHIPS.map((slippageBps) => (
-          <Chip
-            key={slippageBps}
-            label={formatSlippage(slippageBps)}
-            onPress={() => onSlippageSelect(slippageBps)}
-            selected={draft.slippageBps === slippageBps}
-          />
-        ))}
+        <SummaryRow isLast label="Slippage" value={formatSlippage(draft.slippageBps)} />
       </View>
 
       <View style={styles.entryFooter}>
@@ -681,19 +691,18 @@ function EntryScreen({
           onPress={onContinue}
           style={({ pressed }) => [pressed ? styles.pressableDown : null]}
         >
-          <LinearGradient
-            colors={isContinueEnabled ? [semanticColors.accent.gradientStart, semanticColors.accent.gradientEnd] : [semanticColors.disabled.gradientStart, semanticColors.disabled.gradientEnd]}
-            style={[styles.primaryButton, !isContinueEnabled ? styles.primaryButtonDisabled : null]}
-          >
+          <View style={[styles.primaryButton, !isContinueEnabled ? styles.primaryButtonDisabled : null]}>
             <Text style={styles.primaryButtonText}>
-              {draft.side === 'buy' ? 'Swap' : 'Sell'} {formatAmount(draft.amount, inputAsset?.symbol)} {inputAsset?.symbol ?? ''}{' '}
-              {'->'} {outputAsset?.symbol ?? ''}
+              Swap {formatAmount(draft.amount, inputAsset?.symbol)} {inputAsset?.symbol ?? ''} → {outputAsset?.symbol ?? ''}
             </Text>
-          </LinearGradient>
+          </View>
         </Pressable>
-        <Text style={styles.footerCaption}>
-          {footerMessage ?? (isQuoteLoading ? 'Refreshing quote...' : `Quote refreshes in ${quoteCountdown}s`)}
-        </Text>
+        <View style={styles.entryFooterQuote}>
+          <View style={styles.quoteRefreshDot} />
+          <Text style={styles.footerCaption}>
+            {footerMessage ?? (isQuoteLoading ? 'Refreshing quote...' : `Quote refreshes in ${quoteCountdown}s`)}
+          </Text>
+        </View>
       </View>
     </View>
   )
@@ -702,13 +711,11 @@ function EntryScreen({
 function ConfirmScreen({
   isBusy,
   nowMs,
-  onBack,
   onConfirm,
   quote,
 }: {
   isBusy: boolean
   nowMs: number
-  onBack: () => void
   onConfirm: () => void
   quote: SwapQuotePreview
 }) {
@@ -718,13 +725,13 @@ function ConfirmScreen({
     <View style={styles.stageBody}>
       <View style={styles.confirmHero}>
         <View style={styles.confirmTokenBlock}>
-          <Avatar badgeColor={quote.inputAsset.badgeColor} badgeText={quote.inputAsset.badgeText} />
+          <Avatar badgeColor={quote.inputAsset.badgeColor} badgeText={quote.inputAsset.badgeText} imageUri={quote.inputAsset.imageUri} size={56} />
           <Text style={styles.confirmHeroAmount}>{formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)}</Text>
           <Text style={styles.confirmHeroSymbol}>{quote.inputAsset.symbol}</Text>
         </View>
-        <Ionicons color={swapDesignSpec.colors.success} name="arrow-forward" size={28} />
+        <Ionicons color={swapDesignSpec.colors.iconMuted} name="arrow-forward" size={20} />
         <View style={styles.confirmTokenBlock}>
-          <Avatar badgeColor={quote.outputAsset.badgeColor} badgeText={quote.outputAsset.badgeText} />
+          <Avatar badgeColor={quote.outputAsset.badgeColor} badgeText={quote.outputAsset.badgeText} imageUri={quote.outputAsset.imageUri} size={56} />
           <Text style={styles.confirmHeroAmount}>{formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)}</Text>
           <Text style={styles.confirmHeroSymbol}>{quote.outputAsset.symbol}</Text>
         </View>
@@ -734,7 +741,7 @@ function ConfirmScreen({
         <SummaryRow label="You Send" value={`${formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)} ${quote.inputAsset.symbol}`} />
         <SummaryRow
           label="You Receive"
-          value={`${formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)} ${quote.outputAsset.symbol}`}
+          value={`~${formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)} ${quote.outputAsset.symbol}`}
           valueTone="accent"
         />
         <SummaryRow
@@ -745,20 +752,30 @@ function ConfirmScreen({
           label="Exchange Rate"
           value={`1 ${quote.inputAsset.symbol} ≈ ${formatAmount(quote.exchangeRate, quote.outputAsset.symbol)} ${quote.outputAsset.symbol}`}
         />
-        <SummaryRow label="Network Fee" value={`~${quote.networkFeeSol.toFixed(3)} SOL`} />
+        <SummaryRow label="Network Fee" value={`~$${quote.networkFeeSol.toFixed(3)} SOL`} />
         <SummaryRow label="Jupiter Fee" value={formatCurrency(quote.platformFeeUsd)} />
         <SummaryRow label="Price Impact" value={`${quote.priceImpactPct.toFixed(2)}%`} valueTone="accent" />
       </View>
 
       <View style={styles.confirmActions}>
-        <SecondaryButton icon="arrow-back" label="Back" onPress={onBack} />
-        <SlideToConfirm
-          disabled={false}
-          isBusy={isBusy}
-          label={isBusy ? 'Preparing swap...' : 'Slide to confirm swap'}
-          onComplete={onConfirm}
-        />
-        <Text style={styles.footerCaption}>Quote expires in {quoteCountdown}s</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isBusy}
+          onPress={onConfirm}
+          style={({ pressed }) => [{ alignSelf: 'stretch' as const }, pressed ? styles.pressableDown : null]}
+        >
+          <View style={[styles.primaryButton, isBusy ? styles.primaryButtonDisabled : null]}>
+            {isBusy ? (
+              <ActivityIndicator color={swapDesignSpec.colors.bodyOnLightSubtle} size="small" />
+            ) : (
+              <Text style={styles.primaryButtonText}>Confirm Swap</Text>
+            )}
+          </View>
+        </Pressable>
+        <View style={styles.confirmFooterRow}>
+          <Ionicons color={swapDesignSpec.colors.iconMuted} name="time-outline" size={14} />
+          <Text style={styles.footerCaption}>Quote expires in {quoteCountdown}s</Text>
+        </View>
       </View>
     </View>
   )
@@ -766,10 +783,12 @@ function ConfirmScreen({
 
 function ProgressItem({
   index,
+  isLast = false,
   step,
   status,
 }: {
   index: number
+  isLast?: boolean
   status: 'active' | 'complete' | 'pending'
   step: SwapProgressStep
 }) {
@@ -777,7 +796,7 @@ function ProgressItem({
   const isActive = status === 'active'
 
   return (
-    <View style={[styles.progressRow, isActive ? styles.progressRowActive : null]}>
+    <View style={[styles.progressRow, isLast ? styles.progressRowLast : null]}>
       <View
         style={[
           styles.progressBadge,
@@ -786,15 +805,23 @@ function ProgressItem({
         ]}
       >
         {isComplete ? (
-          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={16} />
+          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={12} />
         ) : isActive ? (
-          <ActivityIndicator color={swapDesignSpec.colors.accentPrimary} size="small" />
+          <View style={[styles.statusDot, { backgroundColor: swapDesignSpec.colors.iconOnLight }]} />
         ) : (
           <Text style={styles.progressBadgeText}>{index + 1}</Text>
         )}
       </View>
       <View style={styles.progressCopy}>
-        <Text style={[styles.progressTitle, status === 'pending' ? styles.progressTitlePending : null]}>{step.title}</Text>
+        <Text
+          style={[
+            styles.progressTitle,
+            isActive ? styles.progressTitleActive : null,
+            status === 'pending' ? styles.progressTitlePending : null,
+          ]}
+        >
+          {step.title}
+        </Text>
         <Text style={[styles.progressDescription, status === 'pending' ? styles.progressDescriptionPending : null]}>
           {step.description}
         </Text>
@@ -815,31 +842,31 @@ function ProcessingScreen({
   return (
     <View style={styles.processingRoot}>
       <View style={styles.processingHeroWrap}>
-        <View style={styles.processingOuterRing}>
-          <View style={styles.processingMiddleRing}>
-            <View style={styles.processingInnerRing}>
-              <ActivityIndicator color={swapDesignSpec.colors.iconOnLight} size="small" />
-            </View>
+        <View style={[styles.resultHeroRing, { borderColor: swapDesignSpec.colors.resultHeroProcessingRing }]}>
+          <View style={[styles.resultHeroInner, { backgroundColor: swapDesignSpec.colors.resultHeroProcessing }]}>
+            <Ionicons color={swapDesignSpec.colors.iconOnLight} name="sync" size={24} />
           </View>
         </View>
-        <Text style={styles.processingTitle}>Swapping tokens</Text>
-        {quote ? (
-          <Text style={styles.processingSubtitle}>
-            {formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)} {quote.inputAsset.symbol} {'->'}{' '}
-            {formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)} {quote.outputAsset.symbol}
-          </Text>
-        ) : null}
+        <View style={styles.processingHeroTextWrap}>
+          <Text style={styles.processingTitle}>Swapping tokens</Text>
+          {quote ? (
+            <Text style={styles.processingSubtitle}>
+              {formatAmount(quote.inputAsset.amount, quote.inputAsset.symbol)} {quote.inputAsset.symbol} {'→'}{' '}
+              {formatAmount(quote.outputAsset.amount, quote.outputAsset.symbol)} {quote.outputAsset.symbol}
+            </Text>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.progressCard}>
         {steps.map((step, index) => {
           const status = index < activeStepIndex ? 'complete' : index === activeStepIndex ? 'active' : 'pending'
-          return <ProgressItem key={step.id} index={index} status={status} step={step} />
+          return <ProgressItem key={step.id} index={index} isLast={index === steps.length - 1} status={status} step={step} />
         })}
       </View>
 
       <View style={styles.processingNotice}>
-        <Ionicons color={swapDesignSpec.colors.iconMuted} name="information-circle-outline" size={18} />
+        <Ionicons color={swapDesignSpec.colors.progressNoticeText} name="information-circle-outline" size={14} />
         <Text style={styles.processingNoticeText}>
           Solana transactions usually confirm in under 1 second. Do not close this screen.
         </Text>
@@ -852,7 +879,6 @@ function SuccessScreen({
   onBackToFeed,
   onCopyShare,
   onCopySignature,
-  onViewExplorer,
   onViewReceipt,
   quote,
   result,
@@ -860,7 +886,6 @@ function SuccessScreen({
   onBackToFeed: () => void
   onCopyShare: () => void
   onCopySignature: () => void
-  onViewExplorer: () => void
   onViewReceipt?: () => void
   quote: SwapQuotePreview
   result: Extract<SwapResult, { kind: 'success' }>
@@ -868,11 +893,15 @@ function SuccessScreen({
   return (
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
-        <View style={styles.resultHeroIconSuccess}>
-          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={44} />
+        <View style={[styles.resultHeroRing, { borderColor: swapDesignSpec.colors.resultHeroSuccessRing }]}>
+          <View style={[styles.resultHeroInner, { backgroundColor: swapDesignSpec.colors.resultHeroSuccess }]}>
+            <Ionicons color={swapDesignSpec.colors.iconOnLight} name="checkmark" size={22} />
+          </View>
         </View>
-        <Text style={styles.resultTitle}>Swap Complete!</Text>
-        <Text style={styles.resultSubtitle}>Your {quote.outputAsset.symbol} tokens have been added to your wallet.</Text>
+        <View style={styles.resultHeroTextWrap}>
+          <Text style={styles.resultTitle}>Swap Complete!</Text>
+          <Text style={styles.resultSubtitle}>Your {quote.outputAsset.symbol} tokens have been added to your wallet</Text>
+        </View>
       </View>
 
       <View style={styles.metricsCard}>
@@ -880,10 +909,10 @@ function SuccessScreen({
         <SummaryRow
           label="Received"
           value={`+${formatAmount(result.receivedAmount, result.receivedSymbol)} ${result.receivedSymbol}`}
-          valueTone="accent"
+          valueTone="success"
         />
-        <SummaryRow label="Status" value={result.statusLabel} valueTone="accent" />
-        <Pressable accessibilityRole="button" onPress={onCopySignature} style={({ pressed }) => [styles.summaryRow, pressed ? styles.pressableDown : null]}>
+        <SummaryRow dotColor={swapDesignSpec.colors.statusDotSuccess} label="Status" value={result.statusLabel} valueTone="success" />
+        <Pressable accessibilityRole="button" onPress={onCopySignature} style={({ pressed }) => [styles.summaryRow, styles.summaryRowLast, pressed ? styles.pressableDown : null]}>
           <Text style={styles.summaryLabel}>TX Hash</Text>
           <View style={styles.txHashRow}>
             <Text style={styles.summaryValue}>{result.signature}</Text>
@@ -897,12 +926,9 @@ function SuccessScreen({
         <PrimaryButton label="Back to Feed" onPress={onBackToFeed} />
         {onViewReceipt ? (
           <Pressable accessibilityRole="button" onPress={onViewReceipt} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
-            <Text style={styles.textAction}>View Receipt</Text>
+            <Text style={styles.textAction}>View in Activity</Text>
           </Pressable>
         ) : null}
-        <Pressable accessibilityRole="button" onPress={onViewExplorer} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
-          <Text style={styles.textAction}>View on Explorer</Text>
-        </Pressable>
       </View>
     </View>
   )
@@ -924,17 +950,21 @@ function PendingScreen({
   return (
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
-        <View style={styles.resultHeroIconSuccess}>
-          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="time-outline" size={40} />
+        <View style={[styles.resultHeroRing, { borderColor: swapDesignSpec.colors.resultHeroPendingRing }]}>
+          <View style={[styles.resultHeroInner, { backgroundColor: swapDesignSpec.colors.resultHeroPending }]}>
+            <Ionicons color={swapDesignSpec.colors.iconOnLight} name="time-outline" size={24} />
+          </View>
         </View>
-        <Text style={styles.resultTitle}>Awaiting Confirmation</Text>
-        <Text style={styles.resultSubtitle}>{result.message}</Text>
+        <View style={styles.resultHeroTextWrap}>
+          <Text style={styles.resultTitle}>Awaiting Confirmation</Text>
+          <Text style={styles.resultSubtitle}>{result.message}</Text>
+        </View>
       </View>
 
       <View style={styles.metricsCard}>
-        <SummaryRow label="Status" value={result.statusLabel} valueTone="accent" />
+        <SummaryRow dotColor={swapDesignSpec.colors.statusDotPending} label="Status" value={result.statusLabel} valueTone="accent" />
         <SummaryRow label="Trade ID" value={result.tradeId} />
-        <Pressable accessibilityRole="button" onPress={onCopySignature} style={({ pressed }) => [styles.summaryRow, pressed ? styles.pressableDown : null]}>
+        <Pressable accessibilityRole="button" onPress={onCopySignature} style={({ pressed }) => [styles.summaryRow, styles.summaryRowLast, pressed ? styles.pressableDown : null]}>
           <Text style={styles.summaryLabel}>TX Hash</Text>
           <View style={styles.txHashRow}>
             <Text style={styles.summaryValue}>{result.signature}</Text>
@@ -944,13 +974,30 @@ function PendingScreen({
       </View>
 
       <View style={styles.resultActions}>
-        <SecondaryButton icon="refresh" label="Refresh Status" onPress={onRefreshStatus} />
+        <SecondaryButton icon="refresh" iconPosition="right" label="Refresh Status" onPress={onRefreshStatus} />
         <PrimaryButton label="Back to Feed" onPress={onBackToFeed} />
         <Pressable accessibilityRole="button" onPress={onViewExplorer} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
           <Text style={styles.textAction}>View on Explorer</Text>
         </Pressable>
       </View>
     </View>
+  )
+}
+
+function DangerButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon?: keyof typeof Ionicons.glyphMap
+  label: string
+  onPress: () => void
+}) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.dangerButton, pressed ? styles.pressableDown : null]}>
+      {icon ? <Ionicons color={swapDesignSpec.colors.heading} name={icon} size={16} /> : null}
+      <Text style={styles.dangerButtonText}>{label}</Text>
+    </Pressable>
   )
 }
 
@@ -970,23 +1017,27 @@ function FailureScreen({
   return (
     <View style={styles.resultStageBody}>
       <View style={styles.resultHero}>
-        <View style={styles.resultHeroIconFailure}>
-          <Ionicons color={swapDesignSpec.colors.iconOnLight} name="close" size={42} />
+        <View style={[styles.resultHeroRing, { borderColor: swapDesignSpec.colors.resultHeroFailureRing }]}>
+          <View style={[styles.resultHeroInner, { backgroundColor: swapDesignSpec.colors.resultHeroFailure }]}>
+            <Ionicons color={swapDesignSpec.colors.iconOnLight} name="close" size={22} />
+          </View>
         </View>
-        <Text style={styles.resultTitle}>Swap Failed</Text>
-        <Text style={styles.resultSubtitle}>{result.message}</Text>
+        <View style={styles.resultHeroTextWrap}>
+          <Text style={styles.resultTitle}>Swap Failed</Text>
+          <Text style={styles.resultSubtitle}>{result.message}</Text>
+        </View>
       </View>
 
-      <View style={[styles.metricsCard, styles.failureCard]}>
+      <View style={styles.metricsCard}>
         <SummaryRow label="Error" value={result.title} valueTone="danger" />
-        <SummaryRow label="Attempted" value={quote ? `${quote.inputAsset.symbol} -> ${quote.outputAsset.symbol}` : result.attemptedPathLabel} />
-        <SummaryRow label="Suggestion" value={result.suggestion} />
+        <SummaryRow label="Attempted" value={quote ? `${quote.inputAsset.symbol} → ${quote.outputAsset.symbol}` : result.attemptedPathLabel} />
+        <SummaryRow isLast label="Suggestion" value={result.suggestion} />
       </View>
 
       <View style={styles.resultActions}>
-        <SecondaryButton icon="refresh" label="Try Again" onPress={onRetry} tone="danger" />
+        <DangerButton icon="refresh" label="Try Again" onPress={onRetry} />
         {result.reason === 'slippage_exceeded' ? (
-          <SecondaryButton icon="options-outline" label="Adjust Slippage" onPress={onAdjustSlippageAndRetry} />
+          <SecondaryButton icon="options-outline" label="Adjust Slippage & Retry" onPress={onAdjustSlippageAndRetry} tone="danger" />
         ) : null}
         <Pressable accessibilityRole="button" onPress={onBackToFeed} style={({ pressed }) => [pressed ? styles.pressableDown : null]}>
           <Text style={styles.textAction}>Back to Feed</Text>
@@ -1144,9 +1195,10 @@ export function SwapFlowModal({
           return null
         }
 
-        setQuote(nextQuote)
+        const enriched = enrichQuoteTokenImage(nextQuote, nextDraft)
+        setQuote(enriched)
         setQuoteErrorMessage(null)
-        return nextQuote
+        return enriched
       } catch (error) {
         if (requestIdRef.current === requestId) {
           setQuote(null)
@@ -1215,32 +1267,6 @@ export function SwapFlowModal({
           amountText,
         }
       })
-    },
-    [updateDraft],
-  )
-
-  const handlePresetSelect = useCallback(
-    (usdValue: number) => {
-      updateDraft((current) => {
-        const nextAmount = buildPresetAmountValue(current, usdValue)
-        triggerSelectionHaptic()
-        return {
-          ...current,
-          amount: nextAmount,
-          amountText: String(nextAmount >= 1 ? Math.round(nextAmount) : Number(nextAmount.toFixed(4))),
-        }
-      })
-    },
-    [updateDraft],
-  )
-
-  const handleSlippageSelect = useCallback(
-    (slippageBps: number) => {
-      updateDraft((current) => ({
-        ...current,
-        slippageBps: clampSlippageBps(slippageBps),
-      }))
-      triggerSelectionHaptic()
     },
     [updateDraft],
   )
@@ -1597,7 +1623,7 @@ export function SwapFlowModal({
     return null
   }
 
-  const stageTitle = getStageTitle(stage, draft)
+  const stageTitle = getStageTitle(stage)
   const shouldShowClose =
     stage === 'entry' || stage === 'confirm' || stage === 'success' || stage === 'failure' || stage === 'pending'
   const entryFooterMessage =
@@ -1627,20 +1653,24 @@ export function SwapFlowModal({
     >
       <SafeAreaView edges={['top', 'bottom']} style={styles.modalRoot}>
         <View style={styles.header}>
-          <Pressable
-            accessibilityLabel={stage === 'confirm' ? 'Back to swap entry' : 'Close swap flow'}
-            accessibilityRole="button"
-            disabled={stage === 'processing'}
-            onPress={stage === 'confirm' ? handleBackToEntry : onClose}
-            style={({ pressed }) => [styles.iconButton, pressed ? styles.pressableDown : null]}
-          >
-            <Ionicons color={swapDesignSpec.colors.iconPrimary} name="chevron-back" size={22} />
-          </Pressable>
-          <Text style={styles.headerTitle}>{stageTitle}</Text>
-          <View style={styles.providerBadge}>
-            <View style={styles.providerDot} />
-            <Text style={styles.providerBadgeText}>{quote?.providerLabel ?? 'Jupiter'}</Text>
-          </View>
+          {stage === 'processing' ? (
+            <View style={styles.headerSpacer} />
+          ) : (
+            <Pressable
+              accessibilityLabel={stage === 'confirm' ? 'Back to swap entry' : 'Close swap flow'}
+              accessibilityRole="button"
+              onPress={stage === 'confirm' ? handleBackToEntry : onClose}
+              style={({ pressed }) => [pressed ? styles.pressableDown : null]}
+            >
+              <Ionicons color={swapDesignSpec.colors.iconPrimary} name="chevron-back" size={22} />
+            </Pressable>
+          )}
+          <Text style={[styles.headerTitle, stage === 'processing' ? styles.headerTitleCentered : null]}>{stageTitle}</Text>
+          {stage === 'entry' ? (
+            <SlippagePill slippageBps={draft.slippageBps} />
+          ) : (
+            <View style={styles.headerSpacer} />
+          )}
         </View>
 
         {stage === 'entry' ? (
@@ -1654,8 +1684,6 @@ export function SwapFlowModal({
               onAmountTextChange={handleAmountTextChange}
               onContinue={handleContinueToConfirm}
               onCycleCounterAsset={handleCycleCounterAsset}
-              onPresetSelect={handlePresetSelect}
-              onSlippageSelect={handleSlippageSelect}
               quote={quote}
               walletBalance={inputWalletBalance}
             />
@@ -1667,7 +1695,6 @@ export function SwapFlowModal({
             <ConfirmScreen
               isBusy={isConfirming}
               nowMs={nowMs}
-              onBack={handleBackToEntry}
               onConfirm={handleConfirm}
               quote={quote}
             />
@@ -1681,7 +1708,6 @@ export function SwapFlowModal({
             onBackToFeed={handleBackToFeed}
             onCopyShare={handleCopyShare}
             onCopySignature={handleCopySignature}
-            onViewExplorer={() => void handleViewExplorer()}
             onViewReceipt={onViewReceipt ? handleViewReceipt : undefined}
             quote={quote}
             result={executionResult}
@@ -1739,9 +1765,10 @@ const styles = StyleSheet.create({
   amountInput: {
     color: swapDesignSpec.colors.heading,
     flex: 1,
-    fontFamily: interFontFamily.black,
-    fontSize: 52,
-    lineHeight: 58,
+    fontFamily: spaceGroteskFamily.bold,
+    fontSize: 36,
+    letterSpacing: -1.08,
+    lineHeight: 44,
     padding: 0,
   },
   amountRow: {
@@ -1751,17 +1778,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   amountSubtext: {
-    color: swapDesignSpec.colors.bodyMuted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 15,
-    marginTop: 6,
+    color: swapDesignSpec.colors.cardSecondaryText,
+    fontFamily: interFontFamily.regular,
+    fontSize: 13,
+    lineHeight: 16,
   },
   assetPill: {
     alignItems: 'center',
     backgroundColor: swapDesignSpec.colors.pillBackground,
-    borderColor: swapDesignSpec.colors.pillBorder,
     borderRadius: 22,
-    borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 10,
@@ -1776,12 +1801,17 @@ const styles = StyleSheet.create({
   },
   assetPillBadgeText: {
     color: swapDesignSpec.colors.bodyOnLight,
-    fontFamily: interFontFamily.bold,
+    fontFamily: spaceGroteskFamily.bold,
     fontSize: 12,
+  },
+  assetPillImage: {
+    borderRadius: 14,
+    height: 28,
+    width: 28,
   },
   assetPillLabel: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.bold,
+    fontFamily: spaceGroteskFamily.bold,
     fontSize: 18,
   },
   avatarFallback: {
@@ -1791,29 +1821,34 @@ const styles = StyleSheet.create({
   },
   avatarFallbackText: {
     color: swapDesignSpec.colors.bodyOnLight,
-    fontFamily: interFontFamily.bold,
+    fontFamily: spaceGroteskFamily.bold,
     fontSize: 18,
   },
   avatarImage: {
     backgroundColor: swapDesignSpec.colors.panelBackground,
     borderRadius: 999,
   },
+  cardsSection: {
+    gap: 8,
+    position: 'relative' as const,
+  },
   cardBalance: {
-    color: swapDesignSpec.colors.textFaint,
-    fontFamily: interFontFamily.medium,
-    fontSize: 15,
+    color: swapDesignSpec.colors.cardSecondaryText,
+    fontFamily: interFontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
   },
   cardEyebrow: {
-    color: swapDesignSpec.colors.accentMuted,
-    fontFamily: interFontFamily.bold,
-    fontSize: 13,
-    letterSpacing: 0.6,
+    color: swapDesignSpec.colors.eyebrowText,
+    fontFamily: spaceGroteskFamily.medium,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   cardTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
   },
   chip: {
     alignItems: 'center',
@@ -1835,7 +1870,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     color: swapDesignSpec.colors.accentSoft,
-    fontFamily: interFontFamily.bold,
+    fontFamily: spaceGroteskFamily.bold,
     fontSize: 15,
   },
   chipTextSelected: {
@@ -1843,8 +1878,9 @@ const styles = StyleSheet.create({
   },
   confirmActions: {
     alignItems: 'center',
-    gap: 18,
+    gap: 10,
     marginTop: 'auto',
+    paddingBottom: 4,
   },
   confirmHero: {
     alignItems: 'center',
@@ -1853,15 +1889,21 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     marginTop: 36,
   },
+  confirmFooterRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+  },
   confirmHeroAmount: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.black,
+    fontFamily: spaceGroteskFamily.bold,
     fontSize: 24,
     marginTop: 12,
   },
   confirmHeroSymbol: {
     color: swapDesignSpec.colors.bodyMuted,
-    fontFamily: interFontFamily.medium,
+    fontFamily: spaceGroteskFamily.medium,
     fontSize: 18,
     marginTop: 4,
   },
@@ -1869,18 +1911,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 120,
   },
+  entryBody: {
+    flex: 1,
+    gap: 8,
+  },
   entryFooter: {
     gap: 10,
-    marginTop: 4,
+    marginTop: 'auto',
+  },
+  entryFooterQuote: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
   },
   failureCard: {
-    backgroundColor: swapDesignSpec.colors.failureCardBackground,
-    borderColor: swapDesignSpec.colors.failureCardBorder,
+    // No tinted background — use standard card
   },
   footerCaption: {
-    color: swapDesignSpec.colors.captionMuted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 13,
+    color: swapDesignSpec.colors.cardSecondaryText,
+    fontFamily: interFontFamily.regular,
+    fontSize: 11,
+    lineHeight: 14,
     textAlign: 'center',
   },
   header: {
@@ -1888,73 +1940,54 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
     paddingTop: 4,
+  },
+  headerSpacer: {
+    width: 36,
   },
   headerTitle: {
     color: swapDesignSpec.colors.heading,
     flex: 1,
-    fontFamily: interFontFamily.bold,
-    fontSize: 26,
+    fontFamily: spaceGroteskFamily.semiBold,
+    fontSize: 17,
+    letterSpacing: -0.34,
+    lineHeight: 22,
+    textAlign: 'left',
+  },
+  headerTitleCentered: {
     textAlign: 'center',
-  },
-  iconButton: {
-    alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.pillBackground,
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  labelBadge: {
-    backgroundColor: swapDesignSpec.colors.labelBadgeBackground,
-    borderColor: swapDesignSpec.colors.labelBadgeBorder,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  labelBadgeText: {
-    color: swapDesignSpec.colors.accentPrimary,
-    fontFamily: interFontFamily.medium,
-    fontSize: 13,
   },
   metricsCard: {
     backgroundColor: swapDesignSpec.colors.cardBackground,
-    borderColor: swapDesignSpec.colors.cardBorder,
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingHorizontal: 0,
   },
   modalRoot: {
     backgroundColor: semanticColors.app.background,
     flex: 1,
-  },
-  presetRow: {
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
   },
   pressableDown: {
     opacity: 0.85,
   },
   primaryButton: {
     alignItems: 'center',
-    borderRadius: 18,
+    backgroundColor: swapDesignSpec.colors.ctaBackground,
+    borderRadius: 16,
     justifyContent: 'center',
-    minHeight: 58,
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 18,
   },
   primaryButtonDisabled: {
     opacity: 0.55,
   },
   primaryButtonText: {
     color: swapDesignSpec.colors.bodyOnLightSubtle,
-    fontFamily: interFontFamily.black,
-    fontSize: 18,
+    fontFamily: spaceGroteskFamily.semiBold,
+    fontSize: 16,
+    letterSpacing: -0.16,
+    lineHeight: 20,
     textAlign: 'center',
   },
   processingCopy: {
@@ -1962,220 +1995,181 @@ const styles = StyleSheet.create({
   },
   processingHeroWrap: {
     alignItems: 'center',
-    marginBottom: 26,
-    marginTop: 22,
+    gap: 20,
+    paddingTop: 32,
   },
-  processingInnerRing: {
+  processingHeroTextWrap: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.processingInnerRing,
-    borderRadius: 999,
-    height: 72,
-    justifyContent: 'center',
-    width: 72,
-  },
-  processingMiddleRing: {
-    alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.processingMiddleRing,
-    borderRadius: 999,
-    height: 108,
-    justifyContent: 'center',
-    width: 108,
+    gap: 6,
   },
   processingNotice: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.processingNoticeBackground,
-    borderColor: swapDesignSpec.colors.processingNoticeBorder,
-    borderRadius: 20,
-    borderWidth: 1,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     marginTop: 'auto',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 4,
+    paddingBottom: 36,
   },
   processingNoticeText: {
-    color: swapDesignSpec.colors.bodyMuted,
+    color: swapDesignSpec.colors.progressNoticeText,
     flex: 1,
-    fontFamily: interFontFamily.medium,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  processingOuterRing: {
-    alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.processingOuterRing,
-    borderRadius: 999,
-    height: 138,
-    justifyContent: 'center',
-    width: 138,
+    fontFamily: interFontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
   },
   processingRoot: {
     flex: 1,
-    paddingBottom: 24,
     paddingHorizontal: 16,
-    paddingTop: 24,
   },
   processingSubtitle: {
-    color: swapDesignSpec.colors.subtitleMuted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 18,
-    marginTop: 6,
+    color: swapDesignSpec.colors.resultSubtitle,
+    fontFamily: interFontFamily.regular,
+    fontSize: 14,
+    lineHeight: 18,
     textAlign: 'center',
   },
   processingTitle: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.black,
-    fontSize: 38,
-    lineHeight: 42,
-    marginTop: 22,
+    fontFamily: spaceGroteskFamily.bold,
+    fontSize: 24,
+    letterSpacing: -0.72,
+    lineHeight: 30,
     textAlign: 'center',
   },
   progressBadge: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.progressBadgeBackground,
+    borderColor: swapDesignSpec.colors.secondaryOutlineBorder,
     borderRadius: 999,
-    height: 34,
+    borderWidth: 1.5,
+    height: 28,
     justifyContent: 'center',
-    width: 34,
+    width: 28,
   },
   progressBadgeActive: {
-    borderColor: swapDesignSpec.colors.progressBadgeActiveBorder,
-    borderWidth: 1,
+    backgroundColor: swapDesignSpec.colors.progressActiveBackground,
+    borderWidth: 0,
   },
   progressBadgeComplete: {
-    backgroundColor: swapDesignSpec.colors.processingInnerRing,
+    backgroundColor: swapDesignSpec.colors.progressCompleteBackground,
+    borderWidth: 0,
   },
   progressBadgeText: {
-    color: swapDesignSpec.colors.textFaint,
-    fontFamily: interFontFamily.bold,
-    fontSize: 14,
+    color: swapDesignSpec.colors.progressTitlePending,
+    fontFamily: interFontFamily.medium,
+    fontSize: 11,
+    lineHeight: 14,
   },
   progressCard: {
     backgroundColor: swapDesignSpec.colors.cardBackground,
-    borderColor: swapDesignSpec.colors.cardBorder,
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 2,
-    padding: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
   },
   progressCopy: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   progressDescription: {
-    color: swapDesignSpec.colors.progressDescription,
+    color: swapDesignSpec.colors.progressDescDefault,
     fontFamily: interFontFamily.regular,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
   },
   progressDescriptionPending: {
-    color: swapDesignSpec.colors.textDisabled,
+    color: swapDesignSpec.colors.progressDescPending,
   },
   progressRow: {
     alignItems: 'center',
-    borderRadius: 14,
+    borderBottomColor: swapDesignSpec.colors.summaryRowDivider,
+    borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
-  progressRowActive: {
-    backgroundColor: swapDesignSpec.colors.cardBackground,
+  progressRowLast: {
+    borderBottomWidth: 0,
   },
+  progressRowActive: {},
   progressTitle: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.bold,
-    fontSize: 17,
-  },
-  progressTitlePending: {
-    color: swapDesignSpec.colors.textGhost,
-  },
-  providerBadge: {
-    alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.pillBackground,
-    borderColor: swapDesignSpec.colors.pillBorder,
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minWidth: 86,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  providerBadgeText: {
-    color: swapDesignSpec.colors.tintedLight,
     fontFamily: interFontFamily.medium,
     fontSize: 14,
+    lineHeight: 18,
   },
-  providerDot: {
-    backgroundColor: swapDesignSpec.colors.providerDot,
-    borderRadius: 999,
-    height: 7,
-    width: 7,
+  progressTitleActive: {
+    color: swapDesignSpec.colors.progressTitleActive,
+  },
+  progressTitlePending: {
+    color: swapDesignSpec.colors.progressTitlePending,
   },
   quoteCard: {
     backgroundColor: swapDesignSpec.colors.cardBackground,
-    borderColor: swapDesignSpec.colors.cardBorder,
-    borderRadius: 22,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    borderRadius: 16,
+    gap: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 18,
+    paddingTop: 18,
   },
-  quoteCardReceive: {
-    backgroundColor: swapDesignSpec.colors.quoteCardReceiveBackground,
+  quoteRefreshDot: {
+    backgroundColor: swapDesignSpec.colors.quoteRefreshDot,
+    borderRadius: 999,
+    height: 6,
+    width: 6,
   },
   receiveAmount: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.black,
-    fontSize: 46,
-    lineHeight: 52,
+    fontFamily: spaceGroteskFamily.bold,
+    fontSize: 36,
+    lineHeight: 44,
   },
   resultActions: {
-    gap: 14,
+    gap: 10,
     marginTop: 'auto',
+    paddingBottom: 28,
   },
   resultHero: {
     alignItems: 'center',
-    marginBottom: 28,
-    marginTop: 22,
+    gap: 20,
+    paddingBottom: 36,
+    paddingTop: 36,
   },
-  resultHeroIconFailure: {
+  resultHeroTextWrap: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.resultHeroFailure,
-    borderRadius: 999,
-    height: 124,
-    justifyContent: 'center',
-    marginBottom: 24,
-    width: 124,
+    gap: 8,
+    paddingHorizontal: 28,
   },
-  resultHeroIconSuccess: {
+  resultHeroRing: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.providerDot,
     borderRadius: 999,
-    height: 124,
+    borderWidth: 3,
+    height: 88,
     justifyContent: 'center',
-    marginBottom: 24,
-    width: 124,
+    width: 88,
+  },
+  resultHeroInner: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 64,
+    justifyContent: 'center',
+    width: 64,
   },
   resultStageBody: {
     flex: 1,
-    paddingBottom: 24,
     paddingHorizontal: 16,
-    paddingTop: 24,
   },
   resultSubtitle: {
-    color: swapDesignSpec.colors.textFaint,
-    fontFamily: interFontFamily.medium,
-    fontSize: 20,
-    lineHeight: 26,
+    color: swapDesignSpec.colors.resultSubtitle,
+    fontFamily: interFontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
   },
   resultTitle: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.black,
-    fontSize: 44,
-    lineHeight: 48,
-    marginBottom: 10,
+    fontFamily: spaceGroteskFamily.bold,
+    fontSize: 24,
+    letterSpacing: -0.72,
+    lineHeight: 30,
     textAlign: 'center',
   },
   scrollContent: {
@@ -2186,25 +2180,39 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: swapDesignSpec.colors.cardBackground,
-    borderColor: swapDesignSpec.colors.cardBorder,
-    borderRadius: 18,
-    borderWidth: 1,
+    borderColor: swapDesignSpec.colors.secondaryOutlineBorder,
+    borderRadius: 16,
+    borderWidth: 1.5,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     justifyContent: 'center',
-    minHeight: 56,
     paddingHorizontal: 18,
-    paddingVertical: 15,
+    paddingVertical: 16,
   },
   secondaryButtonDanger: {
-    backgroundColor: swapDesignSpec.colors.secondaryButtonDangerBackground,
-    borderColor: swapDesignSpec.colors.secondaryButtonDangerBorder,
+    backgroundColor: swapDesignSpec.colors.cardBackground,
+    borderColor: swapDesignSpec.colors.cardBackground,
   },
   secondaryButtonText: {
+    color: swapDesignSpec.colors.secondaryOutlineText,
+    fontFamily: spaceGroteskFamily.semiBold,
+    fontSize: 15,
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: swapDesignSpec.colors.dangerButtonBackground,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  dangerButtonText: {
     color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.bold,
-    fontSize: 17,
+    fontFamily: spaceGroteskFamily.semiBold,
+    fontSize: 16,
+    letterSpacing: -0.16,
   },
   sliderThumb: {
     alignItems: 'center',
@@ -2235,7 +2243,7 @@ const styles = StyleSheet.create({
   },
   sliderTrackLabel: {
     color: swapDesignSpec.colors.sliderLabel,
-    fontFamily: interFontFamily.bold,
+    fontFamily: spaceGroteskFamily.semiBold,
     fontSize: 22,
     paddingLeft: 88,
     textAlign: 'center',
@@ -2243,82 +2251,98 @@ const styles = StyleSheet.create({
   sliderTrackLabelBusy: {
     paddingLeft: 72,
   },
-  slippageChipsRow: {
+  slippagePill: {
+    alignItems: 'center',
+    backgroundColor: swapDesignSpec.colors.pillBackground,
+    borderRadius: 14,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  slippagePillText: {
+    color: swapDesignSpec.colors.bodyMuted,
+    fontFamily: spaceGroteskFamily.medium,
+    fontSize: 13,
   },
   stageBody: {
     flex: 1,
     gap: 16,
   },
+  statusDot: {
+    borderRadius: 999,
+    height: 6,
+    width: 6,
+  },
   summaryLabel: {
-    color: swapDesignSpec.colors.captionMuted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 17,
+    color: swapDesignSpec.colors.eyebrowText,
+    fontFamily: interFontFamily.regular,
+    fontSize: 13,
+    lineHeight: 16,
   },
   summaryRow: {
     alignItems: 'center',
-    borderBottomColor: swapDesignSpec.colors.summaryRowBorder,
+    borderBottomColor: swapDesignSpec.colors.summaryRowDivider,
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  summaryRowLast: {
+    borderBottomWidth: 0,
   },
   summaryValue: {
-    color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.bold,
-    fontSize: 17,
+    color: swapDesignSpec.colors.summaryValueDefault,
+    fontFamily: interFontFamily.medium,
+    fontSize: 13,
     flexShrink: 1,
+    lineHeight: 16,
     textAlign: 'right',
   },
   summaryValueAccent: {
     color: swapDesignSpec.colors.accentSoft,
   },
   summaryValueDanger: {
-    color: semanticColors.text.danger,
+    color: swapDesignSpec.colors.resultHeroFailure,
   },
   summaryValueMuted: {
     color: swapDesignSpec.colors.bodyMuted,
   },
+  summaryValueSuccess: {
+    color: swapDesignSpec.colors.resultHeroSuccess,
+  },
+  summaryValueWithDot: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
   swapDirectionBadge: {
     alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: swapDesignSpec.colors.swapDirectionBackground,
-    borderRadius: 22,
-    height: 44,
+    left: 0,
+    marginTop: -21,
+    position: 'absolute',
+    right: 0,
+    top: '50%',
+    zIndex: 1,
+  },
+  swapDirectionCircle: {
+    alignItems: 'center',
+    backgroundColor: swapDesignSpec.colors.pillBackground,
+    borderColor: swapDesignSpec.colors.cardBackground,
+    borderRadius: 999,
+    borderWidth: 3,
+    height: 42,
     justifyContent: 'center',
-    width: 44,
+    width: 42,
   },
   textAction: {
-    color: swapDesignSpec.colors.textAction,
-    fontFamily: interFontFamily.medium,
-    fontSize: 17,
+    color: swapDesignSpec.colors.textActionMuted,
+    fontFamily: interFontFamily.regular,
+    fontSize: 13,
+    lineHeight: 16,
+    paddingTop: 4,
     textAlign: 'center',
-  },
-  tokenSummary: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  tokenSummaryCopy: {
-    flex: 1,
-  },
-  tokenSummaryHeadingRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  tokenSummaryMeta: {
-    color: swapDesignSpec.colors.bodyMuted,
-    fontFamily: interFontFamily.medium,
-    fontSize: 17,
-    marginTop: 4,
-  },
-  tokenSummarySymbol: {
-    color: swapDesignSpec.colors.heading,
-    fontFamily: interFontFamily.black,
-    fontSize: 34,
-    lineHeight: 38,
   },
   txHashRow: {
     alignItems: 'center',

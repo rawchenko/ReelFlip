@@ -1,4 +1,4 @@
-import { alpha } from '@/constants/palette'
+import { alpha, green, misc } from '@/constants/palette'
 import { semanticColors } from '@/constants/semantic-colors'
 
 /**
@@ -40,12 +40,22 @@ export const swapDesignSpec = {
     // ── Surfaces ─────────────────────────────────────────────────
     background: semanticColors.app.background,
     panelBackground: semanticColors.app.backgroundPanel,
-    cardBackground: semanticColors.surface.glass,
-    cardBorder: semanticColors.surface.glassBorder,
+    cardBackground: semanticColors.surface.solidCard,
+    cardBorder: 'transparent',
 
     // ── Asset pill / icon button ─────────────────────────────────
-    pillBackground: semanticColors.surface.glassStrong,
-    pillBorder: semanticColors.surface.glassStrongBorder,
+    pillBackground: semanticColors.surface.solidPill,
+    pillBorder: 'transparent',
+
+    // ── CTA button ──────────────────────────────────────────────
+    ctaBackground: semanticColors.accent.ctaSolid,
+
+    // ── Eyebrow labels ──────────────────────────────────────────
+    eyebrowText: semanticColors.text.eyebrow,
+    cardSecondaryText: semanticColors.text.cardSecondary,
+
+    // ── Quote refresh ───────────────────────────────────────────
+    quoteRefreshDot: semanticColors.text.success,
 
     // ── Accent surfaces ──────────────────────────────────────────
     chipBackground: semanticColors.accent.backgroundWarm,
@@ -98,8 +108,39 @@ export const swapDesignSpec = {
     providerDot: semanticColors.accent.primary,
 
     // ── Result icons ─────────────────────────────────────────────
-    resultHeroSuccess: semanticColors.accent.primary,
-    resultHeroFailure: semanticColors.status.danger.buttonBackground,
+    resultHeroSuccess: semanticColors.resultHero.success,
+    resultHeroSuccessRing: semanticColors.resultHero.successRing,
+    resultHeroFailure: semanticColors.resultHero.failure,
+    resultHeroFailureRing: semanticColors.resultHero.failureRing,
+    resultHeroPending: semanticColors.resultHero.pending,
+    resultHeroPendingRing: semanticColors.resultHero.pendingRing,
+    resultHeroProcessing: semanticColors.resultHero.processing,
+    resultHeroProcessingRing: semanticColors.resultHero.processingRing,
+
+    // ── Status dots ─────────────────────────────────────────────
+    statusDotSuccess: semanticColors.resultHero.success,
+    statusDotPending: semanticColors.resultHero.pending,
+
+    // ── Button refinements ──────────────────────────────────────
+    dangerButtonBackground: misc.iosRed,
+    secondaryOutlineBorder: misc.swapPillBg,       // #2A2A30
+    secondaryOutlineText: '#CDCDCD',
+
+    // ── Result text refinements ─────────────────────────────────
+    resultSubtitle: misc.swapEyebrow,              // #6E6E76
+    summaryValueDefault: '#CDCDCD',
+    textActionMuted: misc.swapSecondaryText,       // #4A4A52
+    summaryRowDivider: 'rgba(255, 255, 255, 0.06)',
+
+    // ── Processing progress refinements ─────────────────────────
+    progressCompleteBackground: semanticColors.resultHero.success,
+    progressActiveBackground: semanticColors.resultHero.processing,
+    progressTitleActive: semanticColors.resultHero.processing,
+    progressTitleComplete: '#FFFFFF',
+    progressTitlePending: misc.swapSecondaryText,  // #4A4A52
+    progressDescDefault: misc.swapSecondaryText,   // #4A4A52
+    progressDescPending: '#3A3A40',
+    progressNoticeText: '#3A3A40',
 
     // ── Icon colors (for Ionicons color prop) ────────────────────
     iconPrimary: semanticColors.icon.primary,
