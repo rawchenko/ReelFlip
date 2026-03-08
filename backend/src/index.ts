@@ -55,6 +55,9 @@ import {
 } from './trade/trade.jupiter.js'
 import { registerTradeRoutes } from './trade/trade.route.js'
 import { TradeAssetRegistry } from './trade/trade.assets.js'
+import { HeliusTransactionClient } from './activity/activity.helius-client.js'
+import { ActivityService } from './activity/activity.service.js'
+import { registerActivityRoutes } from './activity/activity.route.js'
 
 const env = loadEnv()
 
@@ -547,6 +550,28 @@ await registerTradeRoutes(app, {
   tradeBuildService,
   tradeStatusService,
   tradeSubmitService,
+})
+
+const heliusTransactionClient = new HeliusTransactionClient(
+  {
+    apiKey: env.heliusApiKey,
+    dasUrl: env.heliusDasUrl,
+    restApiBaseUrl: env.heliusRestApiBaseUrl,
+    timeoutMs: env.heliusTimeoutMs,
+  },
+  app.log,
+)
+const activityMintResolver = {
+  async getSymbol(mint: string): Promise<string> {
+    const descriptor = await tradeMintInfoClient.getMintDescriptor(mint)
+    return descriptor.symbol
+  },
+}
+const activityService = new ActivityService(heliusTransactionClient, activityMintResolver, app.log)
+
+await registerActivityRoutes(app, {
+  activityService,
+  rateLimitActivityPerMinute: env.rateLimitActivityPerMinute,
 })
 
 app.get('/health', async () => {

@@ -29,11 +29,19 @@ function ActivityBadge({ leg, shifted = false }: { leg: ActivityLeg; shifted?: b
 }
 
 export function ActivityRow({ item }: ActivityRowProps) {
+  const isTransfer = item.type === 'transfer'
+
   return (
     <View style={styles.container}>
       <View style={styles.badgesWrap}>
-        <ActivityBadge leg={item.sentLeg} />
-        <ActivityBadge leg={item.receivedLeg} shifted />
+        {isTransfer ? (
+          <ActivityBadge leg={item.receivedLeg} />
+        ) : (
+          <>
+            <ActivityBadge leg={item.sentLeg ?? item.receivedLeg} />
+            <ActivityBadge leg={item.receivedLeg} shifted />
+          </>
+        )}
       </View>
 
       <View style={styles.mainCopy}>
@@ -46,12 +54,17 @@ export function ActivityRow({ item }: ActivityRowProps) {
       </View>
 
       <View style={styles.amountsWrap}>
-        <Text style={styles.receivedAmount} numberOfLines={1}>
+        <Text
+          style={item.receivedLeg.direction === 'receive' ? styles.receivedAmount : styles.sentAmount}
+          numberOfLines={1}
+        >
           {item.receivedLeg.amountDisplay}
         </Text>
-        <Text style={styles.sentAmount} numberOfLines={1}>
-          {item.sentLeg.amountDisplay}
-        </Text>
+        {!isTransfer && item.sentLeg && (
+          <Text style={styles.sentAmount} numberOfLines={1}>
+            {item.sentLeg.amountDisplay}
+          </Text>
+        )}
       </View>
     </View>
   )
