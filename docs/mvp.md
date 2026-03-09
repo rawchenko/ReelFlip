@@ -1,6 +1,6 @@
 # ReelFlip — MVP Spec
 
-Date: 2026-02-27 (updated 2026-03-08)
+Date: 2026-02-27 (updated 2026-03-09)
 Status: In Progress
 
 ## 1. MVP Goal
@@ -88,7 +88,7 @@ Segments: `For You / Trending / Watchlist`. Header: Search icon. Token Card: tap
 
 States: `L` (initial load), `E` (no items / watchlist empty), `X` (network error) + retry.
 
-> Note: Buy/Sell button currently opens a placeholder sheet. Real swap flow is not yet wired.
+> Note: Buy/Sell buttons open the full swap modal with live Jupiter quotes and wallet signing. Watchlist segment tab shows a placeholder message — requires backend Watchlist API.
 
 ### 4.3 Search (Stack Screen) — TODO
 
@@ -96,15 +96,15 @@ Search input + Results list: tap -> Token Details, Buy/Sell quick -> Swap modal.
 
 States: `E` (no results), `X` (network error) + retry.
 
-### 4.4 Token Details (Stack Screen) — PARTIAL
+### 4.4 Token Details (Stack Screen) — TODO
 
 Chart with time ranges (1H / 1D / 1W minimum). Metrics: volume, market cap, price change. Actions: watchlist toggle, buy, sell.
 
 States: `L` (loading details), `X` + retry.
 
-> Note: Chart and realtime streaming are implemented. Metrics display and watchlist toggle are partial. Buy/Sell -> Swap modal is not yet wired.
+> Note: No dedicated Token Details screen exists. Chart and realtime streaming are implemented inline on feed cards. A standalone screen with metrics, watchlist toggle, and Buy/Sell → Swap wiring is still needed.
 
-### 4.5 Swap Modal (Popup) — TODO
+### 4.5 Swap Modal (Popup) — DONE
 
 Entry points: Feed card, Search results, Token Details.
 
@@ -114,31 +114,35 @@ After success/close, return to origin screen. "View receipt" button navigates to
 
 States: `L` (quoting/building), `X` (quote/build/sign/send error).
 
-> Note: Backend trade stubs exist (`/trade/` module) but endpoints are not registered. Jupiter integration code exists but is not wired end-to-end.
+> Note: Full 6-stage swap flow implemented (`features/swap/swap-flow.tsx`). Live Jupiter quotes via `POST /v1/quotes`, transaction building via `/v1/trades/build`, wallet signing via Seeker `signTransaction`, submission via `/v1/trades/submit`, and status polling via `/v1/trades/:tradeId/status`. Slippage reads from user's Settings preference. Slide-to-confirm gesture, haptic feedback, idempotency keys, and error handling (wallet rejection, quote expiry, simulation failure) all functional. Currently wired from Feed cards only; Search and Token Details entry points depend on those screens being built.
 
-### 4.6 Activity (Tab) — IN PROGRESS
+### 4.6 Activity (Tab) — DONE
 
 Scope: `Swaps / Transfers` only, 30 days. Grouping: `Today`, `This Week`, `Earlier`. Swap row shows both legs. Transfer row shows one leg + counterparty. Tap -> Transaction Details.
 
 States: `L`, `E`, `X` + retry.
 
-> Note: Backend `GET /v1/activity` endpoint is implemented via Helius. Frontend has type definitions and mock UI. Live data integration is in progress (REE-9).
+> Note: Live Helius data connected end-to-end (REE-9). `useActivityQuery` polls `GET /v1/activity` with 5s stale time. Activity events grouped by date. Tapping a row navigates to Transaction Details with full event data. Dev mock mode available via `EXPO_PUBLIC_ACTIVITY_DEV_MOCK=true`.
 
-### 4.7 Transaction Details (Stack Screen) — TODO
+### 4.7 Transaction Details (Stack Screen) — DONE
 
 Status, amounts, tokens, tx hash (copy), fee, timestamp. Optional "View on explorer" link.
 
 States: `L`, `X` + retry.
 
-### 4.8 Profile (Tab) — PARTIAL
+> Note: Fully implemented at `app/tx-details.tsx`. Shows status badge (Confirmed/Failed), transaction type, sent/received legs with icons, detail table (type, status, source, date, TX hash), copy-to-clipboard for signature, and "View on Explorer" button using cluster-aware URLs. Accessible from Activity rows and swap "View receipt".
+
+### 4.8 Profile (Tab) — PARTIAL (UI done, data mock)
 
 Header: wallet summary (.skr name, address copy) + Settings icon. Tabs: Holdings (token/asset list, tap -> Token Details), Watchlist manage (remove/unwatch, tap -> Token Details).
 
-> Note: Placeholder UI exists. Wallet summary, Holdings via Helius, and Watchlist management are not yet implemented.
+> Note: Full UI implemented matching Paper design — wallet header, portfolio balance, allocation bar, tab-switched Assets and Watchlist card lists, Settings navigation. Currently uses hardcoded mock data (`features/profile/mock-profile.ts`). Remaining: wire real wallet balances (Helius), implement watchlist management (requires backend Watchlist API).
 
-### 4.9 Settings (Stack Screen) — TODO
+### 4.9 Settings (Stack Screen) — DONE
 
-Settings: slippage default, base currency, disconnect wallet.
+Settings: slippage default, base currency, network cluster, wallet, biometrics, price alerts, reset app.
+
+> Note: Fully implemented with main screen (Trading, Security, Network, About, Danger zone sections) and 4 sub-screens (Slippage with auto/1%/2%/custom, Base Currency, Solana Network, Wallet). Custom slippage input with decimal-pad keyboard. Animated toggle for biometrics/alerts. Reset confirmation dialog clears all state. All preferences persist via OnboardingProvider + AsyncStorage. Slippage setting connected to swap execution flow.
 
 ## 5. Data Contracts
 
@@ -235,9 +239,9 @@ interface WatchlistEntry {
 
 Full API details: see [api-contract.md](./api-contract.md).
 
-Implemented: `GET /health`, `GET /v1/feed`, `GET /v1/activity`, Chart endpoints (REST + WebSocket + SSE).
+Implemented: `GET /health`, `GET /v1/feed`, `GET /v1/activity`, Chart endpoints (REST + WebSocket + SSE), `POST /v1/quotes`, `POST /v1/trades/build`, `POST /v1/trades/submit`, `GET /v1/trades/:tradeId/status`.
 
-Planned for MVP: Auth (`/v1/auth/*`), Swap (`/v1/quotes`, `/v1/trades/*`), Search (`/v1/search`), Watchlist (`/v1/watchlist`), Settings (`/v1/settings`).
+Planned for MVP: Auth (`/v1/auth/*`), Search (`/v1/search`), Watchlist (`/v1/watchlist`). Settings are currently client-side only (AsyncStorage).
 
 ## 7. Swap Flow (Sequence)
 
