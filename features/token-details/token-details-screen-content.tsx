@@ -22,6 +22,8 @@ interface TokenDetailsScreenContentProps {
   activity?: TokenActivityEvent[]
   onBuyPress?: () => void
   onSellPress?: () => void
+  isFollowing?: boolean
+  onFollowToggle?: () => void
 }
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -86,6 +88,8 @@ export function TokenDetailsScreenContent({
   activity = [],
   onBuyPress,
   onSellPress,
+  isFollowing,
+  onFollowToggle,
 }: TokenDetailsScreenContentProps) {
   const router = useRouter()
   const { points, loading, timeRange, setTimeRange } = useTokenChart(token.pairAddress)
@@ -112,8 +116,10 @@ export function TokenDetailsScreenContent({
               <Text style={styles.headerSymbol}>{token.symbol}</Text>
             </View>
           </View>
-          <Pressable style={styles.followButton}>
-            <Text style={styles.followText}>Follow</Text>
+          <Pressable style={[styles.followButton, isFollowing && styles.followButtonActive]} onPress={onFollowToggle}>
+            <Text style={[styles.followText, isFollowing && styles.followTextActive]}>
+              {isFollowing ? 'Following' : 'Follow'}
+            </Text>
           </Pressable>
         </View>
 
@@ -121,10 +127,20 @@ export function TokenDetailsScreenContent({
         <View style={styles.priceSection}>
           <Text style={styles.priceText}>{formatPrice(token.priceUsd)}</Text>
           <View style={styles.changeRow}>
-            <Text style={[styles.changeText, { color: positiveTrend ? spec.colors.positiveChange : spec.colors.negativeChange }]}>
+            <Text
+              style={[
+                styles.changeText,
+                { color: positiveTrend ? spec.colors.positiveChange : spec.colors.negativeChange },
+              ]}
+            >
               {formatAbsoluteChange(token.priceUsd, token.priceChange24h)}
             </Text>
-            <Text style={[styles.changeText, { color: positiveTrend ? spec.colors.positiveChange : spec.colors.negativeChange }]}>
+            <Text
+              style={[
+                styles.changeText,
+                { color: positiveTrend ? spec.colors.positiveChange : spec.colors.negativeChange },
+              ]}
+            >
               ({formatPercent(token.priceChange24h)})
             </Text>
             <Text style={styles.periodText}>24h</Text>
@@ -146,7 +162,9 @@ export function TokenDetailsScreenContent({
             <View style={styles.positionCard}>
               <View style={styles.positionCol}>
                 <Text style={styles.positionLabel}>Balance</Text>
-                <Text style={styles.positionValue}>{balance} {token.symbol}</Text>
+                <Text style={styles.positionValue}>
+                  {balance} {token.symbol}
+                </Text>
               </View>
               <View style={styles.positionColEnd}>
                 <Text style={styles.positionLabel}>Value</Text>
@@ -245,13 +263,7 @@ function TokenHeaderImage({ imageUri, symbol }: { imageUri?: string | null; symb
   const hasImage = typeof imageUri === 'string' && imageUri.length > 0
 
   if (hasImage) {
-    return (
-      <Image
-        source={{ uri: imageUri }}
-        style={styles.headerImage}
-        resizeMode="cover"
-      />
-    )
+    return <Image source={{ uri: imageUri }} style={styles.headerImage} resizeMode="cover" />
   }
 
   return (
@@ -270,7 +282,17 @@ function InfoRow({ label, value, mono, last }: { label: string; value: string; m
   )
 }
 
-function SecurityRow({ label, value, status, last }: { label: string; value: string; status?: boolean; last?: boolean }) {
+function SecurityRow({
+  label,
+  value,
+  status,
+  last,
+}: {
+  label: string
+  value: string
+  status?: boolean
+  last?: boolean
+}) {
   const isGreen = status === true
   return (
     <View style={[styles.securityRow, !last && styles.infoRowBorder]}>
@@ -287,7 +309,12 @@ function ActivityRow({ event }: { event: TokenActivityEvent }) {
   const isBuy = event.type === 'buy'
   return (
     <View style={styles.activityRow}>
-      <View style={[styles.activityIconContainer, { backgroundColor: isBuy ? spec.colors.activityBuyBg : spec.colors.activitySellBg }]}>
+      <View
+        style={[
+          styles.activityIconContainer,
+          { backgroundColor: isBuy ? spec.colors.activityBuyBg : spec.colors.activitySellBg },
+        ]}
+      >
         <Ionicons
           name={isBuy ? 'arrow-up-outline' : 'arrow-down-outline'}
           size={spec.activity.iconSize}
@@ -383,11 +410,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: spec.colors.followBorder,
   },
+  followButtonActive: {
+    backgroundColor: spec.colors.followActiveBackground,
+    borderColor: spec.colors.followActiveBorder,
+  },
   followText: {
     fontFamily: interFontFamily.medium,
     fontSize: spec.header.followFontSize,
     lineHeight: spec.header.followLineHeight,
     color: spec.colors.followText,
+  },
+  followTextActive: {
+    color: spec.colors.followActiveText,
   },
 
   // Price

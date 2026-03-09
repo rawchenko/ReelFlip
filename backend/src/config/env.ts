@@ -93,6 +93,7 @@ export interface BackendEnv {
   rateLimitImageProxyPerMinute: number
   rateLimitActivityPerMinute: number
   rateLimitAuthPerMinute: number
+  rateLimitWatchlistPerMinute: number
   jwtSecret: string
   authTokenTtlSeconds: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
@@ -220,6 +221,7 @@ const DEFAULTS = {
   rateLimitImageProxyPerMinute: 60,
   rateLimitActivityPerMinute: 60,
   rateLimitAuthPerMinute: 10,
+  rateLimitWatchlistPerMinute: 60,
   authTokenTtlSeconds: 86_400,
   logLevel: 'info',
 } as const
@@ -505,6 +507,11 @@ export function loadEnv(): BackendEnv {
     rateLimitAuthPerMinute: parseIntEnv(
       'RATE_LIMIT_AUTH_PER_MINUTE',
       DEFAULTS.rateLimitAuthPerMinute,
+      1,
+    ),
+    rateLimitWatchlistPerMinute: parseIntEnv(
+      'RATE_LIMIT_WATCHLIST_PER_MINUTE',
+      DEFAULTS.rateLimitWatchlistPerMinute,
       1,
     ),
     jwtSecret: process.env.JWT_SECRET ?? '',

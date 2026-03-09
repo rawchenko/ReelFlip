@@ -3,6 +3,7 @@ import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
 import { FeedResponse, fetchFeed } from '@/features/feed/api/feed-client'
 import { getFeedInfiniteQueryKey, useFeedQuery, useInfiniteFeedQuery } from '@/features/feed/api/use-feed-query'
+import { useWatchlistQuery } from '@/features/watchlist/api/use-watchlist'
 import { homeDesignSpec } from '@/features/feed/home-design-spec'
 import {
   FeedPlaceholderSheetPayload,
@@ -71,6 +72,14 @@ export default function FeedScreen() {
     category: queryCategory,
     enabled: !isWatchlistTab && !infiniteFeedEnabled,
     limit: FEED_PAGE_LIMIT,
+  })
+  const watchlistQuery = useWatchlistQuery({ enabled: isWatchlistTab })
+  const watchlistMints = watchlistQuery.data
+  const watchlistFeedQuery = useFeedQuery({
+    mints: watchlistMints,
+    enabled: isWatchlistTab && Array.isArray(watchlistMints) && watchlistMints.length > 0,
+    limit: FEED_PAGE_LIMIT,
+    refetchIntervalMs: 10_000,
   })
 
   const handleRefresh = useCallback(async () => {
@@ -216,12 +225,38 @@ export default function FeedScreen() {
     <View style={styles.screenRoot}>
       <View style={styles.contentContainer}>
         {isWatchlistTab ? (
-          <View style={[appStyles.tabPlaceholder, styles.watchlistPlaceholder]}>
-            <Text style={appStyles.tabPlaceholderTitle}>Watchlist coming soon</Text>
-            <Text style={appStyles.tabPlaceholderText}>
-              Followed and watchlisted tokens will appear here in a future iteration.
-            </Text>
-          </View>
+          watchlistQuery.isLoading ? (
+            <View style={appStyles.feedEmptyState}>
+              <ActivityIndicator size="large" color={semanticColors.text.primary} />
+              <Text style={appStyles.feedEmptyText}>Loading watchlist...</Text>
+            </View>
+          ) : !watchlistMints || watchlistMints.length === 0 ? (
+            <View style={[appStyles.tabPlaceholder, styles.watchlistPlaceholder]}>
+              <Text style={appStyles.tabPlaceholderTitle}>Your watchlist is empty</Text>
+              <Text style={appStyles.tabPlaceholderText}>
+                Follow tokens from the feed or token details to see them here.
+              </Text>
+            </View>
+          ) : watchlistFeedQuery.isLoading ? (
+            <View style={appStyles.feedEmptyState}>
+              <ActivityIndicator size="large" color={semanticColors.text.primary} />
+              <Text style={appStyles.feedEmptyText}>Loading watchlist feed...</Text>
+            </View>
+          ) : (
+            <VerticalFeed
+              key="watchlist"
+              items={watchlistFeedQuery.data?.items ?? []}
+              topInset={0}
+              refreshing={false}
+              onRefresh={() => {
+                void watchlistQuery.refetch()
+                void watchlistFeedQuery.refetch()
+              }}
+              onActionPress={handleActionPress}
+              onTradePress={handleTradePress}
+              onTokenPress={handleTokenPress}
+            />
+          )
         ) : showLoadingState ? (
           <View style={appStyles.feedEmptyState}>
             <ActivityIndicator size="large" color={semanticColors.text.primary} />

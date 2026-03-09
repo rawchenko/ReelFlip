@@ -81,3 +81,9 @@ export interface PersistedCandleRow {
   updated_at: string
   ingested_at: string
 }
+
+export interface PersistedWatchlistRow {
+  wallet: string
+  mint: string
+  added_at: string
+}

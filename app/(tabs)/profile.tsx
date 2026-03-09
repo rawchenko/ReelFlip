@@ -4,12 +4,14 @@ import {
   MOCK_ASSETS,
   MOCK_TOTAL_BALANCE,
   MOCK_TOTAL_CHANGE_PERCENT,
-  MOCK_WATCHLIST,
 } from '@/features/profile/mock-profile'
 import { ProfileScreenContent } from '@/features/profile/profile-screen-content'
+import type { WatchlistItem } from '@/features/profile/types'
 import { semanticColors } from '@/constants/semantic-colors'
 import { spacing } from '@/constants/spacing'
 import { interFontFamily } from '@/constants/typography'
+import { useFeedQuery } from '@/features/feed/api/use-feed-query'
+import { useWatchlistQuery, useWatchlistMutations } from '@/features/watchlist/api/use-watchlist'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import React, { useCallback, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
@@ -72,9 +74,35 @@ export default function ProfileScreen() {
     }
   }, [connect, isConnectingWallet])
 
-  const handleUnfollow = useCallback((_mint: string) => {
-    // Watchlist unfollow will be wired in a future update
-  }, [])
+  const watchlistQuery = useWatchlistQuery({ enabled: !!walletAddress })
+  const watchlistMints = watchlistQuery.data
+  const watchlistFeedQuery = useFeedQuery({
+    mints: watchlistMints,
+    enabled: Array.isArray(watchlistMints) && watchlistMints.length > 0,
+    refetchIntervalMs: 30_000,
+  })
+  const { remove } = useWatchlistMutations()
+
+  const watchlist = useMemo<WatchlistItem[]>(() => {
+    if (!watchlistMints || watchlistMints.length === 0) return []
+    const feedItems = watchlistFeedQuery.data?.items ?? []
+    const feedByMint = new Map(feedItems.map((item) => [item.mint, item]))
+
+    return watchlistMints.map((mint) => {
+      const feedItem = feedByMint.get(mint)
+      return {
+        mint,
+        symbol: feedItem?.symbol ?? mint.slice(0, 4),
+        name: feedItem?.name ?? 'Unknown',
+        changePercent: feedItem?.priceChange24h ?? 0,
+        iconColor: '#9945FF',
+      }
+    })
+  }, [watchlistMints, watchlistFeedQuery.data?.items])
+
+  const handleUnfollow = useCallback((mint: string) => {
+    remove.mutate(mint)
+  }, [remove])
 
   if (!walletAddress) {
     return (
@@ -98,7 +126,7 @@ export default function ProfileScreen() {
         changePercent={MOCK_TOTAL_CHANGE_PERCENT}
         allocation={MOCK_ALLOCATION}
         assets={MOCK_ASSETS}
-        watchlist={MOCK_WATCHLIST}
+        watchlist={watchlist}
         onUnfollow={handleUnfollow}
       />
     </SafeAreaView>

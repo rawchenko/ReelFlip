@@ -1,12 +1,6 @@
 import { getApiBaseUrl, normalizeBaseUrl } from '@/utils/api-base-url'
+import { readErrorMessage } from '@/utils/api-client-helpers'
 import type { ChallengeResponse, VerifyResponse } from '@/features/auth/types'
-
-interface ErrorEnvelope {
-  error?: {
-    code?: string
-    message?: string
-  }
-}
 
 const FETCH_TIMEOUT_MS = 15_000
 
@@ -14,19 +8,6 @@ function createTimeoutSignal(): AbortSignal {
   const controller = new AbortController()
   setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   return controller.signal
-}
-
-async function readErrorMessage(response: Response, fallback: string): Promise<string> {
-  try {
-    const payload = (await response.json()) as ErrorEnvelope
-    if (payload.error?.message) {
-      return payload.error.message
-    }
-  } catch {
-    // ignore JSON parse issues for error payloads
-  }
-
-  return fallback
 }
 
 export async function fetchChallenge(wallet: string): Promise<ChallengeResponse> {

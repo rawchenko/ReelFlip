@@ -4,7 +4,7 @@ import { Base64 } from 'js-base64'
 import { PropsWithChildren, createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { InteractionManager } from 'react-native'
 import { fetchChallenge, verifySignature } from '@/features/auth/api/auth-client'
-import { getAuthToken, setAuthToken } from '@/features/auth/auth-token-store'
+import { getAuthToken, isAuthTokenExpired, setAuthToken } from '@/features/auth/auth-token-store'
 
 const AUTH_STORAGE_KEY = 'reelflip.auth.state.v1'
 
@@ -25,11 +25,13 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const { account, signMessage } = useMobileWallet()
-  const walletAddress = account?.address as string | undefined
+  const walletAddress = useMemo(() => account?.address?.toString() ?? undefined, [account])
 
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [hasHydratedAuth, setHasHydratedAuth] = useState(false)
   const prevWalletRef = useRef<string | undefined>(undefined)
+  const autoSignInAttemptedWalletRef = useRef<string | undefined>(undefined)
 
   // Hydrate from AsyncStorage on mount
   useEffect(() => {
@@ -59,10 +61,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
           return
         }
 
-        setAuthToken(parsed.token)
+        setAuthToken(parsed.token, parsed.expiresAt)
         setIsAuthenticated(true)
       } catch {
         // Silent — start unauthenticated
+      } finally {
+        if (isMounted) {
+          setHasHydratedAuth(true)
+        }
       }
     }
 
@@ -79,6 +85,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     prevWalletRef.current = walletAddress
 
     if (prev !== undefined && prev !== walletAddress) {
+      autoSignInAttemptedWalletRef.current = undefined
       setAuthToken(null)
       setIsAuthenticated(false)
       InteractionManager.runAfterInteractions(() => {
@@ -88,8 +95,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [walletAddress])
 
   const signIn = useCallback(async (): Promise<boolean> => {
-    // Already authenticated with a valid token
-    if (getAuthToken() && isAuthenticated) {
+    // Already authenticated with a valid, non-expired token
+    if (getAuthToken() && isAuthenticated && !isAuthTokenExpired()) {
       return true
     }
 
@@ -118,7 +125,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       })
 
       // 5. Store token
-      setAuthToken(result.token)
+      setAuthToken(result.token, result.expiresAt)
       setIsAuthenticated(true)
 
       // 6. Persist to AsyncStorage
@@ -140,12 +147,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [isAuthenticated, signMessage, walletAddress])
 
   const signOut = useCallback(() => {
+    autoSignInAttemptedWalletRef.current = walletAddress
     setAuthToken(null)
     setIsAuthenticated(false)
     InteractionManager.runAfterInteractions(() => {
       void AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => {})
     })
-  }, [])
+  }, [walletAddress])
+
+  useEffect(() => {
+    if (!hasHydratedAuth || !walletAddress || isAuthenticated || isAuthenticating) {
+      return
+    }
+
+    if (autoSignInAttemptedWalletRef.current === walletAddress) {
+      return
+    }
+
+    autoSignInAttemptedWalletRef.current = walletAddress
+    void signIn()
+  }, [hasHydratedAuth, walletAddress, isAuthenticated, isAuthenticating, signIn])
 
   const value = useMemo<AuthContextValue>(
     () => ({
