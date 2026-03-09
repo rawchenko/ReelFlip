@@ -9,7 +9,9 @@ import {
   getCounterAssetOptions,
   normalizeAmountInput,
   parseAmountInput,
+  slippagePreferenceToBps,
 } from '@/features/swap/mock-swap'
+import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 import { isSwapAssetEnabled, isSwapChainSupported } from '@/features/swap/swap-config'
 import { swapDesignSpec } from '@/features/swap/swap-design-spec'
 import type {
@@ -1062,6 +1064,7 @@ export function SwapFlowModal({
 }: SwapFlowModalProps) {
   const { account, chain, signTransaction } = useMobileWallet()
   const { getExplorerUrl } = useNetwork()
+  const { launchPreferences } = useOnboarding()
   const { data: tokenBalances } = useAccountTokenBalances()
   const flowIdRef = useRef(0)
   const requestIdRef = useRef(0)
@@ -1123,7 +1126,13 @@ export function SwapFlowModal({
 
     flowIdRef.current += 1
     submitIdempotencyKeyRef.current = createSubmitIdempotencyKey()
-    const nextDraft = createSwapDraft(payload)
+    const nextDraft = {
+      ...createSwapDraft(payload),
+      slippageBps: slippagePreferenceToBps(
+        launchPreferences?.defaultSlippage,
+        launchPreferences?.customSlippageBps,
+      ),
+    }
     setDraft(nextDraft)
     setQuote(null)
     setExecutionResult(null)
@@ -1132,7 +1141,19 @@ export function SwapFlowModal({
     setQuoteErrorMessage(null)
     setStage('entry')
     setIsConfirming(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- slippage is read at draft-creation time; changes mid-flow are handled by the effect below
   }, [payload])
+
+  useEffect(() => {
+    if (!draft) return
+    const bps = slippagePreferenceToBps(
+      launchPreferences?.defaultSlippage,
+      launchPreferences?.customSlippageBps,
+    )
+    if (draft.slippageBps !== bps) {
+      setDraft((prev) => (prev ? { ...prev, slippageBps: bps } : prev))
+    }
+  }, [draft, launchPreferences?.defaultSlippage, launchPreferences?.customSlippageBps])
 
   useEffect(() => {
     if (stage !== 'entry' && stage !== 'confirm') {

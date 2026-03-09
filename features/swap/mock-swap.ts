@@ -1,4 +1,5 @@
 import { semanticColors } from '@/constants/semantic-colors'
+import type { OnboardingSlippage } from '@/features/onboarding/onboarding-provider'
 import type {
   SwapAssetOption,
   SwapCounterAssetSymbol,
@@ -176,6 +177,23 @@ export function normalizeAmountInput(value: string): string {
 
 export function clampSlippageBps(slippageBps: number): number {
   return clamp(Math.round(slippageBps), MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS)
+}
+
+export function slippagePreferenceToBps(
+  preference: OnboardingSlippage | undefined,
+  customBps?: number,
+): number {
+  switch (preference) {
+    case '1%':
+      return 100
+    case '2%':
+      return 200
+    case 'custom':
+      return clampSlippageBps(customBps ?? 100)
+    case 'auto':
+    default:
+      return 100
+  }
 }
 
 export function buildMockQuote(draft: SwapDraft): SwapQuotePreview {

@@ -20,6 +20,7 @@ export interface OnboardingSafetyPreferences {
 
 export interface OnboardingLaunchPreferences {
   baseCurrency: OnboardingBaseCurrency
+  customSlippageBps?: number
   defaultSlippage: OnboardingSlippage
 }
 
@@ -133,10 +134,17 @@ function normalizeLaunchPreferences(value: unknown): OnboardingLaunchPreferences
   const rawBaseCurrency = (value as { baseCurrency?: unknown }).baseCurrency
   const rawDefaultSlippage = (value as { defaultSlippage?: unknown }).defaultSlippage
 
+  const rawCustomSlippageBps = (value as { customSlippageBps?: unknown }).customSlippageBps
+  const customSlippageBps =
+    typeof rawCustomSlippageBps === 'number' && rawCustomSlippageBps >= 25 && rawCustomSlippageBps <= 300
+      ? rawCustomSlippageBps
+      : undefined
+
   if (isBaseCurrency(rawBaseCurrency) && isSlippageOption(rawDefaultSlippage)) {
     return {
       baseCurrency: rawBaseCurrency,
       defaultSlippage: rawDefaultSlippage,
+      ...(customSlippageBps != null ? { customSlippageBps } : {}),
     }
   }
 
@@ -156,7 +164,7 @@ function normalizeLaunchPreferences(value: unknown): OnboardingLaunchPreferences
     return undefined
   }
 
-  return { baseCurrency, defaultSlippage }
+  return { baseCurrency, defaultSlippage, ...(customSlippageBps != null ? { customSlippageBps } : {}) }
 }
 
 function normalizeFinishPreferences(value: unknown): OnboardingFinishPreferences | undefined {
