@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { errorEnvelope } from '../lib/error-envelope.js'
+import { BASE58_REGEX } from '../lib/validation.js'
 import { ActivityService, ActivityServiceError, InvalidActivityRequestError } from './activity.service.js'
 
 interface ActivityRouteDependencies {
@@ -12,8 +13,6 @@ interface ActivityQuerystring {
   days?: string | number
   cursor?: string
 }
-
-const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 const MAX_DAYS = 90
 const DEFAULT_DAYS = 30
 

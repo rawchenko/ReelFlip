@@ -19,10 +19,14 @@ interface FeedQuerystring {
   category?: string
   minLifetimeHours?: string | number
   limit?: string | number
+  mints?: string
 }
+
+import { BASE58_REGEX } from '../lib/validation.js'
 
 const VALID_CATEGORIES: FeedCategory[] = ['trending', 'gainer', 'new', 'memecoin']
 const MAX_MIN_LIFETIME_HOURS = 24 * 365
+const MAX_MINTS_FILTER = 100
 
 export async function registerFeedRoutes(app: FastifyInstance, dependencies: FeedRouteDependencies): Promise<void> {
   app.get<{ Querystring: FeedQuerystring }>(
@@ -42,12 +46,14 @@ export async function registerFeedRoutes(app: FastifyInstance, dependencies: Fee
       const category = parseCategory(request.query.category)
       const minLifetimeHours = parseMinLifetimeHours(request.query.minLifetimeHours)
       const limit = parseLimit(request.query.limit, dependencies.feedMaxLimit)
+      const mints = parseMints(request.query.mints)
 
       const result = await dependencies.feedService.getPage({
         cursor: request.query.cursor,
         category,
         minLifetimeHours,
         limit,
+        mints,
       })
 
       reply.header('X-Cache', result.cacheStatus)
@@ -145,6 +151,29 @@ function parseLimit(limit: string | number | undefined, maxLimit: number): numbe
   }
 
   return parsed
+}
+
+function parseMints(mints?: string): string[] | undefined {
+  if (!mints || mints.trim().length === 0) {
+    return undefined
+  }
+
+  const parts = mints.split(',').map((m) => m.trim()).filter((m) => m.length > 0)
+  if (parts.length === 0) {
+    return undefined
+  }
+
+  if (parts.length > MAX_MINTS_FILTER) {
+    throw new InvalidFeedRequestError(`mints must contain at most ${MAX_MINTS_FILTER} addresses.`)
+  }
+
+  for (const part of parts) {
+    if (!BASE58_REGEX.test(part)) {
+      throw new InvalidFeedRequestError(`Invalid mint address: ${part}`)
+    }
+  }
+
+  return parts
 }
 
 function parseMinLifetimeHours(minLifetimeHours: string | number | undefined): number | undefined {

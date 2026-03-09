@@ -2,11 +2,11 @@ import crypto from 'node:crypto'
 import * as jose from 'jose'
 import bs58 from 'bs58'
 import { CacheStore } from '../cache/cache.types.js'
+import { BASE58_REGEX } from '../lib/validation.js'
 import type { AuthTokenPayload, ChallengeRecord, ChallengeResponse, VerifyResponse } from './auth.types.js'
 
 const CHALLENGE_TTL_SECONDS = 120
 const CHALLENGE_KEY_PREFIX = 'auth:challenge:'
-const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
 interface AuthServiceConfig {
   jwtSecret: string

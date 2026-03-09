@@ -8,6 +8,7 @@ interface UseFeedQueryOptions {
   minLifetimeHours?: number
   cursor?: string
   limit?: number
+  mints?: string[]
   refetchIntervalMs?: number
   enabled?: boolean
 }
@@ -16,24 +17,26 @@ interface UseInfiniteFeedQueryOptions {
   category?: FeedCategory
   minLifetimeHours?: number
   limit?: number
+  mints?: string[]
   enabled?: boolean
 }
 
-export function getFeedInfiniteQueryKey(category?: FeedCategory, minLifetimeHours?: number, limit = 20) {
-  return ['feed-infinite', category ?? 'all', minLifetimeHours ?? null, limit] as const
+export function getFeedInfiniteQueryKey(category?: FeedCategory, minLifetimeHours?: number, limit = 20, mints?: string[]) {
+  return ['feed-infinite', category ?? 'all', minLifetimeHours ?? null, limit, mints ?? null] as const
 }
 
 export function useFeedQuery(options: UseFeedQueryOptions = {}) {
-  const { category, minLifetimeHours, cursor, limit = 20, refetchIntervalMs = 5_000, enabled = true } = options
+  const { category, minLifetimeHours, cursor, limit = 20, mints, refetchIntervalMs = 5_000, enabled = true } = options
 
   return useQuery({
-    queryKey: ['feed', category ?? 'all', minLifetimeHours ?? null, cursor ?? null, limit],
+    queryKey: ['feed', category ?? 'all', minLifetimeHours ?? null, cursor ?? null, limit, mints ?? null],
     queryFn: ({ signal }) =>
       fetchFeed({
         category,
         minLifetimeHours,
         cursor,
         limit,
+        mints,
         signal,
       }),
     staleTime: 5_000,
@@ -46,10 +49,10 @@ export function useFeedQuery(options: UseFeedQueryOptions = {}) {
 }
 
 export function useInfiniteFeedQuery(options: UseInfiniteFeedQueryOptions = {}) {
-  const { category, minLifetimeHours, limit = 20, enabled = true } = options
+  const { category, minLifetimeHours, limit = 20, mints, enabled = true } = options
 
   const query = useInfiniteQuery({
-    queryKey: getFeedInfiniteQueryKey(category, minLifetimeHours, limit),
+    queryKey: getFeedInfiniteQueryKey(category, minLifetimeHours, limit, mints),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ signal, pageParam }) =>
       fetchFeed({
@@ -57,6 +60,7 @@ export function useInfiniteFeedQuery(options: UseInfiniteFeedQueryOptions = {}) 
         minLifetimeHours,
         cursor: pageParam,
         limit,
+        mints,
         signal,
       }),
     getNextPageParam: (lastPage: FeedResponse) => lastPage.nextCursor ?? undefined,

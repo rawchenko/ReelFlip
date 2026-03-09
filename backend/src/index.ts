@@ -43,6 +43,7 @@ import { ChartRepository } from './storage/chart.repository.js'
 import { FeedRepository } from './storage/feed.repository.js'
 import { SupabaseClient } from './storage/supabase.client.js'
 import { TokenRepository } from './storage/token.repository.js'
+import { WatchlistRepository } from './storage/watchlist.repository.js'
 import {
   FeedRiskService,
   HeliusMintInfoClient,
@@ -61,6 +62,8 @@ import { registerAuthRoutes } from './auth/auth.route.js'
 import { HeliusTransactionClient } from './activity/activity.helius-client.js'
 import { ActivityService } from './activity/activity.service.js'
 import { registerActivityRoutes } from './activity/activity.route.js'
+import { WatchlistService } from './watchlist/watchlist.service.js'
+import { registerWatchlistRoutes } from './watchlist/watchlist.route.js'
 
 const env = loadEnv()
 
@@ -589,6 +592,15 @@ const activityService = new ActivityService(heliusTransactionClient, activityMin
 await registerActivityRoutes(app, {
   activityService,
   rateLimitActivityPerMinute: env.rateLimitActivityPerMinute,
+})
+
+const watchlistRepository = new WatchlistRepository(supabaseClient, app.log)
+const watchlistService = new WatchlistService(watchlistRepository, cacheStore)
+
+await registerWatchlistRoutes(app, {
+  watchlistService,
+  rateLimitWatchlistPerMinute: env.rateLimitWatchlistPerMinute,
+  authPreHandler,
 })
 
 app.get('/health', async () => {

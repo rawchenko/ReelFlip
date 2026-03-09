@@ -1,7 +1,8 @@
-# ReelFlip Design System Audit
+# Design System Audit — ReelFlip
 
-**Date:** March 8, 2026
-**Scope:** Color tokens, typography, spacing, component architecture
+**Date:** March 9, 2026
+**Scope:** Token definitions, component adoption, hardcoded value detection
+**Supersedes:** Previous audit from March 8, 2026
 
 ---
 
@@ -9,192 +10,184 @@
 
 | Metric | Value |
 |---|---|
-| **Components reviewed** | 33 (.tsx files across features/ and components/) |
-| **Token files** | 5 (palette, semantic-colors, typography, app-styles, 3 design specs) |
-| **Hardcoded color violations** | 0 (excellent) |
-| **Spacing token coverage** | ~40% (significant gap) |
-| **Typography token coverage** | ~30% (font families tokenized; sizes/scales are not) |
-| **Overall score** | **68 / 100** |
+| **Token files** | 4 (`palette.ts`, `semantic-colors.ts`, `typography.ts`, `spacing.ts`) |
+| **Design-spec files** | 6 (one per feature) |
+| **Component files scanned** | 44 `.tsx` files |
+| **Semantic-colors imports** | 32 files |
+| **Typography imports** | 39 files |
+| **Spacing token imports** | 4 component files (excluding design-specs) |
+| **Hardcoded hex in components** | **0** |
+| **Overall score** | **82 / 100** |
 
 ---
 
-## Color Tokens — Score: 95/100
+## Token Architecture
 
-The color system is the strongest part of the design system. It follows a clean three-layer architecture:
+ReelFlip uses a well-designed **two-layer color system** with a feature-level design-spec layer on top:
 
-**Layer 1 → Primitive palette** (`palette.ts`): Raw color scales (neutral, gray, yellow, red, green) plus alpha helpers.
-**Layer 2 → Semantic tokens** (`semantic-colors.ts`): Purpose-driven mappings like `text.primary`, `accent.badge`, `status.danger.background`.
-**Layer 3 → Feature design specs** (`*-design-spec.ts`): Screen-level aliases that map semantic tokens to feature-specific roles.
+1. **Primitives** (`palette.ts`) — Raw color scales (neutral, gray, yellow, red, green), alpha helpers, and a `misc` bag of one-offs.
+2. **Semantic tokens** (`semantic-colors.ts`) — ~150+ purpose-driven tokens across 16 groups: app, surface, tabBar, button, accent, text, icon, input, border, status, resultHero, overlay, chart, trust, disabled, avatar, assetBadge.
+3. **Feature design specs** (`*-design-spec.ts`) — Screen-level aliases mapping semantic tokens to feature-specific roles.
 
-### Issues Found
-
-| Issue | Location | Recommendation |
-|---|---|---|
-| Hardcoded hex in `semantic-colors.ts` | `text.primary: '#f5f8ff'`, `text.secondary: '#d6deed'`, `text.muted: '#8fa6cc'`, `text.chartAxis: '#7f8aa2'`, `text.info: '#93C5FD'`, `text.warningMuted: '#FDBA74'`, 5 border values, 4 overlay values, 3 chart background values, `status.warning` values | Move these ~20 raw hex values into `palette.ts` scales, then reference from semantic tokens |
-| `misc` bucket growing | `palette.ts` lines 111–134 | 23 one-off colors in `misc` — consider organizing into sub-groups (chart, swap, feed, asset) |
-| Inconsistent gray scales | `neutral` (blue-tinted) vs `gray` (pure) | Documented but could confuse new contributors — add inline guidance on when to use which |
-| Non-standard scale steps | `gray.825`, `gray.850`, `gray.925`, `red.450`, `red.550`, `yellow.75`, `yellow.150` | Custom steps break the Tailwind-style 50→950 convention — document the rationale or consolidate |
+Typography tokens cover 2 font families with 8 weights. Spacing tokens define an 18-step base-4 scale, 8 radii, and 5 icon sizes.
 
 ---
 
-## Spacing — Score: 35/100
+## Color Tokens — Score: 93/100
 
-Spacing is the **biggest gap** in the design system. There is no centralized spacing scale.
+### Hardcoded Hex in Components: **0 found**
 
-### Current State
+No `.tsx` component files contain inline hex colors. This is excellent.
 
-Values are defined ad-hoc in design specs and directly in components. The most common values used across the codebase:
+### Hardcoded `rgba()` in Components: **1 instance**
 
-| Value (px) | Occurrences | Typical use |
+| File | Value | Fix |
 |---|---|---|
-| 4 | ~8 | Fine gaps, badge padding |
-| 6 | ~6 | Small gaps |
-| 8 | ~14 | Standard element gap |
-| 12 | ~13 | Component spacing, content gaps |
-| 16 | ~15 | Section padding, card padding |
-| 20 | ~5 | Header horizontal padding |
-| 24 | ~8 | Screen edge padding, large gaps |
-| 32 | ~3 | Large section spacing |
+| `settings-reset-dialog.tsx` | `rgba(0, 0, 0, 0.6)` | Use `semanticColors.overlay.sheet` or add `overlay.modal` |
 
-**19 different `borderRadius` values** found (0, 2, 8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 40, 60, 70, 120, 999). This suggests organic growth without a defined radius scale.
+### Direct Palette Imports (bypassing semantic layer): **4 files**
 
-### Recommendation
+| File | Import | Severity |
+|---|---|---|
+| `onboarding.tsx` | `alpha` | Low |
+| `onboarding-5.tsx` | `alpha` | Low |
+| `tradingview-mini-chart.tsx` | `alpha` | Low |
+| `currency-screen-content.tsx` | `white` | Medium — should use `semanticColors.text.headingOnDark` |
 
-Define a spacing scale in `constants/spacing.ts`:
+### Raw Hex in `semantic-colors.ts` Itself: ~20 values
 
-```typescript
-export const spacing = {
-  0: 0,
-  1: 4,
-  2: 6,
-  3: 8,
-  4: 12,
-  5: 16,
-  6: 20,
-  7: 24,
-  8: 32,
-  9: 40,
-  10: 56,
-} as const
+These bypass `palette.ts`, breaking the two-layer contract:
 
-export const radii = {
-  none: 0,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 22,
-  '2xl': 28,
-  full: 999,
-} as const
+- `text.primary: '#f5f8ff'`, `text.secondary: '#d6deed'`, `text.muted: '#8fa6cc'`
+- `text.chartAxis`, `text.info`, `text.warningMuted`
+- `border.light`, `border.default`, `border.muted`, `border.chart`
+- `overlay.topStrong`, `overlay.topClear`, `overlay.bottomMid`
+- `chart.background`, `chart.backgroundSurface`, `chart.backgroundPlot`
+- `status.warning.background`, `status.warning.text`
+- Several `resultHero` ring values
+
+**Recommendation:** Move these into `palette.ts` so the semantic layer has no raw hex.
+
+### `misc` Bucket: **37 one-off colors**
+
+The `misc` object has grown into a junk drawer spanning swap, settings, feed, chart, and iOS system colors. Consider reorganizing into scoped sub-objects (`chartPrimitives`, `swapPrimitives`, etc.) or folding them into semantic-colors directly.
+
+### Non-Standard Scale Steps
+
+`gray` has custom steps (825, 850, 925) and `red` has 450/550, `yellow` has 75/150. These work fine but should be documented as intentional extensions of the Tailwind convention.
+
+---
+
+## Spacing Tokens — Score: 55/100
+
+**The spacing scale exists and is well-designed**, but adoption is the weakest area:
+
+- `spacing.ts` defines 18 spacing steps (base-4), 8 radii, and 5 icon sizes.
+- **447 spacing-related style declarations** across 44 component files.
+- **Only 4 component files** directly import spacing tokens.
+- Design-spec files reference spacing tokens, giving indirect coverage to features that use their design spec.
+
+### `app-styles.ts` — No Spacing Tokens
+
+The shared `app-styles.ts` file uses all hardcoded values:
+
+```
+padding: 4, gap: 16, paddingHorizontal: 8, paddingHorizontal: 32,
+marginTop: 8, borderRadius: 10, gap: 12, paddingHorizontal: 28
 ```
 
+None reference `spacing[...]` or `radii[...]`.
+
+**Recommendation:** `app-styles.ts` should be the showcase for spacing token adoption. Migrate it first as a reference for other files.
+
 ---
 
-## Typography — Score: 45/100
+## Typography — Score: 88/100
 
-Font families are well-tokenized (Inter + Space Grotesk). Font sizes and line heights are **not tokenized** — they're hardcoded in every component.
+### Font Family Adoption: Excellent
 
-### Font Size Distribution
+- 39 files import from `@/constants/typography`
+- All `fontFamily` declarations use `interFontFamily.*` or `spaceGroteskFamily.*`
+- Zero hardcoded font family strings
+- `_layout.tsx` correctly sets Inter as the app-wide default
 
-| Size (px) | Occurrences | Typical role |
-|---|---|---|
-| 11 | 3 | Fine print, badges |
-| 12 | 7 | Labels, footnotes |
-| 13 | 7 | Secondary/caption text |
-| 14 | 17 | Standard body |
-| 15 | 5 | Body variant |
-| 16 | 15 | Prominent body |
-| 17 | 3 | Subheading |
-| 18 | 14 | Section headers |
-| 20 | 2 | Small titles |
-| 22 | 4 | Medium titles |
-| 24 | 4 | Screen titles |
-| 28 | 2 | Large titles (activity header) |
-| 30–36 | 4 | Display/hero text |
+### Font Size Tokens: Not Defined
 
-### Recommendation
+Font sizes are hardcoded numbers in every component (`fontSize: 14`, `fontSize: 20`, etc.). There is **100 total `fontSize` declarations** across 23 files.
 
-Extend `constants/typography.ts` with a type scale:
+**Recommendation:** Define a type scale in `typography.ts`:
 
 ```typescript
 export const typeScale = {
-  xs:      { fontSize: 11, lineHeight: 14 },
-  sm:      { fontSize: 13, lineHeight: 18 },
-  base:    { fontSize: 14, lineHeight: 20 },
-  md:      { fontSize: 16, lineHeight: 22 },
-  lg:      { fontSize: 18, lineHeight: 24 },
-  xl:      { fontSize: 22, lineHeight: 28 },
-  '2xl':   { fontSize: 28, lineHeight: 34 },
-  '3xl':   { fontSize: 36, lineHeight: 42 },
+  xs:    { fontSize: 11, lineHeight: 14 },
+  sm:    { fontSize: 13, lineHeight: 18 },
+  base:  { fontSize: 14, lineHeight: 20 },
+  md:    { fontSize: 16, lineHeight: 22 },
+  lg:    { fontSize: 18, lineHeight: 24 },
+  xl:    { fontSize: 22, lineHeight: 28 },
+  '2xl': { fontSize: 28, lineHeight: 34 },
+  '3xl': { fontSize: 36, lineHeight: 42 },
 } as const
 ```
 
 ---
 
-## Component Architecture — Score: 70/100
+## Design-Spec Adoption by Feature
 
-### Structure
+| Feature | Components | Using Spec | Adoption |
+|---|---|---|---|
+| **Activity** | 3 | 3 | 100% |
+| **Swap** | 1 | 1 | 100% |
+| **Profile** | 8 | 8 | 100% |
+| **Settings** | 12+ | 12+ | 100% |
+| **Token Details** | 3 | 3 | 100% |
+| **Feed** | 8 | 4 | **50%** |
 
-The codebase uses **feature-based architecture** with 6 modules: account, activity, feed, network, onboarding, swap. Each feature is self-contained with its own types, hooks, API clients, and components.
+The feed feature is the only outlier. These 4 components bypass `homeDesignSpec`:
 
-### Naming Consistency
+- `mini-chart.tsx` — uses `semanticColors` directly
+- `vertical-feed.tsx` — uses `semanticColors` directly
+- `feed-placeholder-sheet.tsx` — uses `semanticColors` directly
+- `tradingview-mini-chart.tsx` — imports from `palette.ts` directly
 
-| Convention | Pattern | Compliance |
-|---|---|---|
-| File naming | kebab-case | ✅ Consistent |
-| Component exports | PascalCase | ✅ Consistent |
-| Hooks | `use-{name}.tsx` | ✅ Consistent |
-| Design specs | `{feature}-design-spec.ts` | ✅ Consistent (3 of 6 features) |
-| API clients | `{feature}-client.ts` in `api/` | ✅ Consistent |
-
-### Issues
-
-| Issue | Details | Recommendation |
-|---|---|---|
-| No shared UI primitives | Only 2 files in `components/` — no reusable Button, Card, Input, Modal, Badge | Extract common patterns into a shared `ui/` directory |
-| Oversized components | `swap-flow.tsx` is ~70KB, `token-card.tsx` is ~35KB | Break into smaller composable sub-components |
-| Design spec coverage | Only 3 of 6 features have design specs (activity, feed, swap) | Add specs for account, network, onboarding |
-| Swap spacing not tokenized | `swap-design-spec.ts` defines colors only — all spacing in `swap-flow.tsx` is hardcoded | Add spacing/layout section to swap design spec |
-
----
-
-## Component Completeness
-
-| Component Area | Tokens | States | Variants | Docs | Score |
-|---|---|---|---|---|---|
-| Color palette | ✅ | — | — | ✅ JSDoc | 9/10 |
-| Semantic colors | ✅ | — | — | ✅ JSDoc | 9/10 |
-| Typography (families) | ✅ | — | — | ❌ | 7/10 |
-| Typography (scale) | ❌ | — | — | ❌ | 2/10 |
-| Spacing | ❌ | — | — | ❌ | 1/10 |
-| Border radius | ❌ | — | — | ❌ | 1/10 |
-| Tab bar | ✅ colors | ✅ active/inactive | ✅ feed variant | ❌ | 7/10 |
-| Buttons | ⚠️ partial | ⚠️ disabled only | ⚠️ buy/sell only | ❌ | 4/10 |
-| Status badges | ✅ colors | ✅ 4 statuses | — | ❌ | 6/10 |
-| Charts | ✅ colors | ✅ bull/bear | ✅ baseline/candle | ❌ | 8/10 |
-| Activity rows | ✅ spec | ✅ | — | ❌ | 7/10 |
-| Swap flow | ✅ colors | ⚠️ inline | ⚠️ inline | ❌ | 5/10 |
+All other features have 100% design-spec compliance.
 
 ---
 
 ## Priority Actions
 
-### 1. Create a spacing scale (High Impact)
+### 1. Adopt spacing tokens in components (High Impact)
 
-Add `constants/spacing.ts` with a defined scale. This is the single highest-leverage improvement — it would bring consistency to the 19+ borderRadius values and dozens of ad-hoc padding/margin/gap values scattered across the codebase.
+The tokens exist — they just aren't used. Start with `app-styles.ts` as a showcase, then migrate component `StyleSheet.create` blocks. Target: replace the ~447 hardcoded spacing values with token references.
 
-### 2. Create a type scale (High Impact)
+### 2. Create a shared type scale (High Impact)
 
-Extend `typography.ts` with named size presets (xs through 3xl). Almost every component hardcodes fontSize — a centralized scale would reduce drift and speed up development.
+Add `typeScale` to `typography.ts`. This would give the ~100 `fontSize` declarations a tokenized alternative and prevent size drift.
 
-### 3. Move remaining raw hex values out of `semantic-colors.ts` (Medium Impact)
+### 3. Consolidate feed components to use `homeDesignSpec` (Medium Impact)
 
-About 20 hex values bypass the palette. Moving them into `palette.ts` maintains the three-layer architecture and makes future theming (e.g., light mode) feasible.
+Bring `mini-chart.tsx`, `vertical-feed.tsx`, `feed-placeholder-sheet.tsx`, and `tradingview-mini-chart.tsx` in line with the design-spec pattern every other feature follows.
 
-### 4. Extract shared UI primitives (Medium Impact, High Effort)
+### 4. Extract raw hex from `semantic-colors.ts` (Medium Impact)
 
-The lack of reusable Button, Card, Input, and Badge components means styling is duplicated across features. Start with the most repeated patterns (buttons appear in swap, feed, and activity).
+Move the ~20 inline hex values into `palette.ts` to maintain the two-layer contract. This is essential groundwork if you ever want to support theming/light mode.
 
-### 5. Break up oversized components (Low Urgency)
+### 5. Reorganize `misc` palette bag (Low Impact)
 
-`swap-flow.tsx` (70KB) and `token-card.tsx` (35KB) are maintenance risks. Decomposing them would improve testability and make the design system easier to enforce.
+Split the 37 one-off colors into scoped sub-objects or fold them into semantic tokens. The current `misc` bag obscures intent and makes it easy to add colors without thinking about reuse.
+
+### 6. Fix the single `rgba()` hardcode (Quick Win)
+
+Replace `rgba(0, 0, 0, 0.6)` in `settings-reset-dialog.tsx` with the existing `semanticColors.overlay.sheet` token.
+
+---
+
+## Strengths
+
+- Two-layer color architecture is clean and well-enforced — zero hex colors in component files
+- Feature-level design-spec pattern is a strong abstraction — 5 of 6 features at 100%
+- Typography font family adoption is essentially perfect across 39 files
+- Spacing token definitions are comprehensive (base-4 scale, radii, icon sizes)
+- Alpha helper system is thorough and well-organized
+- Semantic color naming is clear and self-documenting across 16 categories
+- Consistent naming conventions (kebab-case files, design-spec pattern, hooks pattern)

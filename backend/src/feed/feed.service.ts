@@ -28,6 +28,7 @@ export interface FeedQueryInput {
   category?: FeedCategory
   minLifetimeHours?: number
   limit?: number
+  mints?: string[]
 }
 
 export interface FeedPageResult {
@@ -230,6 +231,7 @@ export class FeedService {
     const limit = this.resolveLimit(query.limit, cursorPayload)
     const category = this.resolveCategory(query.category, cursorPayload)
     const minLifetimeHours = this.resolveEffectiveMinLifetimeHours(category, query.minLifetimeHours, cursorPayload)
+    const mintSet = query.mints && query.mints.length > 0 ? new Set(query.mints) : null
     const requiresLiveSource =
       (this.requireLiveSourceForMinLifetime && minLifetimeHours !== null && minLifetimeHours > 0) ||
       (category === 'trending' && this.trendingRequireProviderSource)
@@ -266,7 +268,7 @@ export class FeedService {
         throw new FeedUnavailableError('Live feed providers are temporarily unavailable. Please try again soon.')
       }
 
-      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus, cacheStorage)
+      return this.paginateSnapshot(snapshot, cursorPayload, category, minLifetimeHours, limit, cacheStatus, cacheStorage, mintSet)
     }
 
     let triedLatestSnapshotInSupabase = false
@@ -284,6 +286,7 @@ export class FeedService {
             limit,
             'MISS',
             'repository',
+            mintSet,
           )
         }
       }
@@ -304,6 +307,7 @@ export class FeedService {
         limit,
         'HIT',
         lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+        mintSet,
       )
     }
 
@@ -320,6 +324,7 @@ export class FeedService {
             limit,
             'MISS',
             'repository',
+            mintSet,
           )
         }
       }
@@ -334,6 +339,7 @@ export class FeedService {
         limit,
         'STALE',
         lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+        mintSet,
       )
     }
 
@@ -346,6 +352,7 @@ export class FeedService {
         limit,
         'STALE',
         lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+        mintSet,
       )
     }
 
@@ -363,6 +370,7 @@ export class FeedService {
               limit,
               'STALE',
               lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+              mintSet,
             )
           }
           throw new FeedUnavailableError()
@@ -378,6 +386,7 @@ export class FeedService {
               limit,
               'STALE',
               lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+              mintSet,
             )
           }
 
@@ -393,6 +402,7 @@ export class FeedService {
             limit,
             'STALE',
             lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+            mintSet,
           )
         }
 
@@ -407,6 +417,7 @@ export class FeedService {
               limit,
               'STALE',
               lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+              mintSet,
             )
           }
           throw new FeedUnavailableError('No renderable tokens are currently available. Please try again soon.')
@@ -421,6 +432,7 @@ export class FeedService {
           limit,
           'MISS',
           this.cache.cacheStorage(),
+          mintSet,
         )
         return {
           ...page,
@@ -441,6 +453,7 @@ export class FeedService {
               limit,
               'STALE',
               lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+              mintSet,
             )
           }
 
@@ -453,6 +466,7 @@ export class FeedService {
               limit,
               'STALE',
               lookup.storage === 'miss' ? this.cache.cacheStorage() : lookup.storage,
+              mintSet,
             )
           }
           throw new FeedUnavailableError()
@@ -565,11 +579,16 @@ export class FeedService {
     limit: number,
     cacheStatus: FeedPageResult['cacheStatus'],
     cacheStorage: FeedPageResult['cacheStorage'],
+    mintSet?: Set<string> | null,
   ): FeedPageResult {
     const generatedAtMs = Date.parse(snapshot.generatedAt)
     const referenceTimeMs = Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now()
     const eligibilityStats = createEmptyEligibilityStats()
     const filtered = snapshot.items.filter((item) => {
+      if (mintSet && !mintSet.has(item.mint)) {
+        return false
+      }
+
       const categoryMatches = category ? this.matchesCategory(item, category) : true
       if (!categoryMatches) {
         return false

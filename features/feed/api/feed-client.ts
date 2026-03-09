@@ -15,6 +15,7 @@ export interface FeedRequestParams {
   minLifetimeHours?: number
   cursor?: string
   limit?: number
+  mints?: string[]
   signal?: AbortSignal
 }
 
@@ -43,6 +44,10 @@ export async function fetchFeed(params: FeedRequestParams): Promise<FeedResponse
 
   if (params.limit) {
     searchParams.set('limit', String(params.limit))
+  }
+
+  if (params.mints && params.mints.length > 0) {
+    searchParams.set('mints', params.mints.join(','))
   }
 
   const queryString = searchParams.toString()
