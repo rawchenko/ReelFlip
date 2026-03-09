@@ -8,8 +8,8 @@ import {
   FeedPlaceholderSheetPayload,
   FeedPlaceholderSheetType,
 } from '@/features/feed/feed-placeholder-sheet'
+import { buildSwapReceiptEvent } from '@/features/swap/build-swap-receipt-event'
 import type { SwapFlowPayload, SwapQuotePreview, SwapSuccessResult } from '@/features/swap/types'
-import type { ActivityEvent } from '@/features/activity/types'
 import { VerticalFeed } from '@/features/feed/vertical-feed'
 import { FeedCategory, FeedCardAction, FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 import { InfiniteData, useQueryClient } from '@tanstack/react-query'
@@ -135,28 +135,13 @@ export default function FeedScreen() {
   }, [])
 
   const handleViewReceipt = useCallback((result: SwapSuccessResult, quote: SwapQuotePreview) => {
-    const event: ActivityEvent = {
-      id: result.signature,
-      timestampIso: new Date().toISOString(),
-      source: 'jupiter',
-      type: 'swap',
-      status: 'confirmed',
-      primaryText: `${quote.inputAsset.symbol} → ${quote.outputAsset.symbol}`,
-      secondaryText: 'Jupiter',
-      receivedLeg: {
-        symbol: result.receivedSymbol,
-        amountDisplay: `+${result.receivedAmount} ${result.receivedSymbol}`,
-        direction: 'receive',
-      },
-      sentLeg: {
-        symbol: result.sentSymbol,
-        amountDisplay: `-${result.sentAmount} ${result.sentSymbol}`,
-        direction: 'send',
-      },
-      txSignature: result.signature,
-    }
     setActiveSwapFlow(null)
+    const event = buildSwapReceiptEvent(result, quote)
     router.push({ pathname: '/tx-details', params: { event: JSON.stringify(event) } })
+  }, [router])
+
+  const handleTokenPress = useCallback((item: TokenFeedItem) => {
+    router.push({ pathname: '/token-details', params: { token: JSON.stringify(item) } })
   }, [router])
 
   const handleSearchPress = useCallback(() => {
@@ -265,6 +250,7 @@ export default function FeedScreen() {
             onStrictReject={strictTrendingCharts ? handleStrictReject : undefined}
             onActionPress={handleActionPress}
             onTradePress={handleTradePress}
+            onTokenPress={handleTokenPress}
           />
         )}
       </View>

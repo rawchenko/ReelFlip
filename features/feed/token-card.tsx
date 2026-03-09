@@ -20,6 +20,7 @@ interface TokenCardProps {
   onStrictReject?: (cardKey: string, reason: string) => void
   onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
+  onTokenPress?: (item: TokenFeedItem) => void
 }
 
 const CHART_COLOR_LOOKBACK_POINTS = 60
@@ -366,6 +367,7 @@ export function TokenCard({
   strictTrendingCharts = false,
   onStrictReject,
   onTradePress,
+  onTokenPress,
 }: TokenCardProps) {
   const { width } = useWindowDimensions()
   const isUp24h = item.priceChange24h >= 0
@@ -904,7 +906,7 @@ export function TokenCard({
       </View>
 
       <View style={styles.bottomStack}>
-        <View style={styles.infoPanel}>
+        <Pressable style={styles.infoPanel} onPress={() => onTokenPress?.(item)}>
           <View style={styles.symbolRow}>
             <Text style={styles.symbolText} numberOfLines={1}>
               {item.symbol.startsWith('$') ? item.symbol : `$${item.symbol}`}
@@ -946,7 +948,7 @@ export function TokenCard({
               </Text>
             </View>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.ctaPanel}>
           <View style={[styles.ctaRow, !canSell ? styles.ctaRowSingle : null]}>

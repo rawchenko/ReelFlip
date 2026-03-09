@@ -43,6 +43,7 @@ export const tokenDetailsDesignSpec = {
     topPadding: spacing[2],
     bottomPadding: spacing[3],
     navIconSize: 24,
+    imageSize: 32,
     nameGap: 1,
     nameFontSize: 18,
     nameLineHeight: 22,
@@ -86,6 +87,7 @@ export const tokenDetailsDesignSpec = {
     titleLineHeight: 16,
     titleLetterSpacing: 0.52,
     titleGap: spacing[2.5],
+    cardGap: spacing[3],
   },
   position: {
     cardPadding: spacing[3.5],

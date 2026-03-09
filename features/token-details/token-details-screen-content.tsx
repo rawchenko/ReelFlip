@@ -8,6 +8,7 @@ import { interFontFamily, spaceGroteskFamily } from '@/constants/typography'
 import type { TokenFeedItem } from '@/features/feed/types'
 import { TokenDetailChart } from '@/features/token-details/token-detail-chart'
 import { tokenDetailsDesignSpec as spec } from '@/features/token-details/token-details-design-spec'
+import type { TokenActivityEvent } from '@/features/token-details/types'
 import { PerformanceGrid } from '@/features/token-details/token-metrics-grid'
 import { useTokenChart } from '@/features/token-details/use-token-chart'
 
@@ -17,6 +18,10 @@ interface TokenDetailsScreenContentProps {
   balance?: number | null
   /** User's token balance value in USD */
   balanceUsd?: number | null
+  /** Activity events for this token */
+  activity?: TokenActivityEvent[]
+  onBuyPress?: () => void
+  onSellPress?: () => void
 }
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -64,22 +69,6 @@ function formatCompact(value: number): string {
   return `$${value.toFixed(2)}`
 }
 
-function formatSupply(value: number): string {
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(1)}B`
-  }
-
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`
-  }
-
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`
-  }
-
-  return String(Math.round(value))
-}
-
 function truncateMint(mint: string): string {
   if (mint.length <= 12) {
     return mint
@@ -90,7 +79,14 @@ function truncateMint(mint: string): string {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function TokenDetailsScreenContent({ token, balance, balanceUsd }: TokenDetailsScreenContentProps) {
+export function TokenDetailsScreenContent({
+  token,
+  balance,
+  balanceUsd,
+  activity = [],
+  onBuyPress,
+  onSellPress,
+}: TokenDetailsScreenContentProps) {
   const router = useRouter()
   const { points, loading, timeRange, setTimeRange } = useTokenChart(token.pairAddress)
   const positiveTrend = token.priceChange24h >= 0
@@ -110,6 +106,7 @@ export function TokenDetailsScreenContent({ token, balance, balanceUsd }: TokenD
             <Pressable onPress={handleBack} hitSlop={12}>
               <Ionicons name="chevron-back" size={spec.header.navIconSize} color={semanticColors.icon.primary} />
             </Pressable>
+            <TokenHeaderImage imageUri={token.imageUri} symbol={token.symbol} />
             <View style={styles.headerNameCol}>
               <Text style={styles.headerName}>{token.name}</Text>
               <Text style={styles.headerSymbol}>{token.symbol}</Text>
@@ -159,14 +156,21 @@ export function TokenDetailsScreenContent({ token, balance, balanceUsd }: TokenD
           </SectionContainer>
         )}
 
-        {/* ── Info ── */}
+        {/* ── Info Card 1: Identity ── */}
         <SectionContainer title="Info">
           <View style={styles.infoCard}>
             <InfoRow label="Name" value={token.name} />
             <InfoRow label="Symbol" value={token.symbol} />
             <InfoRow label="Mint Address" value={truncateMint(token.mint)} mono />
-            <InfoRow label="Market Cap" value={token.marketCap ? formatCompact(token.marketCap) : '—'} />
-            <InfoRow label="Holders" value="—" last />
+            <InfoRow label="Market Cap" value={token.marketCap ? formatCompact(token.marketCap) : '—'} last />
+          </View>
+
+          {/* ── Info Card 2: Supply & Stats ── */}
+          <View style={[styles.infoCard, { marginTop: spec.section.cardGap }]}>
+            <InfoRow label="Total Supply" value="--" />
+            <InfoRow label="Circulating Supply" value="--" />
+            <InfoRow label="Holders" value="--" />
+            <InfoRow label="Created" value="--" last />
           </View>
         </SectionContainer>
 
@@ -189,28 +193,36 @@ export function TokenDetailsScreenContent({ token, balance, balanceUsd }: TokenD
         {/* ── Security ── */}
         <SectionContainer title="Security">
           <View style={styles.infoCard}>
-            <InfoRow label="Top 10 Holders" value="—" />
-            <InfoRow label="Mutable" value="—" />
-            <InfoRow label="Update Authority" value="—" last />
+            <SecurityRow label="Top 10 Holders" value="--" />
+            <SecurityRow label="Mutable" value="--" />
+            <SecurityRow label="Update Authority" value="--" last />
           </View>
         </SectionContainer>
 
         {/* ── Activity ── */}
         <SectionContainer title="Activity">
-          <View style={styles.activityEmpty}>
-            <Text style={styles.activityEmptyText}>No activity for this token yet</Text>
-          </View>
+          {activity.length > 0 ? (
+            <View style={styles.activityList}>
+              {activity.map((event) => (
+                <ActivityRow key={event.id} event={event} />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.activityEmpty}>
+              <Text style={styles.activityEmptyText}>No activity for this token yet</Text>
+            </View>
+          )}
         </SectionContainer>
       </ScrollView>
 
       {/* ── Sticky Actions ── */}
       <View style={styles.ctaBar}>
         {hasPosition && (
-          <Pressable style={styles.sellButton}>
+          <Pressable style={styles.sellButton} onPress={onSellPress}>
             <Text style={styles.sellButtonText}>Sell</Text>
           </Pressable>
         )}
-        <Pressable style={[styles.buyButton, !hasPosition && styles.buyButtonFull]}>
+        <Pressable style={[styles.buyButton, !hasPosition && styles.buyButtonFull]} onPress={onBuyPress}>
           <Text style={styles.buyButtonText}>Buy</Text>
         </Pressable>
       </View>
@@ -229,6 +241,26 @@ function SectionContainer({ title, children }: { title: string; children: React.
   )
 }
 
+function TokenHeaderImage({ imageUri, symbol }: { imageUri?: string | null; symbol: string }) {
+  const hasImage = typeof imageUri === 'string' && imageUri.length > 0
+
+  if (hasImage) {
+    return (
+      <Image
+        source={{ uri: imageUri }}
+        style={styles.headerImage}
+        resizeMode="cover"
+      />
+    )
+  }
+
+  return (
+    <View style={[styles.headerImage, styles.headerImageFallback]}>
+      <Text style={styles.headerImageFallbackText}>{symbol.slice(0, 1).toUpperCase()}</Text>
+    </View>
+  )
+}
+
 function InfoRow({ label, value, mono, last }: { label: string; value: string; mono?: boolean; last?: boolean }) {
   return (
     <View style={[styles.infoRow, !last && styles.infoRowBorder]}>
@@ -238,9 +270,47 @@ function InfoRow({ label, value, mono, last }: { label: string; value: string; m
   )
 }
 
-function LinkPill({ label, icon }: { label: string; icon: string }) {
+function SecurityRow({ label, value, status, last }: { label: string; value: string; status?: boolean; last?: boolean }) {
+  const isGreen = status === true
   return (
-    <Pressable style={styles.linkPill}>
+    <View style={[styles.securityRow, !last && styles.infoRowBorder]}>
+      <Text style={styles.infoRowLabel}>{label}</Text>
+      <View style={styles.securityValueRow}>
+        {isGreen && <View style={styles.securityDot} />}
+        <Text style={[styles.infoRowValue, isGreen && styles.securityValueGreen]}>{value}</Text>
+      </View>
+    </View>
+  )
+}
+
+function ActivityRow({ event }: { event: TokenActivityEvent }) {
+  const isBuy = event.type === 'buy'
+  return (
+    <View style={styles.activityRow}>
+      <View style={[styles.activityIconContainer, { backgroundColor: isBuy ? spec.colors.activityBuyBg : spec.colors.activitySellBg }]}>
+        <Ionicons
+          name={isBuy ? 'arrow-up-outline' : 'arrow-down-outline'}
+          size={spec.activity.iconSize}
+          color={isBuy ? spec.colors.activityBuyIcon : spec.colors.activitySellIcon}
+        />
+      </View>
+      <View style={styles.activityContent}>
+        <View style={styles.activityTopRow}>
+          <Text style={styles.activityTitle}>{event.title}</Text>
+          <Text style={styles.activityAmount}>{event.amount}</Text>
+        </View>
+        <View style={styles.activityBottomRow}>
+          <Text style={styles.activityDate}>{event.date}</Text>
+          <Text style={styles.activityValue}>{event.valueUsd}</Text>
+        </View>
+      </View>
+    </View>
+  )
+}
+
+function LinkPill({ label, icon, url }: { label: string; icon: string; url?: string | null }) {
+  return (
+    <Pressable style={styles.linkPill} onPress={() => url && void Linking.openURL(url)} disabled={!url}>
       <Ionicons name={icon as never} size={spec.about.linkIconSize} color={spec.colors.linkPillIcon} />
       <Text style={styles.linkPillText}>{label}</Text>
     </Pressable>
@@ -274,6 +344,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  headerImage: {
+    width: spec.header.imageSize,
+    height: spec.header.imageSize,
+    borderRadius: spec.header.imageSize / 2,
+  },
+  headerImageFallback: {
+    backgroundColor: semanticColors.app.backgroundPanelAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerImageFallbackText: {
+    fontFamily: interFontFamily.bold,
+    fontSize: 14,
+    color: semanticColors.text.primary,
   },
   headerNameCol: {
     gap: spec.header.nameGap,
@@ -407,8 +492,31 @@ const styles = StyleSheet.create({
     color: spec.colors.rowValue,
   },
   infoRowMono: {
-    fontFamily: 'IBMPlexMono-Regular',
+    fontFamily: interFontFamily.medium,
     fontSize: spec.infoRow.mintFontSize,
+  },
+
+  // Security
+  securityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spec.security.rowPaddingVertical,
+    paddingHorizontal: spec.security.rowPaddingHorizontal,
+  },
+  securityValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spec.security.dotGap,
+  },
+  securityDot: {
+    width: spec.security.dotSize,
+    height: spec.security.dotSize,
+    borderRadius: spec.security.dotSize / 2,
+    backgroundColor: spec.colors.statusGreen,
+  },
+  securityValueGreen: {
+    color: spec.colors.statusGreen,
   },
 
   // About
@@ -439,6 +547,60 @@ const styles = StyleSheet.create({
   },
 
   // Activity
+  activityList: {
+    gap: spec.activity.rowGap,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spec.activity.rowPadding,
+    borderRadius: spec.activity.rowRadius,
+    backgroundColor: spec.colors.cardBackground,
+    gap: 12,
+  },
+  activityIconContainer: {
+    width: spec.activity.iconContainerSize,
+    height: spec.activity.iconContainerSize,
+    borderRadius: spec.activity.iconContainerSize / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityContent: {
+    flex: 1,
+    gap: 2,
+  },
+  activityTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  activityBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  activityTitle: {
+    fontFamily: interFontFamily.medium,
+    fontSize: spec.activity.labelFontSize,
+    lineHeight: spec.activity.labelLineHeight,
+    color: spec.colors.rowValue,
+  },
+  activityDate: {
+    fontSize: spec.activity.dateFontSize,
+    lineHeight: spec.activity.dateLineHeight,
+    color: spec.colors.secondaryText,
+  },
+  activityAmount: {
+    fontFamily: interFontFamily.medium,
+    fontSize: spec.activity.amountFontSize,
+    lineHeight: spec.activity.amountLineHeight,
+    color: spec.colors.rowValue,
+  },
+  activityValue: {
+    fontSize: spec.activity.valueFontSize,
+    lineHeight: spec.activity.valueLineHeight,
+    color: spec.colors.secondaryText,
+  },
   activityEmpty: {
     paddingVertical: 20,
     alignItems: 'center',
