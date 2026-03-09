@@ -135,6 +135,15 @@ export const misc = {
   // App config colors (mirrored in app.json which requires static JSON)
   splashBackground: '#070d1a',
   androidIconBackground: '#E6F4FE',
+  // Settings screen colors
+  settingsBg: '#121212',
+  settingsTitle: '#E6E1E5',
+  settingsSubtitle: '#CAC4D0',
+  settingsMuted: '#938F99',
+  toggleOff: '#49454F',
+  settingsDivider: '#2B2930',
+  dangerSoft: '#F2B8B5',
+  dangerSoftDark: '#601410',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -201,6 +210,7 @@ export const alpha = {
   yellow15: 'rgba(250, 204, 21, 0.15)',
   yellow18: 'rgba(250, 204, 21, 0.18)',
   yellow22: 'rgba(250, 204, 21, 0.22)',
+  yellow5: 'rgba(250, 204, 21, 0.05)',
   yellow52: 'rgba(250, 204, 21, 0.52)',
 
   // warm yellow (slightly different hue, #FFE100 base)

@@ -42,7 +42,9 @@ function applyDefaultTextFont(): void {
   const existingStyle = TextComponent.defaultProps?.style
   TextComponent.defaultProps = {
     ...TextComponent.defaultProps,
-    style: existingStyle ? [{ fontFamily: interFontFamily.regular }, existingStyle] : { fontFamily: interFontFamily.regular },
+    style: existingStyle
+      ? [{ fontFamily: interFontFamily.regular }, existingStyle]
+      : { fontFamily: interFontFamily.regular },
   }
 }
 
@@ -85,6 +87,11 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding-5" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="tx-details" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen name="settings-slippage" options={{ headerShown: false }} />
+        <Stack.Screen name="settings-currency" options={{ headerShown: false }} />
+        <Stack.Screen name="settings-network" options={{ headerShown: false }} />
+        <Stack.Screen name="settings-wallet" options={{ headerShown: false }} />
         <Stack.Screen name="debug" options={{ title: 'Debug' }} />
       </Stack>
       <StatusBar style="light" backgroundColor={semanticColors.app.background} translucent={false} />

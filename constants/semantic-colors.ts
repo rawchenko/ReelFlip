@@ -13,10 +13,11 @@ export const semanticColors = {
     backgroundCanvas: black,
     background: black,
     backgroundElevated: black,
-    backgroundPanel: gray[900],        // #111111
-    backgroundPanelAlt: gray[850],     // #1A1A1A
-    backgroundDark: gray[825],         // #222222
-    backgroundDeep: gray[925],         // #0A0A0A
+    backgroundPanel: gray[900], // #111111
+    backgroundPanelAlt: gray[850], // #1A1A1A
+    backgroundDark: gray[825], // #222222
+    backgroundDeep: gray[925], // #0A0A0A
+    backgroundSettings: misc.settingsBg, // #121212
   },
 
   // ── Glass / frosted surfaces ────────────────────────────────────────
@@ -27,8 +28,9 @@ export const semanticColors = {
     glassMedium: alpha.white7,
     glassStrong: alpha.white8,
     glassStrongBorder: alpha.white6,
-    solidCard: misc.swapCardBg,          // #1A1A1E — solid dark card
-    solidPill: misc.swapPillBg,          // #2A2A30 — solid pill surface
+    solidCard: misc.swapCardBg, // #1A1A1E — solid dark card
+    solidPill: misc.swapPillBg, // #2A2A30 — solid pill surface
+    toggleOff: misc.toggleOff, // #49454F — toggle track (off)
   },
 
   // ── Tab bar ───────────────────────────────────────────────────────────
@@ -42,10 +44,10 @@ export const semanticColors = {
     backdropLayer: alpha.black30,
     activeGradientTop: alpha.white6,
     activeGradientBottom: 'rgba(255, 255, 255, 0.00)',
-    feedBackground: misc.feedTabBg,          // #161616
-    feedBorder: misc.feedTabBorder,           // #2A2A2A
+    feedBackground: misc.feedTabBg, // #161616
+    feedBorder: misc.feedTabBorder, // #2A2A2A
     feedGradientTop: misc.feedTabGradientTop, // #242424
-    feedGradientBottom: misc.feedTabBg,       // #161616
+    feedGradientBottom: misc.feedTabBg, // #161616
   },
 
   // ── Buttons ───────────────────────────────────────────────────────────
@@ -56,21 +58,24 @@ export const semanticColors = {
     sellText: white,
     sellBorder: alpha.white40,
     disabledBackground: misc.disabledButtonBg,
+    dangerSoftBg: misc.dangerSoft, // #F2B8B5 — soft red button bg
+    dangerSoftText: misc.dangerSoftDark, // #601410 — dark red on soft bg
   },
 
   // ── Accent (brand yellow) ────────────────────────────────────────────
   accent: {
-    primary: yellow[500],          // #E8DB00  — default brand accent
-    bright: yellow[200],           // #FFF433  — gradient highlight end
-    soft: yellow[300],             // #F7E957  — lighter text on dark
-    muted: yellow[600],            // #D4C532  — subdued / secondary accent
-    badge: yellow[400],            // #FACC15  — avatar badges, indicators
-    background: alpha.yellow14,    // subtle accent fill
+    primary: yellow[500], // #E8DB00  — default brand accent
+    bright: yellow[200], // #FFF433  — gradient highlight end
+    soft: yellow[300], // #F7E957  — lighter text on dark
+    muted: yellow[600], // #D4C532  — subdued / secondary accent
+    badge: yellow[400], // #FACC15  — avatar badges, indicators
+    background: alpha.yellow14, // subtle accent fill
     backgroundSubtle: alpha.yellow8,
     backgroundWarm: alpha.warmYellow10,
     backgroundWarmSubtle: alpha.warmYellow5,
     backgroundWarmMedium: alpha.warmYellow8,
-    border: alpha.yellow22,        // accent border
+    backgroundFaint: alpha.yellow5, // ~5% yellow — radio selected row highlight
+    border: alpha.yellow22, // accent border
     borderWarm: alpha.warmYellow24,
     borderStrong: alpha.yellow52,
     borderWarmMedium: alpha.warmYellow18,
@@ -78,9 +83,9 @@ export const semanticColors = {
     glowBottom: alpha.yellow4,
     pillBackground: alpha.yellow15,
     /** Gradient pair for primary CTA buttons */
-    gradientStart: yellow[500],    // #E8DB00
-    gradientEnd: yellow[200],      // #FFF433
-    ctaSolid: yellow[150],         // #FFF600 — solid CTA button
+    gradientStart: yellow[500], // #E8DB00
+    gradientEnd: yellow[200], // #FFF433
+    ctaSolid: yellow[150], // #FFF600 — solid CTA button
   },
 
   // ── Text ──────────────────────────────────────────────────────────────
@@ -88,22 +93,22 @@ export const semanticColors = {
     primary: '#f5f8ff',
     secondary: '#d6deed',
     muted: '#8fa6cc',
-    neutralMuted: gray[500],       // #888888 — pure gray muted (onboarding, card labels)
-    tertiary: neutral[500],        // #94A3B8
-    quaternary: gray[400],         // #9CA3AF
+    neutralMuted: gray[500], // #888888 — pure gray muted (onboarding, card labels)
+    tertiary: neutral[500], // #94A3B8
+    quaternary: gray[400], // #9CA3AF
     headingOnDark: white,
-    bodyOnDark: neutral[100],      // #F8FAFC
+    bodyOnDark: neutral[100], // #F8FAFC
     onLight: black,
-    onLightSubtle: gray[950],      // #09090B
-    tintedLight: gray[200],        // #D4D4D8
-    yellowTint: yellow[75],        // #FFFDEE
+    onLightSubtle: gray[950], // #09090B
+    tintedLight: gray[200], // #D4D4D8
+    yellowTint: yellow[75], // #FFFDEE
     chartAxis: '#7f8aa2',
-    chartLabel: neutral[600],      // #64748B
+    chartLabel: neutral[600], // #64748B
     info: '#93C5FD',
-    success: green[500],           // #4ADE80
-    successMuted: green[300],      // #86EFAC
-    danger: red[500],              // #F87171
-    dangerMuted: red[200],         // #FCA5A5
+    success: green[500], // #4ADE80
+    successMuted: green[300], // #86EFAC
+    danger: red[500], // #F87171
+    dangerMuted: red[200], // #FCA5A5
     warningMuted: '#FDBA74',
     // White-at-opacity text hierarchy (for layered text on dark backgrounds)
     dimmed: alpha.white58,
@@ -112,9 +117,13 @@ export const semanticColors = {
     hint: alpha.white36,
     ghost: alpha.white32,
     disabled: alpha.white22,
-    eyebrow: misc.swapEyebrow,       // #6E6E76 — muted eyebrow label
+    eyebrow: misc.swapEyebrow, // #6E6E76 — muted eyebrow label
     cardSecondary: misc.swapSecondaryText, // #4A4A52 — subdued secondary text in cards
-    errorSoft: misc.errorTextSoft,   // #D77C7C — muted error (onboarding)
+    errorSoft: misc.errorTextSoft, // #D77C7C — muted error (onboarding)
+    settingsTitle: misc.settingsTitle, // #E6E1E5 — settings row title
+    settingsSubtitle: misc.settingsSubtitle, // #CAC4D0 — settings row subtitle
+    settingsMuted: misc.settingsMuted, // #938F99 — muted settings text
+    dangerSoft: misc.dangerSoft, // #F2B8B5 — soft danger text
   },
 
   // ── Icons ──────────────────────────────────────────────────────────────
@@ -124,7 +133,7 @@ export const semanticColors = {
     muted: alpha.white42,
     faint: alpha.white32,
     onLight: black,
-    neutralMuted: gray[600],       // #666666 — info icons on dark
+    neutralMuted: gray[600], // #666666 — info icons on dark
   },
 
   // ── Input fields ───────────────────────────────────────────────────────
@@ -140,29 +149,31 @@ export const semanticColors = {
     default: '#1b2a47',
     muted: '#314570',
     strong: '#1C1D24',
-    subtle: gray[800],             // #333333
-    subtleDark: gray[825],         // #222222
-    subtleMid: gray[700],          // #444444
-    checkboxMuted: misc.checkboxBorderMuted,  // #555555
-    panel: neutral[900],           // #1E293B
+    subtle: gray[800], // #333333
+    subtleDark: gray[825], // #222222
+    subtleMid: gray[700], // #444444
+    checkboxMuted: misc.checkboxBorderMuted, // #555555
+    settingsDivider: misc.settingsDivider, // #2B2930
+    radioInactive: misc.settingsMuted, // #938F99
+    panel: neutral[900], // #1E293B
     chart: '#1a2740',
   },
 
   // ── Status banners / badges ───────────────────────────────────────────
   status: {
     success: {
-      background: green[900],      // #14532D
-      text: green[300],            // #86EFAC
+      background: green[900], // #14532D
+      text: green[300], // #86EFAC
     },
     danger: {
-      background: red[950],        // #451A1A
-      text: red[200],              // #FCA5A5
+      background: red[950], // #451A1A
+      text: red[200], // #FCA5A5
       surface: alpha.red14,
       surfaceBorder: alpha.red26,
       surfaceDark: alpha.redDark44,
       surfaceDarkBorder: alpha.red18,
-      buttonBackground: red[450],  // #FF4747
-      bannerBackground: red[550],  // #FF4545
+      buttonBackground: red[450], // #FF4747
+      bannerBackground: red[550], // #FF4545
       bannerBorder: alpha.redBright60,
     },
     warning: {
@@ -170,20 +181,20 @@ export const semanticColors = {
       text: '#FDBA74',
     },
     info: {
-      background: neutral[900],    // #1E293B
+      background: neutral[900], // #1E293B
       text: '#93C5FD',
     },
   },
 
   // ── Result heroes (swap outcome screens) ─────────────────────────────
   resultHero: {
-    success: misc.iosGreen,             // #34C759
+    success: misc.iosGreen, // #34C759
     successRing: '#34C75926',
-    failure: misc.iosRed,               // #FF3B30
+    failure: misc.iosRed, // #FF3B30
     failureRing: '#FF3B3026',
-    pending: misc.iosAmber,             // #FFCC00
+    pending: misc.iosAmber, // #FFCC00
     pendingRing: '#FFCC0026',
-    processing: yellow[150],            // #FFF600
+    processing: yellow[150], // #FFF600
     processingRing: '#FFF60026',
   },
 
@@ -201,14 +212,14 @@ export const semanticColors = {
     backgroundSurface: '#050a12',
     backgroundPlot: '#03070d',
     feedBackground: misc.chartDarkBg,
-    bullBody: green[500],          // #4ADE80
+    bullBody: green[500], // #4ADE80
     bullWick: '#8EF3B1',
     bullGlow: alpha.green24,
     bullTrail: 'rgba(74, 222, 128, 0.15)',
     bullFallback: misc.chartBullFallback,
     bullFallbackGlow: alpha.green30,
-    bearBody: red[400],            // #F98282
-    bearWick: red[300],            // #FFA5B0
+    bearBody: red[400], // #F98282
+    bearWick: red[300], // #FFA5B0
     bearGlow: alpha.red24,
     bearTrail: 'rgba(249, 130, 130, 0.15)',
     bearFallback: misc.chartBearFallback,
@@ -233,7 +244,7 @@ export const semanticColors = {
   trust: {
     background: alpha.green18,
     border: alpha.green55,
-    text: green[100],              // #D7FFE9
+    text: green[100], // #D7FFE9
   },
 
   // ── Disabled / inactive states ────────────────────────────────────────
@@ -251,9 +262,9 @@ export const semanticColors = {
 
   // ── Asset badge colors (per-token brand) ────────────────────────────────
   assetBadge: {
-    skr: green[500],              // #4ADE80
-    sol: misc.assetSolBadge,      // #8B5CF6
-    usdc: misc.assetUsdcBadge,    // #2F80ED
-    default: yellow[400],         // #FACC15
+    skr: green[500], // #4ADE80
+    sol: misc.assetSolBadge, // #8B5CF6
+    usdc: misc.assetUsdcBadge, // #2F80ED
+    default: yellow[400], // #FACC15
   },
 } as const

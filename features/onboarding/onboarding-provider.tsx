@@ -69,6 +69,9 @@ interface OnboardingContextValue {
   completeOnboardingLaunch: (launchPreferences: OnboardingLaunchPreferences) => Promise<void>
   completeOnboarding: (finishPreferences?: OnboardingFinishPreferences) => Promise<void>
   resetOnboarding: () => Promise<void>
+  updateLaunchPreferences: (updates: Partial<OnboardingLaunchPreferences>) => void
+  updateSafetyPreferences: (updates: Partial<OnboardingSafetyPreferences>) => void
+  updateProfilePreferences: (updates: Partial<OnboardingPreferences>) => void
 }
 
 const OnboardingContext = createContext<OnboardingContextValue | undefined>(undefined)
@@ -262,7 +265,14 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
       stage: persistedStage,
     }
     persistOnboardingState(payload)
-  }, [finishPreferences, launchPreferences, onboardingStage, persistOnboardingState, profilePreferences, safetyPreferences])
+  }, [
+    finishPreferences,
+    launchPreferences,
+    onboardingStage,
+    persistOnboardingState,
+    profilePreferences,
+    safetyPreferences,
+  ])
 
   const completeOnboardingProfile = useCallback(
     async (preferences: OnboardingPreferences) => {
@@ -352,6 +362,78 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
     } catch {}
   }, [])
 
+  const updateLaunchPreferences = useCallback(
+    (updates: Partial<OnboardingLaunchPreferences>) => {
+      const current = launchPreferences ?? DEFAULT_ONBOARDING_LAUNCH
+      const next = { ...current, ...updates }
+      setLaunchPreferences(next)
+      persistOnboardingState({
+        finishPreferences,
+        launchPreferences: next,
+        preferences: profilePreferences,
+        safetyPreferences,
+        stage: onboardingStage,
+        ...(onboardingStage >= 5 ? { completedAt: new Date().toISOString() } : {}),
+      })
+    },
+    [
+      finishPreferences,
+      launchPreferences,
+      onboardingStage,
+      persistOnboardingState,
+      profilePreferences,
+      safetyPreferences,
+    ],
+  )
+
+  const updateSafetyPreferences = useCallback(
+    (updates: Partial<OnboardingSafetyPreferences>) => {
+      const current = safetyPreferences ?? DEFAULT_ONBOARDING_SAFETY
+      const next = { ...current, ...updates }
+      setSafetyPreferences(next)
+      persistOnboardingState({
+        finishPreferences,
+        launchPreferences,
+        preferences: profilePreferences,
+        safetyPreferences: next,
+        stage: onboardingStage,
+        ...(onboardingStage >= 5 ? { completedAt: new Date().toISOString() } : {}),
+      })
+    },
+    [
+      finishPreferences,
+      launchPreferences,
+      onboardingStage,
+      persistOnboardingState,
+      profilePreferences,
+      safetyPreferences,
+    ],
+  )
+
+  const updateProfilePreferences = useCallback(
+    (updates: Partial<OnboardingPreferences>) => {
+      const current = profilePreferences ?? DEFAULT_ONBOARDING_PROFILE
+      const next = { ...current, ...updates }
+      setProfilePreferences(next)
+      persistOnboardingState({
+        finishPreferences,
+        launchPreferences,
+        preferences: next,
+        safetyPreferences,
+        stage: onboardingStage,
+        ...(onboardingStage >= 5 ? { completedAt: new Date().toISOString() } : {}),
+      })
+    },
+    [
+      finishPreferences,
+      launchPreferences,
+      onboardingStage,
+      persistOnboardingState,
+      profilePreferences,
+      safetyPreferences,
+    ],
+  )
+
   const value = useMemo<OnboardingContextValue>(
     () => ({
       hasCompletedOnboarding: onboardingStage >= 5,
@@ -370,6 +452,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
       completeOnboardingSafety,
       completeOnboarding,
       resetOnboarding,
+      updateLaunchPreferences,
+      updateSafetyPreferences,
+      updateProfilePreferences,
     }),
     [
       completeOnboarding,
@@ -384,6 +469,9 @@ export function OnboardingProvider({ children }: PropsWithChildren) {
       profilePreferences,
       resetOnboarding,
       safetyPreferences,
+      updateLaunchPreferences,
+      updateSafetyPreferences,
+      updateProfilePreferences,
     ],
   )
 
