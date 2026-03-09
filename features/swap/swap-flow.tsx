@@ -11,6 +11,7 @@ import {
   parseAmountInput,
   slippagePreferenceToBps,
 } from '@/features/swap/mock-swap'
+import { useAuth } from '@/features/auth/use-auth'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
 import { isSwapAssetEnabled, isSwapChainSupported } from '@/features/swap/swap-config'
 import { swapDesignSpec } from '@/features/swap/swap-design-spec'
@@ -1064,6 +1065,7 @@ export function SwapFlowModal({
 }: SwapFlowModalProps) {
   const { account, chain, signTransaction } = useMobileWallet()
   const { getExplorerUrl } = useNetwork()
+  const { signIn: authSignIn } = useAuth()
   const { launchPreferences } = useOnboarding()
   const { data: tokenBalances } = useAccountTokenBalances()
   const flowIdRef = useRef(0)
@@ -1347,6 +1349,24 @@ export function SwapFlowModal({
       setQuoteErrorMessage(null)
 
       try {
+        const authSuccess = await authSignIn()
+        if (!authSuccess) {
+          setExecutionResult(
+            createFailureResult({
+              attemptedPathLabel: `${nextDraft.counterAssetSymbol} -> ${nextDraft.token.symbol}`,
+              message: 'Sign the authentication message to continue.',
+              suggestion: 'Approve the sign request in your wallet and try again.',
+              title: 'Authentication required',
+            }),
+          )
+          setStage('failure')
+          setIsConfirming(false)
+          return
+        }
+        if (flowIdRef.current !== flowId) {
+          return
+        }
+
         const executionDraft = {
           ...nextDraft,
           attemptCount: nextDraft.attemptCount + 1,
@@ -1495,7 +1515,7 @@ export function SwapFlowModal({
         }
       }
     },
-    [activeAssetEnabled, adapter, chainSupported, signTransaction, walletAddress],
+    [activeAssetEnabled, adapter, authSignIn, chainSupported, signTransaction, walletAddress],
   )
 
   const handleContinueToConfirm = useCallback(() => {
