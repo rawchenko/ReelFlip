@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: semanticColors.button.buyBackground,
     borderRadius: 70,
-    boxShadow: `0px 0px 60px ${alpha.white20}`,
+    boxShadow: `0px 0px 60px ${alpha.ctaYellow20}`,
     height: 140,
     justifyContent: 'center',
     width: 140,

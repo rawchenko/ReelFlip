@@ -10,9 +10,9 @@ import { alpha, black, gray, green, misc, neutral, red, white, yellow } from '@/
 export const semanticColors = {
   // ── Surfaces ──────────────────────────────────────────────────────────
   app: {
-    backgroundCanvas: black,
-    background: black,
-    backgroundElevated: black,
+    backgroundCanvas: gray[925], // #0A0A0A
+    background: gray[925], // #0A0A0A
+    backgroundElevated: gray[925], // #0A0A0A
     backgroundPanel: gray[900], // #111111
     backgroundPanelAlt: gray[850], // #1A1A1A
     backgroundDark: gray[825], // #222222
@@ -52,14 +52,14 @@ export const semanticColors = {
 
   // ── Buttons ───────────────────────────────────────────────────────────
   button: {
-    buyBackground: white,
-    buyText: black,
+    buyBackground: yellow[150], // #FFF600 — brand yellow CTA
+    buyText: '#000000',
     sellBackground: alpha.white20,
     sellText: white,
     sellBorder: alpha.white40,
     disabledBackground: misc.disabledButtonBg,
-    dangerSoftBg: misc.dangerSoft, // #F2B8B5 — soft red button bg
-    dangerSoftText: misc.dangerSoftDark, // #601410 — dark red on soft bg
+    dangerSoftBg: misc.dangerButtonBg, // #FF4747 — destructive action red
+    dangerSoftText: white, // white text on red bg
   },
 
   // ── Accent (brand yellow) ────────────────────────────────────────────

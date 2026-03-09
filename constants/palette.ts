@@ -136,7 +136,7 @@ export const misc = {
   splashBackground: '#070d1a',
   androidIconBackground: '#E6F4FE',
   // Settings screen colors
-  settingsBg: '#121212',
+  settingsBg: '#0A0A0A',
   settingsTitle: '#E6E1E5',
   settingsSubtitle: '#CAC4D0',
   settingsMuted: '#938F99',
@@ -144,6 +144,7 @@ export const misc = {
   settingsDivider: '#2B2930',
   dangerSoft: '#F2B8B5',
   dangerSoftDark: '#601410',
+  dangerButtonBg: '#FF4747',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -234,6 +235,9 @@ export const alpha = {
   chartSkeletonLoadA: 'rgba(71, 85, 105, 0.12)',
   chartSkeletonLoadB: 'rgba(71, 85, 105, 0.28)',
   chartSkeletonLoadC: 'rgba(71, 85, 105, 0.08)',
+
+  // cta yellow (#FFF600 base — distinct from badge yellow FACC15)
+  ctaYellow20: 'rgba(255, 246, 0, 0.20)',
 
   // overlay
   navyOverlay55: 'rgba(2, 6, 23, 0.55)',

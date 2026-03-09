@@ -35,10 +35,7 @@ function LegBadge({ leg, size = 40 }: { leg: ActivityLeg; size?: number }) {
 
   if (leg.iconUri) {
     return (
-      <Image
-        source={{ uri: leg.iconUri }}
-        style={[styles.legBadge, { borderRadius, height: size, width: size }]}
-      />
+      <Image source={{ uri: leg.iconUri }} style={[styles.legBadge, { borderRadius, height: size, width: size }]} />
     )
   }
 
@@ -123,18 +120,8 @@ export default function TxDetailsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} style={styles.scroll}>
         <View style={styles.heroSection}>
           <View style={styles.statusBadge}>
-            <View
-              style={[
-                styles.statusDot,
-                isFailed ? styles.statusDotFailed : styles.statusDotConfirmed,
-              ]}
-            />
-            <Text
-              style={[
-                styles.statusText,
-                isFailed ? styles.statusTextFailed : styles.statusTextConfirmed,
-              ]}
-            >
+            <View style={[styles.statusDot, isFailed ? styles.statusDotFailed : styles.statusDotConfirmed]} />
+            <Text style={[styles.statusText, isFailed ? styles.statusTextFailed : styles.statusTextConfirmed]}>
               {isFailed ? 'Failed' : 'Confirmed'}
             </Text>
           </View>
@@ -190,19 +177,12 @@ export default function TxDetailsScreen() {
             <Text style={styles.detailValueText}>{isSwap ? 'Swap' : 'Transfer'}</Text>
           </DetailRow>
           <DetailRow label="Status">
-            <Text
-              style={[
-                styles.detailValueText,
-                isFailed ? styles.statusTextFailed : styles.statusTextConfirmed,
-              ]}
-            >
+            <Text style={[styles.detailValueText, isFailed ? styles.statusTextFailed : styles.statusTextConfirmed]}>
               {isFailed ? 'Failed' : 'Confirmed'}
             </Text>
           </DetailRow>
           <DetailRow label="Source">
-            <Text style={styles.detailValueText}>
-              {event.source === 'jupiter' ? 'Jupiter' : 'Unknown'}
-            </Text>
+            <Text style={styles.detailValueText}>{event.source === 'jupiter' ? 'Jupiter' : 'Unknown'}</Text>
           </DetailRow>
           <DetailRow label="Date">
             <Text style={styles.detailValueText}>{formatTimestamp(event.timestampIso)}</Text>
@@ -348,7 +328,6 @@ const styles = StyleSheet.create({
     fontFamily: interFontFamily.bold,
     fontSize: 18,
     lineHeight: 24,
-    textAlign: 'center',
   },
   heroSection: {
     alignItems: 'center',
