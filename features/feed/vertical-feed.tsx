@@ -29,6 +29,7 @@ interface VerticalFeedProps {
   onStrictReject?: (cardKey: string, reason: string) => void
   onActionPress?: (action: FeedCardAction, item: TokenFeedItem) => void
   onTradePress?: (side: FeedTradeSide, item: TokenFeedItem) => void
+  onTokenPress?: (item: TokenFeedItem) => void
 }
 
 export function VerticalFeed({
@@ -43,6 +44,7 @@ export function VerticalFeed({
   onStrictReject,
   onActionPress,
   onTradePress,
+  onTokenPress,
 }: VerticalFeedProps) {
   const { height: windowHeight } = useWindowDimensions()
   const [listHeight, setListHeight] = useState(windowHeight)
@@ -172,6 +174,7 @@ export function VerticalFeed({
             onStrictReject={onStrictReject}
             onActionPress={onActionPress}
             onTradePress={onTradePress}
+            onTokenPress={onTokenPress}
           />
         </View>
       )}

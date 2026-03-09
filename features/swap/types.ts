@@ -1,6 +1,6 @@
 import type { FeedTradeSide, TokenFeedItem } from '@/features/feed/types'
 
-export type SwapFlowOrigin = 'feed'
+export type SwapFlowOrigin = 'feed' | 'token_details'
 export type SwapCounterAssetSymbol = 'USDC' | 'SOL' | 'SKR'
 export type SwapProgressStepId = 'quote_locked' | 'wallet_approved' | 'broadcasting' | 'confirmation'
 export type SwapFailureReason = 'slippage_exceeded' | 'routing_unavailable'
