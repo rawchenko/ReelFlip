@@ -1,4 +1,4 @@
-import { Platform } from 'react-native'
+import { getApiBaseUrl, normalizeBaseUrl } from '@/utils/api-base-url'
 import {
   ChartBatchHistoryResponse,
   ChartHistoryQuality,
@@ -40,9 +40,6 @@ export interface ChartStreamConnection {
   transport: 'ws' | 'sse'
 }
 
-const DEFAULT_ANDROID_API_URL = 'http://10.0.2.2:3001'
-const DEFAULT_IOS_API_URL = 'http://127.0.0.1:3001'
-
 function logChartClientDiagnostic(event: string, details?: Record<string, unknown>): void {
   if (!__DEV__) {
     return
@@ -54,19 +51,6 @@ function logChartClientDiagnostic(event: string, details?: Record<string, unknow
   }
 
   console.log(`[chart-client] ${event}`)
-}
-
-function getApiBaseUrl(): string {
-  const configured = process.env.EXPO_PUBLIC_API_BASE_URL
-  if (configured && configured.length > 0) {
-    return configured
-  }
-
-  return Platform.OS === 'android' ? DEFAULT_ANDROID_API_URL : DEFAULT_IOS_API_URL
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
 }
 
 export async function fetchChartHistory(

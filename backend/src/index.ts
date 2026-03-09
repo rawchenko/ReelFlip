@@ -55,6 +55,9 @@ import {
 } from './trade/trade.jupiter.js'
 import { registerTradeRoutes } from './trade/trade.route.js'
 import { TradeAssetRegistry } from './trade/trade.assets.js'
+import { AuthService } from './auth/auth.service.js'
+import { createAuthPreHandler } from './auth/auth.middleware.js'
+import { registerAuthRoutes } from './auth/auth.route.js'
 import { HeliusTransactionClient } from './activity/activity.helius-client.js'
 import { ActivityService } from './activity/activity.service.js'
 import { registerActivityRoutes } from './activity/activity.route.js'
@@ -544,12 +547,26 @@ const tradeStatusService = new TradeStatusService(cacheStore, tradeRpcClient, {
   statusTtlSeconds: env.tradeStatusTtlSeconds,
 })
 
+const authService = new AuthService(cacheStore, {
+  jwtSecret: env.jwtSecret,
+  tokenTtlSeconds: env.authTokenTtlSeconds,
+  runtimeMode: env.runtimeMode,
+}, app.log)
+
+const authPreHandler = createAuthPreHandler(authService)
+
+await registerAuthRoutes(app, {
+  authService,
+  rateLimitAuthPerMinute: env.rateLimitAuthPerMinute,
+})
+
 await registerTradeRoutes(app, {
   quoteService,
   rateLimitTradesPerMinute: env.rateLimitTradesPerMinute,
   tradeBuildService,
   tradeStatusService,
   tradeSubmitService,
+  authPreHandler,
 })
 
 const heliusTransactionClient = new HeliusTransactionClient(

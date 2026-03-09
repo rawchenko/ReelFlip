@@ -86,6 +86,7 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding-4" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding-5" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="token-details" options={{ headerShown: false }} />
         <Stack.Screen name="tx-details" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="settings-slippage" options={{ headerShown: false }} />

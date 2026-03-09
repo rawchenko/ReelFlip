@@ -15,6 +15,7 @@ interface TradeRouteDependencies {
   tradeBuildService: TradeBuildService
   tradeStatusService: TradeStatusService
   tradeSubmitService: TradeSubmitService
+  authPreHandler?: (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => Promise<void>
 }
 
 interface TradeStatusParams {
@@ -22,6 +23,8 @@ interface TradeStatusParams {
 }
 
 export async function registerTradeRoutes(app: FastifyInstance, dependencies: TradeRouteDependencies): Promise<void> {
+  const preHandler = dependencies.authPreHandler ? [dependencies.authPreHandler] : undefined
+
   app.post<{ Body: Partial<QuoteRequest> }>(
     '/v1/quotes',
     {
@@ -52,6 +55,7 @@ export async function registerTradeRoutes(app: FastifyInstance, dependencies: Tr
   app.post<{ Body: Partial<BuildTradeRequest> }>(
     '/v1/trades/build',
     {
+      ...(preHandler ? { preHandler } : {}),
       config: {
         rateLimit: {
           max: dependencies.rateLimitTradesPerMinute,
@@ -75,6 +79,7 @@ export async function registerTradeRoutes(app: FastifyInstance, dependencies: Tr
   app.post<{ Body: Partial<SubmitTradeRequest> }>(
     '/v1/trades/submit',
     {
+      ...(preHandler ? { preHandler } : {}),
       config: {
         rateLimit: {
           max: dependencies.rateLimitTradesPerMinute,
@@ -96,13 +101,16 @@ export async function registerTradeRoutes(app: FastifyInstance, dependencies: Tr
     },
   )
 
-  app.get<{ Params: TradeStatusParams }>('/v1/trades/:tradeId/status', async (request, reply) => {
-    try {
-      return (await dependencies.tradeStatusService.getTradeStatus(parseRequiredString(request.params.tradeId, 'tradeId'))) satisfies TradeStatusResponse
-    } catch (error) {
-      return handleTradeRouteError(request.log, reply, error)
-    }
-  })
+  app.get<{ Params: TradeStatusParams }>(
+    '/v1/trades/:tradeId/status',
+    async (request, reply) => {
+      try {
+        return (await dependencies.tradeStatusService.getTradeStatus(parseRequiredString(request.params.tradeId, 'tradeId'))) satisfies TradeStatusResponse
+      } catch (error) {
+        return handleTradeRouteError(request.log, reply, error)
+      }
+    },
+  )
 }
 
 function parseRequiredString(value: unknown, label: string): string {

@@ -4,12 +4,12 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { semanticColors } from '@/constants/semantic-colors'
 import { interFontFamily } from '@/constants/typography'
+import { useAuth } from '@/features/auth/use-auth'
 import { useOnboarding } from '@/features/onboarding/onboarding-provider'
-
-const LOADING_REDIRECT_DELAY_MS = 650
 
 export default function OnboardingTwoScreen() {
   const router = useRouter()
+  const { signIn } = useAuth()
   const {
     hasCompletedOnboarding,
     hasCompletedOnboardingIntro,
@@ -19,6 +19,8 @@ export default function OnboardingTwoScreen() {
   } = useOnboarding()
 
   const spinValue = useRef(new Animated.Value(0)).current
+  const signInRef = useRef(signIn)
+  signInRef.current = signIn
 
   useEffect(() => {
     const spinAnimation = Animated.loop(
@@ -43,11 +45,23 @@ export default function OnboardingTwoScreen() {
       return
     }
 
-    const timer = setTimeout(() => {
-      router.replace('./onboarding-3')
-    }, LOADING_REDIRECT_DELAY_MS)
+    let isMounted = true
 
-    return () => clearTimeout(timer)
+    async function setup() {
+      // Attempt SIWS auth while loading screen is shown.
+      // If it fails, swap-time auth is still a fallback.
+      await signInRef.current().catch(() => {})
+
+      if (isMounted) {
+        router.replace('./onboarding-3')
+      }
+    }
+
+    void setup()
+
+    return () => {
+      isMounted = false
+    }
   }, [
     hasCompletedOnboardingIntro,
     hasCompletedOnboardingProfile,
